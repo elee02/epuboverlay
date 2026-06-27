@@ -1,17 +1,86 @@
 # epuboverlay
 
-Minimal EPUB → F5-TTS orchestration helpers with internal timestamp capture (Approach B).
+Generate standard, narrated **EPUB 3 files with Media Overlays** using F5-TTS voice cloning. 
 
-## What is implemented
+Instead of generating clunky, standalone `.lrc` files, this tool modifies the EPUB itself: it segments the XHTML text into sentences, wraps them in visual tags, synthesizes spoken audio in your own cloned voice, compresses it using `ffmpeg`, and generates standard SMIL multimedia sync maps. 
 
-- EPUB spine text extraction (`extract_spine_text_chunks`)
-- Internal frame-count based timestamp accumulation (`synthesize_with_internal_timestamps`)
-- `.lrc` formatting (`format_lrc`)
+This enables standard e-book readers (like Apple Books, Kobo, or Thorium Reader) to highlight sentences or paragraphs in sync as the narrated audio plays.
 
-This enables a pipeline where your F5-TTS wrapper returns `(audio_bytes, generated_frame_count)` per chunk, and the tool builds synchronized `.lrc` lines directly from those internal generation durations.
+## Prerequisites
+
+- **Python:** 3.8+
+- **System Tool:** `ffmpeg` (required to compress synthesized WAV files into MP3)
+  ```bash
+  # Debian/Ubuntu
+  sudo apt install ffmpeg
+  # macOS
+  brew install ffmpeg
+  ```
+- **TTS Library:** `f5-tts` (only required if running the F5-TTS voice cloning model; the dummy mode requires no deep-learning dependencies)
+
+## Installation
+
+1. Clone the repository and navigate into it:
+   ```bash
+   git clone <repo-url>
+   cd epuboverlay
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+3. Install package dependencies:
+   ```bash
+   # Basic (runs with dummy synthesizer for testing)
+   pip install -e .
+   
+   # With F5-TTS Voice Cloning support
+   pip install f5-tts
+   ```
+
+## Usage
+
+Run the tool as a module using `python -m epuboverlay`.
+
+### 1. Zero-Shot Voice Cloning (F5-TTS Mode)
+Generate a fully narrated audiobook in your own voice. Provide a 5–15 second reference audio clip (`--ref-audio`) of your voice and its precise transcription (`--ref-text`):
+```bash
+python -m epuboverlay \
+  --epub path/to/input.epub \
+  -o path/to/output_synced.epub \
+  --synthesizer f5-tts \
+  --ref-audio path/to/your_voice.wav \
+  --ref-text "This is a transcript of my short voice clip." \
+  --device cuda
+```
+
+### 2. Testing / Validation (Dummy Mode)
+Generate an overlay EPUB instantly with mock silent audio. This is useful for verifying XML transformations, SMIL generation, and OPF packaging without loading deep learning libraries:
+```bash
+python -m epuboverlay \
+  --epub path/to/input.epub \
+  -o path/to/output_synced.epub \
+  --synthesizer dummy
+```
+
+## CLI Configuration Options
+
+| Option | Shortcut | Description | Default |
+|---|---|---|---|
+| `--epub` | | **[Required]** Path to the input EPUB file | |
+| `--output-epub` | `-o` | **[Required]** Path to save the generated narrated EPUB | |
+| `--synthesizer` | `-s` | Synthesizer implementation (`f5-tts` or `dummy`) | `f5-tts` |
+| `--ref-audio` | `-a` | Path to reference voice clip (Required for F5-TTS) | |
+| `--ref-text` | `-t` | Transcript of the reference voice clip (Required for F5-TTS) | |
+| `--device` | | Compute device for F5-TTS (`cuda`, `cpu`, `mps`) | `None` (auto) |
+| `--speed` | | Speech generation speed multiplier | `1.0` |
+| `--max-chars` | | Maximum character limit per sentence segment | `150` |
+| `--frame-rate` | | Audio sampling rate in Hz | `24000.0` |
 
 ## Testing
 
+Run unit tests:
 ```bash
 python -m unittest discover -v
 ```
