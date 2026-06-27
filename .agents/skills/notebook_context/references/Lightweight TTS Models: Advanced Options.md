@@ -152,6 +152,8 @@ F5-TTS uses a **Vocos** vocoder and predicts sub-mel-spectrogram frame lengths n
 
 If you choose to build it, **Approach A (F5-TTS + WhisperX)** will take you less than a weekend to script in Python. WhisperX runs lightning-fast on an RTX 4060 when quantized to `float16`, and it guarantees that your `.lrc` files will match up perfectly in Poweramp without word-skipping inconsistencies.
 
+User: User: Approach B
+Gemini: Interrupted.
 User: What name would you give this project?
 Gemini: Here are a few project name ideas tailored to the specific intersection of advanced TTS, e-books, and synced lyrics (`.lrc`), broken down by style:
 
