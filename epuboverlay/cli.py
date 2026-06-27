@@ -67,6 +67,11 @@ def main(args: list[str] | None = None) -> int:
         default=24000.0,
         help="Synthesizer output frame rate or audio sample rate in Hz (default: 24000.0)."
     )
+    parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        help="Custom directory to cache intermediate files and skip already processed chapters."
+    )
 
     parsed = parser.parse_args(args)
 
@@ -75,6 +80,8 @@ def main(args: list[str] | None = None) -> int:
     parsed.output_epub = parsed.output_epub.expanduser()
     if parsed.ref_audio:
         parsed.ref_audio = parsed.ref_audio.expanduser()
+    if parsed.cache_dir:
+        parsed.cache_dir = parsed.cache_dir.expanduser()
 
     if parsed.synthesizer == "f5-tts":
         if not parsed.ref_audio or not parsed.ref_text:
@@ -109,6 +116,7 @@ def main(args: list[str] | None = None) -> int:
             frame_rate_hz=parsed.frame_rate,
             max_chars=parsed.max_chars,
             progress_callback=reporter.report,
+            cache_dir=parsed.cache_dir,
         )
         print("\nSuccess! Synced EPUB generated successfully.")
         return 0

@@ -289,6 +289,95 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("packaging", phases)
             self.assertIn("done", phases)
 
+    def test_checkpointing_resumes_and_skips_processing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_epub = Path(tmpdir) / "sample.epub"
+            output_epub1 = Path(tmpdir) / "synced1.epub"
+            output_epub2 = Path(tmpdir) / "synced2.epub"
+            cache_dir = Path(tmpdir) / "cache"
+
+            with zipfile.ZipFile(input_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?>
+                    <container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'>
+                      <rootfiles>
+                        <rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/>
+                      </rootfiles>
+                    </container>
+                    """,
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?>
+                    <package xmlns='http://www.idpf.org/2007/opf' version='3.0'>
+                      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                        <dc:title>Test Book</dc:title>
+                      </metadata>
+                      <manifest>
+                        <item id='c1' href='chapter1.xhtml' media-type='application/xhtml+xml'/>
+                        <item id='c2' href='chapter2.xhtml' media-type='application/xhtml+xml'/>
+                      </manifest>
+                      <spine>
+                        <itemref idref='c1'/>
+                        <itemref idref='c2'/>
+                      </spine>
+                    </package>
+                    """,
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    "<html><body><p>Hello chapter one.</p></body></html>",
+                )
+                zf.writestr(
+                    "OEBPS/chapter2.xhtml",
+                    "<html><body><p>Hello chapter two.</p></body></html>",
+                )
+
+            # First run: run with a tracking synthesizer to verify it gets called
+            class TrackingSynthesizer:
+                def __init__(self):
+                    self.synthesize_calls = []
+                def synthesize(self, text: str) -> tuple[bytes, int]:
+                    self.synthesize_calls.append(text)
+                    # Return mock WAV (silence)
+                    out_io = io.BytesIO()
+                    with wave.open(out_io, "wb") as wav_out:
+                        wav_out.setnchannels(1)
+                        wav_out.setsampwidth(2)
+                        wav_out.setframerate(8000)
+                        wav_out.writeframes(b"\x00" * 1600)  # 0.2 seconds
+                    return out_io.getvalue(), 1600
+
+            synth1 = TrackingSynthesizer()
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub1,
+                synthesizer=synth1,
+                frame_rate_hz=8000.0,
+                cache_dir=cache_dir,
+            )
+
+            # Verify both chapters were synthesized
+            self.assertEqual(len(synth1.synthesize_calls), 2)
+            self.assertIn("Hello chapter one.", synth1.synthesize_calls)
+            self.assertIn("Hello chapter two.", synth1.synthesize_calls)
+
+            # Second run: run with same cache dir but a new tracking synthesizer
+            synth2 = TrackingSynthesizer()
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub2,
+                synthesizer=synth2,
+                frame_rate_hz=8000.0,
+                cache_dir=cache_dir,
+            )
+
+            # Verify synthesizer was NOT called because they are cached
+            self.assertEqual(len(synth2.synthesize_calls), 0)
+            self.assertTrue(output_epub2.exists())
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main())

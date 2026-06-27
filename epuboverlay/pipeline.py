@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import gc
+import hashlib
 from html.parser import HTMLParser
 import html.entities
 import io
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Iterable, Protocol
 import wave
@@ -504,6 +508,31 @@ def format_duration(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:06.3f}"
 
 
+def compute_file_md5(file_path: Path) -> str:
+    hasher = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def get_duration_from_smil(smil_file_path: Path) -> float:
+    try:
+        tree = ET.parse(smil_file_path)
+        root = tree.getroot()
+        audio_elements = root.findall(".//{*}audio")
+        if not audio_elements:
+            return 0.0
+        last_audio = audio_elements[-1]
+        clip_end_str = last_audio.attrib.get("clipEnd", "0s")
+        if clip_end_str.endswith("s"):
+            clip_end_str = clip_end_str[:-1]
+        return float(clip_end_str)
+    except Exception as e:
+        print(f"Error parsing SMIL file {smil_file_path}: {e}")
+        return 0.0
+
+
 def generate_media_overlay_epub(
     input_epub: str | Path,
     output_epub: str | Path,
@@ -513,6 +542,7 @@ def generate_media_overlay_epub(
     progress_callback: "Callable[[ProgressEvent], None] | None" = None,
     cancel_event: "threading.Event | None" = None,
     chapter_audio_callback: "Callable[[str, Path], None] | None" = None,
+    cache_dir: str | Path | None = None,
 ) -> None:
     """Orchestrate EPUB extraction, synthesis, SMIL creation, OPF updates, and repackaging.
 
@@ -554,14 +584,63 @@ def generate_media_overlay_epub(
             _emit("error", "Job cancelled by user.")
             raise RuntimeError("Job cancelled by user.")
 
-    _emit("parsing", "Extracting EPUB contents...")
+    # Compute content hash of the input EPUB
+    epub_hash = compute_file_md5(input_epub)
 
-    with tempfile.TemporaryDirectory() as tmp_dir_str:
-        tmp_dir = Path(tmp_dir_str)
+    # Compute a hash of the synthesizer configuration to partition the cache
+    config_parts = [
+        f"frame_rate_hz:{frame_rate_hz}",
+        f"max_chars:{max_chars}",
+        f"synth_type:{synthesizer.__class__.__name__}"
+    ]
+    if hasattr(synthesizer, "speed"):
+        config_parts.append(f"speed:{synthesizer.speed}")
+    if hasattr(synthesizer, "ref_text"):
+        config_parts.append(f"ref_text:{synthesizer.ref_text}")
+    if hasattr(synthesizer, "ref_audio"):
+        ref_audio_path = Path(synthesizer.ref_audio)
+        if ref_audio_path.exists():
+            stat = ref_audio_path.stat()
+            config_parts.append(f"ref_audio:{ref_audio_path.resolve()}:{stat.st_size}:{stat.st_mtime}")
+        else:
+            config_parts.append(f"ref_audio:{synthesizer.ref_audio}")
+    if hasattr(synthesizer, "chars_per_sec"):
+        config_parts.append(f"chars_per_sec:{synthesizer.chars_per_sec}")
+    if hasattr(synthesizer, "sample_rate"):
+        config_parts.append(f"sample_rate:{synthesizer.sample_rate}")
 
-        # Unzip original EPUB
-        with zipfile.ZipFile(input_epub, "r") as zf:
-            zf.extractall(tmp_dir)
+    config_str = ",".join(config_parts)
+    config_hash = hashlib.md5(config_str.encode("utf-8")).hexdigest()
+
+    if cache_dir is None:
+        cache_dir_path = Path.home() / ".epuboverlay" / "cache" / f"{epub_hash}_{config_hash}"
+    else:
+        cache_dir_path = Path(cache_dir)
+
+    class _DummyContext:
+        def __init__(self, path: Path):
+            self.path = path
+        def __enter__(self):
+            return self.path
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    with _DummyContext(cache_dir_path) as tmp_dir:
+        marker_file = tmp_dir / ".extracted"
+        if not marker_file.exists() or marker_file.read_text().strip() != epub_hash:
+            _emit("parsing", "Extracting EPUB contents to cache...")
+            if tmp_dir.exists():
+                for item in tmp_dir.iterdir():
+                    if item.is_file():
+                        item.unlink()
+                    elif item.is_dir():
+                        shutil.rmtree(item)
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(input_epub, "r") as zf:
+                zf.extractall(tmp_dir)
+            marker_file.write_text(epub_hash)
+        else:
+            _emit("parsing", "Using existing extracted cache...")
 
         # Locate OPF
         container_path = tmp_dir / "META-INF/container.xml"
@@ -630,6 +709,74 @@ def generate_media_overlay_epub(
         for chapter_idx, (itemref, idref, item, href, xhtml_file_path) in enumerate(processable_itemrefs):
             _check_cancel()
 
+            # Cache paths setup
+            audio_dir = opf_dir / "audio"
+            audio_filename = f"audio_{idref}.mp3"
+            audio_file_path = audio_dir / audio_filename
+
+            smil_filename = f"smil_{idref}.smil"
+            smil_file_path = opf_dir / smil_filename
+
+            # Check if already processed (completed cache)
+            chapter_duration = 0.0
+            if audio_file_path.exists() and smil_file_path.exists():
+                chapter_duration = get_duration_from_smil(smil_file_path)
+
+            if chapter_duration > 0.0 and audio_file_path.stat().st_size > 0:
+                _emit("parsing", f"Using cached audio/SMIL for chapter: {idref}",
+                      chapter_idx=chapter_idx, chapter_total=chapter_total, chapter_name=idref)
+
+                global_duration_secs += chapter_duration
+                smil_id = f"smil_{idref}"
+                smil_durations[smil_id] = chapter_duration
+
+                # Ensure manifest entries exist in OPF
+                rel_dir = Path(href).parent
+                smil_href = str((rel_dir / smil_filename).as_posix())
+                audio_href = str((rel_dir / "audio" / audio_filename).as_posix())
+
+                if smil_href.startswith("./"):
+                    smil_href = smil_href[2:]
+                if audio_href.startswith("./"):
+                    audio_href = audio_href[2:]
+
+                smil_id = f"smil_{idref}"
+                audio_id = f"audio_{idref}"
+
+                existing_ids = {el.attrib.get("id") for el in manifest_node.findall(".//{*}item")}
+
+                if smil_id not in existing_ids:
+                    smil_item = ET.Element(
+                        "{http://www.idpf.org/2007/opf}item",
+                        attrib={
+                            "id": smil_id,
+                            "href": smil_href,
+                            "media-type": "application/smil+xml",
+                        },
+                    )
+                    manifest_node.append(smil_item)
+
+                if audio_id not in existing_ids:
+                    audio_item = ET.Element(
+                        "{http://www.idpf.org/2007/opf}item",
+                        attrib={
+                            "id": audio_id,
+                            "href": audio_href,
+                            "media-type": "audio/mpeg",
+                        },
+                    )
+                    manifest_node.append(audio_item)
+
+                item.attrib["media-overlay"] = smil_id
+
+                if chapter_audio_callback is not None:
+                    chapter_audio_callback(idref, audio_file_path)
+
+                _emit("converting", f"Chapter {chapter_idx + 1}/{chapter_total} cached: {idref}",
+                      chapter_idx=chapter_idx + 1, chapter_total=chapter_total,
+                      chapter_name=idref, chunk_idx=0, chunk_total=0)
+                continue
+
             _emit("parsing", f"Parsing chapter: {idref}",
                   chapter_idx=chapter_idx, chapter_total=chapter_total, chapter_name=idref)
 
@@ -687,11 +834,7 @@ def generate_media_overlay_epub(
             if not chapter_wav_bytes:
                 continue
 
-            audio_dir = opf_dir / "audio"
             audio_dir.mkdir(parents=True, exist_ok=True)
-
-            audio_filename = f"audio_{idref}.mp3"
-            audio_file_path = audio_dir / audio_filename
 
             # Compress to MP3
             _emit("converting", f"Converting to MP3: {idref}",
@@ -708,10 +851,6 @@ def generate_media_overlay_epub(
             modified_xhtml_bytes = serialize_xhtml(xhtml_root, xhtml_bytes)
             with open(xhtml_file_path, "wb") as f:
                 f.write(modified_xhtml_bytes)
-
-            # Generate SMIL
-            smil_filename = f"smil_{idref}.smil"
-            smil_file_path = opf_dir / smil_filename
 
             audio_href_in_smil = f"audio/{audio_filename}"
             xhtml_href_in_smil = Path(href).name
@@ -765,6 +904,18 @@ def generate_media_overlay_epub(
             _emit("converting", f"Chapter {chapter_idx + 1}/{chapter_total} complete: {idref}",
                   chapter_idx=chapter_idx + 1, chapter_total=chapter_total,
                   chapter_name=idref, chunk_idx=0, chunk_total=0)
+
+            # Explicit memory cleanup
+            wav_chunks = None
+            chapter_wav_bytes = None
+            id_to_text_list = None
+            xhtml_root = None
+
+            gc.collect()
+            if "torch" in sys.modules:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         # Add duration metadata
         _emit("packaging", "Adding duration metadata...",
