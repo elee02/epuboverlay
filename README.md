@@ -6,6 +6,11 @@ Instead of generating clunky, standalone `.lrc` files, this tool modifies the EP
 
 This enables standard e-book readers (like Apple Books, Kobo, or Thorium Reader) to highlight sentences or paragraphs in sync as the narrated audio plays.
 
+## Features
+- 🚀 **AI Voice Cloning**: Zero-shot voice cloning using F5-TTS.
+- 📊 **CLI Live Progress**: Visual chapter/chunk progress bar, elapsed time, and ETA.
+- 🖥️ **Web Dashboard**: Premium dark-mode SPA to upload files, configure jobs, monitor progress, play live audio previews of finished chapters, and download final EPUBs.
+
 ## Prerequisites
 
 - **Python:** 3.8+
@@ -32,7 +37,7 @@ This enables standard e-book readers (like Apple Books, Kobo, or Thorium Reader)
    ```
 3. Install package dependencies:
    ```bash
-   # Basic (runs with dummy synthesizer for testing)
+   # Basic (installs web dashboard and dummy synthesizer dependencies)
    pip install -e .
    
    # With F5-TTS Voice Cloning support
@@ -41,11 +46,19 @@ This enables standard e-book readers (like Apple Books, Kobo, or Thorium Reader)
 
 ## Usage
 
-Run the tool as a module using `python -m epuboverlay`.
+### 1. Web Dashboard (Recommended)
 
-### 1. Zero-Shot Voice Cloning (F5-TTS Mode)
-Generate a fully narrated audiobook in your own voice. Provide a 5–15 second reference audio clip (`--ref-audio`) of your voice and its precise transcription (`--ref-text`):
+Start the local web dashboard using the console script:
 ```bash
+epuboverlay-web --port 8765
+```
+Open `http://localhost:8765` in your browser. You can upload an EPUB, customize parameters, view live progress graphs, preview completed chapters, and download your finished book.
+
+### 2. Command Line Interface (CLI)
+
+Run the CLI using python module syntax:
+```bash
+# Zero-Shot Voice Cloning (F5-TTS Mode)
 python -m epuboverlay \
   --epub path/to/input.epub \
   -o path/to/output_synced.epub \
@@ -53,15 +66,17 @@ python -m epuboverlay \
   --ref-audio path/to/your_voice.wav \
   --ref-text "This is a transcript of my short voice clip." \
   --device cuda
-```
 
-### 2. Testing / Validation (Dummy Mode)
-Generate an overlay EPUB instantly with mock silent audio. This is useful for verifying XML transformations, SMIL generation, and OPF packaging without loading deep learning libraries:
-```bash
+# Dummy / Testing Mode (instant overlays with silent audio)
 python -m epuboverlay \
   --epub path/to/input.epub \
   -o path/to/output_synced.epub \
   --synthesizer dummy
+```
+
+Running the CLI displays a live progress indicator:
+```text
+[Chapter 1/2] [Chunk 2/3] |███░░░░░░░░░░░░░░░░░| 16.7% Elapsed: 0m25.4s ETA: ~2m05.0s
 ```
 
 ## CLI Configuration Options
