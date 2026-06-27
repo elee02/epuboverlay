@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFileUploads();
     setupSynthesizerToggle();
     setupForm();
+    startStatsPolling();
 });
 
 // ── Toast Notifications ──
@@ -460,4 +461,43 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+// ── Live System Resource Stats ──
+function startStatsPolling() {
+    updateStats();
+    setInterval(updateStats, 3000);
+}
+
+async function updateStats() {
+    try {
+        const resp = await fetch('/api/stats');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        // CPU
+        document.getElementById('stat-cpu').textContent = `${data.cpu_percent.toFixed(0)}%`;
+        document.getElementById('fill-cpu').style.width = `${data.cpu_percent}%`;
+
+        // RAM
+        document.getElementById('stat-ram').textContent = `${data.ram_used_gb.toFixed(1)} / ${data.ram_total_gb.toFixed(0)} GB`;
+        document.getElementById('fill-ram').style.width = `${data.ram_percent}%`;
+
+        // Disk
+        document.getElementById('stat-disk').textContent = `${data.disk_used_gb.toFixed(1)} / ${data.disk_total_gb.toFixed(0)} GB`;
+        document.getElementById('fill-disk').style.width = `${data.disk_percent}%`;
+
+        // GPU
+        const gpuBadge = document.getElementById('gpu-stat-badge');
+        if (data.gpu) {
+            gpuBadge.style.display = 'flex';
+            document.getElementById('gpu-name-label').textContent = data.gpu.name;
+            document.getElementById('stat-gpu').textContent = `${data.gpu.utilization.toFixed(0)}% (${data.gpu.vram_used.toFixed(1)} / ${data.gpu.vram_total.toFixed(0)} GB, ${data.gpu.temperature.toFixed(0)}°C)`;
+            document.getElementById('fill-gpu').style.width = `${data.gpu.utilization}%`;
+        } else {
+            gpuBadge.style.display = 'none';
+        }
+    } catch (err) {
+        console.error('Failed to fetch resource stats:', err);
+    }
 }

@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import psutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -35,6 +37,59 @@ async def dashboard():
     """Serve the dashboard SPA."""
     index_path = STATIC_DIR / "index.html"
     return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+
+
+def get_system_stats():
+    # CPU
+    cpu_percent = psutil.cpu_percent(interval=None)
+
+    # RAM
+    ram = psutil.virtual_memory()
+    ram_used = ram.used / (1024 ** 3)
+    ram_total = ram.total / (1024 ** 3)
+    ram_percent = ram.percent
+
+    # Disk
+    disk = psutil.disk_usage(str(Path.home()))
+    disk_used = disk.used / (1024 ** 3)
+    disk_total = disk.total / (1024 ** 3)
+    disk_percent = disk.percent
+
+    # GPU
+    gpu_data = None
+    try:
+        cmd = ["nvidia-smi", "--query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        parts = res.stdout.strip().split(",")
+        if len(parts) >= 5:
+            vram_used = float(parts[1].strip()) / 1024.0
+            vram_total = float(parts[2].strip()) / 1024.0
+            gpu_data = {
+                "name": parts[0].strip(),
+                "vram_used": round(vram_used, 2),
+                "vram_total": round(vram_total, 2),
+                "utilization": float(parts[3].strip()),
+                "temperature": float(parts[4].strip())
+            }
+    except Exception:
+        pass
+
+    return {
+        "cpu_percent": cpu_percent,
+        "ram_used_gb": round(ram_used, 2),
+        "ram_total_gb": round(ram_total, 2),
+        "ram_percent": ram_percent,
+        "disk_used_gb": round(disk_used, 2),
+        "disk_total_gb": round(disk_total, 2),
+        "disk_percent": disk_percent,
+        "gpu": gpu_data
+    }
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """Return live system resource stats."""
+    return get_system_stats()
 
 
 @app.get("/api/config")

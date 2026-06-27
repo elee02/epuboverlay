@@ -468,67 +468,75 @@ class PipelineTests(unittest.TestCase):
         from epuboverlay.web.server import app
         from epuboverlay.web.jobs import JobManager
         import epuboverlay.web.server as server_mod
+        import shutil
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            temp_jobs_dir = Path(tmpdir) / "jobs"
-            temp_jobs_dir.mkdir()
+        tmpdir = tempfile.mkdtemp()
+        temp_jobs_dir = Path(tmpdir) / "jobs"
+        temp_jobs_dir.mkdir()
 
-            original_jm = server_mod.job_manager
+        original_jm = server_mod.job_manager
 
-            try:
-                server_mod.job_manager = JobManager(data_dir=temp_jobs_dir)
-                client = TestClient(app)
+        try:
+            server_mod.job_manager = JobManager(data_dir=temp_jobs_dir)
+            client = TestClient(app)
 
-                # Check empty list
-                response = client.get("/api/jobs")
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json(), [])
+            # Check empty list
+            response = client.get("/api/jobs")
+            self.assertEqual(response.status_code, 200)
+            jobs_list_initial = [j for j in response.json() if not j["id"].startswith("cli-")]
+            self.assertEqual(jobs_list_initial, [])
 
-                # Create a job using upload epub
-                dummy_epub = Path(tmpdir) / "dummy.epub"
-                with zipfile.ZipFile(dummy_epub, "w") as zf:
-                    zf.writestr("mimetype", "application/epub+zip")
-                    zf.writestr(
-                        "META-INF/container.xml",
-                        """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
-                    )
-                    zf.writestr(
-                        "OEBPS/content.opf",
-                        """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test Web Persist</dc:title></metadata><manifest></manifest><spine></spine></package>""",
-                    )
+            # Create a job using upload epub
+            dummy_epub = Path(tmpdir) / "dummy.epub"
+            with zipfile.ZipFile(dummy_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test Web Persist</dc:title></metadata><manifest></manifest><spine></spine></package>""",
+                )
 
-                with open(dummy_epub, "rb") as f:
-                    response = client.post(
-                        "/api/jobs",
-                        files={"epub": ("dummy.epub", f, "application/epub+zip")},
-                        data={
-                            "synthesizer": "dummy",
-                            "speed": 1.0,
-                            "max_chars": 150,
-                            "frame_rate": 24000.0,
-                        }
-                    )
-                self.assertEqual(response.status_code, 200)
-                job_data = response.json()
-                job_id = job_data["id"]
-                self.assertEqual(job_data["book_title"], "Test Web Persist")
+            with open(dummy_epub, "rb") as f:
+                response = client.post(
+                    "/api/jobs",
+                    files={"epub": ("dummy.epub", f, "application/epub+zip")},
+                    data={
+                        "synthesizer": "dummy",
+                        "speed": 1.0,
+                        "max_chars": 150,
+                        "frame_rate": 24000.0,
+                    }
+                )
+            self.assertEqual(response.status_code, 200)
+            job_data = response.json()
+            job_id = job_data["id"]
+            self.assertEqual(job_data["book_title"], "Test Web Persist")
 
-                # Verify job.json is on disk
-                self.assertTrue((temp_jobs_dir / job_id / "job.json").exists())
+            # Verify job.json is on disk
+            self.assertTrue((temp_jobs_dir / job_id / "job.json").exists())
 
-                # Re-initialize the job manager to simulate server restart
-                server_mod.job_manager = JobManager(data_dir=temp_jobs_dir)
+            # Cancel the active job so the background pipeline thread terminates
+            client.post(f"/api/jobs/{job_id}/cancel")
+            import time
+            time.sleep(0.05)
 
-                # List again, verify the job is restored!
-                response = client.get("/api/jobs")
-                self.assertEqual(response.status_code, 200)
-                jobs_list = response.json()
-                self.assertEqual(len(jobs_list), 1)
-                self.assertEqual(jobs_list[0]["id"], job_id)
-                self.assertEqual(jobs_list[0]["book_title"], "Test Web Persist")
+            # Re-initialize the job manager to simulate server restart
+            server_mod.job_manager = JobManager(data_dir=temp_jobs_dir)
 
-            finally:
-                server_mod.job_manager = original_jm
+            # List again, verify the job is restored!
+            response = client.get("/api/jobs")
+            self.assertEqual(response.status_code, 200)
+            jobs_list = [j for j in response.json() if not j["id"].startswith("cli-")]
+            self.assertEqual(len(jobs_list), 1)
+            self.assertEqual(jobs_list[0]["id"], job_id)
+            self.assertEqual(jobs_list[0]["book_title"], "Test Web Persist")
+
+        finally:
+            server_mod.job_manager = original_jm
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_cli_process_discovery_and_cancellation(self) -> None:
         import subprocess
@@ -567,9 +575,9 @@ class PipelineTests(unittest.TestCase):
             jm = JobManager()
             cli_jobs = jm._scan_cli_jobs()
 
-            self.assertEqual(len(cli_jobs), 1)
-            discovered_job = cli_jobs[0]
-            self.assertEqual(discovered_job.id, f"cli-{pid}")
+            discovered_jobs = [j for j in cli_jobs if j.id == f"cli-{pid}"]
+            self.assertEqual(len(discovered_jobs), 1)
+            discovered_job = discovered_jobs[0]
             self.assertEqual(discovered_job.book_title, "CLI Test Book Title")
             self.assertEqual(discovered_job.status, JobStatus.RUNNING)
             self.assertEqual(discovered_job.current_phase, "synthesizing")
@@ -589,6 +597,31 @@ class PipelineTests(unittest.TestCase):
                 progress_json.unlink()
             if cache_dir.exists():
                 cache_dir.rmdir()
+
+    def test_web_api_system_stats(self) -> None:
+        from fastapi.testclient import TestClient
+        from epuboverlay.web.server import app
+
+        client = TestClient(app)
+        response = client.get("/api/stats")
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+        self.assertIn("cpu_percent", data)
+        self.assertIn("ram_percent", data)
+        self.assertIn("disk_percent", data)
+        self.assertIn("ram_used_gb", data)
+        self.assertIn("ram_total_gb", data)
+        self.assertIn("disk_used_gb", data)
+        self.assertIn("disk_total_gb", data)
+
+        if data["gpu"] is not None:
+            gpu_data = data["gpu"]
+            self.assertIn("name", gpu_data)
+            self.assertIn("vram_used", gpu_data)
+            self.assertIn("vram_total", gpu_data)
+            self.assertIn("utilization", gpu_data)
+            self.assertIn("temperature", gpu_data)
 
 
 if __name__ == "__main__":

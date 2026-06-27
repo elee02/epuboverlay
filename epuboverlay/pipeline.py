@@ -91,13 +91,15 @@ class F5TTSSynthesizer:
 
     def synthesize(self, text: str) -> tuple[bytes, int]:
         import numpy as np
+        import torch
 
-        result = self.f5.infer(
-            ref_file=self.ref_audio,
-            ref_text=self.ref_text,
-            gen_text=text,
-            speed=self.speed,
-        )
+        with torch.inference_mode():
+            result = self.f5.infer(
+                ref_file=self.ref_audio,
+                ref_text=self.ref_text,
+                gen_text=text,
+                speed=self.speed,
+            )
 
         if isinstance(result, tuple) and len(result) >= 3:
             wav, sample_rate = result[0], result[1]

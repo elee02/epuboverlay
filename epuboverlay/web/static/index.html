@@ -15,6 +15,61 @@
             <p class="subtitle">EPUB 3 Media Overlay Generator with AI Voice Cloning</p>
         </header>
 
+        <!-- System Resources Metrics -->
+        <div class="system-stats-bar" id="system-stats-bar">
+            <div class="stat-badge">
+                <div class="stat-info-row">
+                    <span class="stat-icon">💻</span>
+                    <div class="stat-info">
+                        <span class="stat-label">CPU Usage</span>
+                        <span class="stat-value" id="stat-cpu">0%</span>
+                    </div>
+                </div>
+                <div class="stat-progress-bar">
+                    <div class="stat-progress-fill" id="fill-cpu" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <div class="stat-badge">
+                <div class="stat-info-row">
+                    <span class="stat-icon">💾</span>
+                    <div class="stat-info">
+                        <span class="stat-label">RAM Usage</span>
+                        <span class="stat-value" id="stat-ram">0 / 0 GB</span>
+                    </div>
+                </div>
+                <div class="stat-progress-bar">
+                    <div class="stat-progress-fill" id="fill-ram" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <div class="stat-badge">
+                <div class="stat-info-row">
+                    <span class="stat-icon">💽</span>
+                    <div class="stat-info">
+                        <span class="stat-label">Disk Usage</span>
+                        <span class="stat-value" id="stat-disk">0 / 0 GB</span>
+                    </div>
+                </div>
+                <div class="stat-progress-bar">
+                    <div class="stat-progress-fill" id="fill-disk" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <div class="stat-badge" id="gpu-stat-badge" style="display: none;">
+                <div class="stat-info-row">
+                    <span class="stat-icon">⚡</span>
+                    <div class="stat-info">
+                        <span class="stat-label" id="gpu-name-label">GPU</span>
+                        <span class="stat-value" id="stat-gpu">0% (0 / 0 GB)</span>
+                    </div>
+                </div>
+                <div class="stat-progress-bar">
+                    <div class="stat-progress-fill" id="fill-gpu" style="width: 0%;"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- New Job Card -->
         <div class="card" id="new-job-card">
             <div class="card-header">
