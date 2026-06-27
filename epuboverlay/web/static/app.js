@@ -267,68 +267,117 @@ function renderActiveJob(job) {
         etaStr = formatTime(remaining);
     }
 
-    // Chapter audios
-    const audios = job.chapter_audios || [];
-    let audioHTML = '';
-    if (audios.length > 0) {
-        audioHTML = `
-            <div class="chapter-audio-list">
-                ${audios.map(a => `
-                    <div class="chapter-audio-item">
-                        <span class="chapter-label">📢 ${escapeHtml(a.idref)}</span>
-                        <audio controls preload="none" src="/api/jobs/${job.id}/audio/${encodeURIComponent(a.idref)}"></audio>
+    // Check if card for this job already exists
+    let card = activeJobContainer.querySelector(`.card[data-job-id="${job.id}"]`);
+    if (!card) {
+        // Clear container and create new card structure
+        activeJobContainer.innerHTML = `
+            <div class="card" data-job-id="${job.id}">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">📖</span>
+                        <span class="job-book-title">${escapeHtml(job.book_title || job.original_filename)}</span>
                     </div>
-                `).join('')}
+                    <span class="phase-badge ${phase}">
+                        <span class="pulse-dot"></span>
+                        <span class="phase-text">${phase}</span>
+                    </span>
+                </div>
+
+                <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.5rem;">
+                    <span class="progress-percent">${percent.toFixed(1)}%</span>
+                    <span class="progress-stat progress-chapter-stat">
+                        Chapter <strong>${chapterIdx + (phase === 'synthesizing' || phase === 'converting' ? 1 : 0)}/${chapterTotal}</strong>
+                    </span>
+                    <span class="progress-stat progress-chunk-stat">
+                        ${chunkTotal > 0 ? `Chunk <strong>${chunkIdx + 1}/${chunkTotal}</strong>` : ''}
+                    </span>
+                </div>
+
+                <div class="progress-bar-container">
+                    <div class="progress-bar" style="width: ${percent}%"></div>
+                </div>
+
+                <div class="progress-stats">
+                    <span class="progress-stat progress-elapsed">Elapsed: <strong>${formatTime(elapsed)}</strong></span>
+                    <span class="progress-stat progress-eta">ETA: <strong>${etaStr}</strong></span>
+                    <span class="progress-stat progress-current-chapter">${chapterName ? `Current: <strong>${escapeHtml(chapterName)}</strong>` : ''}</span>
+                </div>
+
+                <div class="synth-preview">${escapeHtml(message)}</div>
+
+                <div class="chapter-audio-list"></div>
+
+                <div class="job-actions">
+                    <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')">
+                        ✕ Cancel
+                    </button>
+                </div>
             </div>
         `;
+        card = activeJobContainer.querySelector(`.card[data-job-id="${job.id}"]`);
     }
 
-    activeJobContainer.innerHTML = `
-        <div class="card">
-            <div class="card-header">
-                <div class="card-title">
-                    <span class="icon">📖</span>
-                    ${escapeHtml(job.book_title || job.original_filename)}
-                </div>
-                <span class="phase-badge ${phase}">
-                    <span class="pulse-dot"></span>
-                    ${phase}
-                </span>
-            </div>
+    // Update dynamic properties
+    const badge = card.querySelector('.phase-badge');
+    if (badge) {
+        badge.className = `phase-badge ${phase}`;
+        const phaseText = badge.querySelector('.phase-text');
+        if (phaseText) phaseText.textContent = phase;
+    }
 
-            <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.5rem;">
-                <span class="progress-percent">${percent.toFixed(1)}%</span>
-                <span class="progress-stat">
-                    Chapter <strong>${chapterIdx + (phase === 'synthesizing' || phase === 'converting' ? 1 : 0)}/${chapterTotal}</strong>
-                </span>
-                ${chunkTotal > 0 ? `
-                <span class="progress-stat">
-                    Chunk <strong>${chunkIdx + 1}/${chunkTotal}</strong>
-                </span>` : ''}
-            </div>
+    const percentEl = card.querySelector('.progress-percent');
+    if (percentEl) percentEl.textContent = `${percent.toFixed(1)}%`;
 
-            <div class="progress-bar-container">
-                <div class="progress-bar" style="width: ${percent}%"></div>
-            </div>
+    const chapStat = card.querySelector('.progress-chapter-stat strong');
+    if (chapStat) {
+        chapStat.textContent = `${chapterIdx + (phase === 'synthesizing' || phase === 'converting' ? 1 : 0)}/${chapterTotal}`;
+    }
 
-            <div class="progress-stats">
-                <span class="progress-stat">Elapsed: <strong>${formatTime(elapsed)}</strong></span>
-                <span class="progress-stat">ETA: <strong>${etaStr}</strong></span>
-                ${chapterName ? `<span class="progress-stat">Current: <strong>${escapeHtml(chapterName)}</strong></span>` : ''}
-            </div>
+    const chunkStat = card.querySelector('.progress-chunk-stat');
+    if (chunkStat) {
+        chunkStat.innerHTML = chunkTotal > 0 ? `Chunk <strong>${chunkIdx + 1}/${chunkTotal}</strong>` : '';
+    }
 
-            ${message ? `<div class="synth-preview">${escapeHtml(message)}</div>` : ''}
+    const progressBar = card.querySelector('.progress-bar');
+    if (progressBar) progressBar.style.width = `${percent}%`;
 
-            ${audioHTML}
+    const elapsedEl = card.querySelector('.progress-elapsed strong');
+    if (elapsedEl) elapsedEl.textContent = formatTime(elapsed);
 
-            <div class="job-actions">
-                <button class="btn btn-danger btn-sm" onclick="cancelJob('${job.id}')">
-                    ✕ Cancel
-                </button>
-            </div>
-        </div>
-    `;
-}
+    const etaEl = card.querySelector('.progress-eta strong');
+    if (etaEl) etaEl.textContent = etaStr;
+
+    const currentChap = card.querySelector('.progress-current-chapter');
+    if (currentChap) {
+        currentChap.innerHTML = chapterName ? `Current: <strong>${escapeHtml(chapterName)}</strong>` : '';
+    }
+
+    const preview = card.querySelector('.synth-preview');
+    if (preview) {
+        preview.textContent = message;
+        preview.style.display = message ? 'block' : 'none';
+    }
+
+    // Append new audio elements incrementally without re-rendering existing ones
+    const audioList = card.querySelector('.chapter-audio-list');
+    if (audioList) {
+        const audios = job.chapter_audios || [];
+        const rendered = Array.from(audioList.querySelectorAll('.chapter-audio-item')).map(el => el.getAttribute('data-idref'));
+        
+        audios.forEach(a => {
+            if (!rendered.includes(a.idref)) {
+                const item = document.createElement('div');
+                item.className = 'chapter-audio-item';
+                item.setAttribute('data-idref', a.idref);
+                item.innerHTML = `
+                    <span class="chapter-label">📢 ${escapeHtml(a.idref)}</span>
+                    <audio controls preload="none" src="/api/jobs/${job.id}/audio/${encodeURIComponent(a.idref)}"></audio>
+                `;
+                audioList.appendChild(item);
+            }
+        });
+    }
 
 // ── Move Job to Completed ──
 function moveToCompleted(job) {

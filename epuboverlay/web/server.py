@@ -103,6 +103,8 @@ async def get_config():
             "max_chars": 150,
             "frame_rate": 24000.0,
             "concurrency": 2,
+            "nfe_step": 32,
+            "compile": False,
         },
     }
 
@@ -124,6 +126,8 @@ async def create_job(
     max_chars: int = Form(150),
     frame_rate: float = Form(24000.0),
     concurrency: int = Form(2),
+    nfe_step: int = Form(32),
+    compile: bool = Form(False),
 ):
     """Submit a new EPUB overlay generation job."""
     if job_manager.has_running_job():
@@ -153,6 +157,8 @@ async def create_job(
         "max_chars": max_chars,
         "frame_rate": frame_rate,
         "concurrency": concurrency,
+        "nfe_step": nfe_step,
+        "compile": compile,
     }
 
     # Save ref audio if provided
@@ -184,6 +190,8 @@ async def create_job(
                 ref_text=cfg["ref_text"],
                 device=cfg.get("device"),
                 speed=cfg["speed"],
+                nfe_step=cfg.get("nfe_step", 32),
+                compile=cfg.get("compile", False),
             )
         else:
             synth = DummySynthesizer(sample_rate=int(cfg["frame_rate"]))

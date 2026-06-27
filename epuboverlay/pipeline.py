@@ -75,6 +75,8 @@ class F5TTSSynthesizer:
         model_name: str = "F5TTS_Base",
         device: str | None = None,
         speed: float = 1.0,
+        nfe_step: int = 32,
+        compile: bool = False,
     ) -> None:
         try:
             from f5_tts.api import F5TTS
@@ -88,6 +90,15 @@ class F5TTSSynthesizer:
         self.ref_audio = str(ref_audio)
         self.ref_text = ref_text
         self.speed = speed
+        self.nfe_step = nfe_step
+
+        if compile:
+            import torch
+            try:
+                print("Compiling model (torch.compile) to optimize inference speed. The first chunk will take 1-2 minutes...")
+                self.f5.ema_model = torch.compile(self.f5.ema_model)
+            except Exception as e:
+                print(f"Warning: torch.compile failed ({e}). Falling back to uncompiled model.")
 
     def synthesize(self, text: str) -> tuple[bytes, int]:
         import numpy as np
@@ -99,6 +110,7 @@ class F5TTSSynthesizer:
                 ref_text=self.ref_text,
                 gen_text=text,
                 speed=self.speed,
+                nfe_step=self.nfe_step,
             )
 
         if isinstance(result, tuple) and len(result) >= 3:
@@ -259,51 +271,102 @@ def split_into_sentences(text: str) -> list[str]:
     return sentences
 
 
+def split_recursive(text: str, max_chars: int, level: int = 0) -> list[str]:
+    """Recursively split a sentence/clause into smaller chunks using a hierarchy of pause boundaries."""
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= max_chars:
+        return [text]
+
+    # Level 0: Clause punctuation (commas, semicolons, colons, em-dashes, en-dashes, parentheses, brackets)
+    if level == 0:
+        splits = re.split(r"(?<=[,;:\u2014\u2013\(\)\[\]])\s+", text)
+    # Level 1: Coordinating conjunctions
+    elif level == 1:
+        splits = re.split(r"(\s+(?:and|but|or|yet|so)\s+)", text, flags=re.IGNORECASE)
+    # Level 2: Subordinating conjunctions / transition words
+    elif level == 2:
+        splits = re.split(r"(\s+(?:because|although|though|since|while|which|that|who|when|where|if)\s+)", text, flags=re.IGNORECASE)
+    # Level 3: Space (word boundaries fallback)
+    else:
+        words = text.split()
+        splits = []
+        current = []
+        current_len = 0
+        for w in words:
+            if current_len + len(w) + (1 if current else 0) > max_chars:
+                if current:
+                    splits.append(" ".join(current))
+                    current = [w]
+                    current_len = len(w)
+                else:
+                    splits.append(w)
+                    current = []
+                    current_len = 0
+            else:
+                current.append(w)
+                current_len += len(w) + (1 if current_len > 0 else 0)
+        if current:
+            splits.append(" ".join(current))
+        return splits
+
+    # Combine split separators (for levels 1 and 2) with the following text to keep phrasing natural
+    if level in (1, 2):
+        combined = []
+        i = 0
+        while i < len(splits):
+            part = splits[i]
+            if i + 1 < len(splits):
+                sep = splits[i+1]
+                if i + 2 < len(splits):
+                    combined.append(part)
+                    splits[i+2] = sep.strip() + " " + splits[i+2].strip()
+                else:
+                    combined.append(part + sep)
+                i += 2
+            else:
+                combined.append(part)
+                i += 1
+        splits = [c.strip() for c in combined if c.strip()]
+    else:
+        splits = [s.strip() for s in splits if s.strip()]
+
+    # If this level didn't split the text further, fall back to the next level
+    if len(splits) <= 1:
+        return split_recursive(text, max_chars, level + 1)
+
+    chunks = []
+    current_chunk = ""
+    for part in splits:
+        if not part:
+            continue
+        if len(part) > max_chars:
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = ""
+            chunks.extend(split_recursive(part, max_chars, level + 1))
+        else:
+            sep = " " if current_chunk else ""
+            if len(current_chunk) + len(sep) + len(part) > max_chars:
+                chunks.append(current_chunk)
+                current_chunk = part
+            else:
+                current_chunk += sep + part
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
 def chunk_text(text: str, max_chars: int = 150) -> list[str]:
     """Break text down into smaller sentence-level or clause-level chunks."""
     sentences = split_into_sentences(text)
     chunks = []
-
-    def add_clause(clause: str) -> None:
-        if len(clause) <= max_chars:
-            chunks.append(clause)
-        else:
-            words = clause.split()
-            word_chunk = ""
-            for word in words:
-                if word_chunk and len(word_chunk) + 1 + len(word) > max_chars:
-                    chunks.append(word_chunk)
-                    word_chunk = word
-                else:
-                    if word_chunk:
-                        word_chunk += " " + word
-                    else:
-                        word_chunk = word
-            if word_chunk:
-                chunks.append(word_chunk)
-
     for sentence in sentences:
-        if len(sentence) <= max_chars:
-            chunks.append(sentence)
-        else:
-            # Split by clauses
-            sub_splits = re.split(r"(?<=[,;:\u2014\u2013-])\s+", sentence)
-            current_chunk = ""
-            for sub in sub_splits:
-                sub = sub.strip()
-                if not sub:
-                    continue
-                if current_chunk and len(current_chunk) + 1 + len(sub) > max_chars:
-                    add_clause(current_chunk)
-                    current_chunk = sub
-                else:
-                    if current_chunk:
-                        current_chunk += " " + sub
-                    else:
-                        current_chunk = sub
-            if current_chunk:
-                add_clause(current_chunk)
+        chunks.extend(split_recursive(sentence, max_chars))
     return chunks
+
 
 
 LEAF_BLOCKS = {
@@ -393,11 +456,18 @@ def process_element(
                 full_text = "".join(element.itertext()).strip()
                 full_text = " ".join(full_text.split())
                 if full_text:
-                    span_id = element.attrib.get("id")
-                    if not span_id:
-                        span_id = next_id_fn()
-                        element.attrib["id"] = span_id
-                    id_to_text_list.append((span_id, full_text))
+                    sentences = chunk_text(full_text, max_chars)
+                    if len(sentences) > 1 or len(full_text) > max_chars:
+                        for child in list(element):
+                            element.remove(child)
+                        element.text = full_text
+                        segment_element_text(element, next_id_fn, id_to_text_list, max_chars)
+                    else:
+                        span_id = element.attrib.get("id")
+                        if not span_id:
+                            span_id = next_id_fn()
+                            element.attrib["id"] = span_id
+                        id_to_text_list.append((span_id, full_text))
     else:
         for child in list(element):
             process_element(child, next_id_fn, id_to_text_list, max_chars)
@@ -635,6 +705,8 @@ def generate_media_overlay_epub(
     ]
     if hasattr(synthesizer, "speed"):
         config_parts.append(f"speed:{synthesizer.speed}")
+    if hasattr(synthesizer, "nfe_step"):
+        config_parts.append(f"nfe_step:{synthesizer.nfe_step}")
     if hasattr(synthesizer, "ref_text"):
         config_parts.append(f"ref_text:{synthesizer.ref_text}")
     if hasattr(synthesizer, "ref_audio"):
@@ -996,6 +1068,9 @@ def generate_media_overlay_epub(
             chapter_wav_bytes = None
             id_to_text_list = None
             xhtml_root = None
+            results = None
+            futures = None
+            executor = None
 
             gc.collect()
             if "torch" in sys.modules:
