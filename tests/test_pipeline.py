@@ -1,4 +1,5 @@
 import io
+import sys
 import tempfile
 import unittest
 import wave
@@ -377,6 +378,217 @@ class PipelineTests(unittest.TestCase):
             # Verify synthesizer was NOT called because they are cached
             self.assertEqual(len(synth2.synthesize_calls), 0)
             self.assertTrue(output_epub2.exists())
+
+    def test_job_serialization_and_deserialization(self) -> None:
+        from epuboverlay.web.jobs import Job, JobStatus, ChapterAudio
+        import time
+
+        job = Job(
+            id="test-job",
+            input_epub_path=Path("/tmp/input.epub"),
+            output_epub_path=Path("/tmp/output.epub"),
+            original_filename="book.epub",
+            book_title="Test Title",
+            status=JobStatus.RUNNING,
+            config={"synthesizer": "dummy"},
+            created_at=time.time(),
+            started_at=time.time(),
+            completed_at=0.0,
+            error="",
+        )
+        job.current_phase = "synthesizing"
+        job.chapter_index = 1
+        job.chapter_total = 10
+        job.chapter_name = "c1"
+        job.chunk_index = 2
+        job.chunk_total = 5
+        job.elapsed_seconds = 12.34
+        job.overall_percent = 25.5
+
+        job.chapter_audios = [
+            ChapterAudio(idref="c1", mp3_path=Path("/tmp/audio/c1.mp3"), completed_at=time.time())
+        ]
+
+        data = job.to_serialize_dict()
+        self.assertEqual(data["id"], "test-job")
+        self.assertEqual(data["status"], "running")
+        self.assertEqual(data["progress"]["phase"], "synthesizing")
+        self.assertEqual(len(data["chapter_audios"]), 1)
+
+        restored = Job.from_dict(data)
+        self.assertEqual(restored.id, "test-job")
+        self.assertEqual(restored.status, JobStatus.RUNNING)
+        self.assertEqual(restored.input_epub_path, Path("/tmp/input.epub"))
+        self.assertEqual(restored.current_phase, "synthesizing")
+        self.assertEqual(restored.overall_percent, 25.5)
+        self.assertEqual(len(restored.chapter_audios), 1)
+        self.assertEqual(restored.chapter_audios[0].idref, "c1")
+        self.assertEqual(restored.chapter_audios[0].mp3_path, Path("/tmp/audio/c1.mp3"))
+
+    def test_job_manager_persistence(self) -> None:
+        from epuboverlay.web.jobs import JobManager, JobStatus
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir) / "jobs"
+
+            # Create dummy input epub file for creation check
+            input_epub = Path(tmpdir) / "dummy.epub"
+            with open(input_epub, "wb") as f:
+                f.write(b"PKmockepub")
+
+            # 1. Initialize JobManager, create a job
+            jm1 = JobManager(data_dir=data_dir)
+            job = jm1.create_job(
+                input_epub_path=input_epub,
+                original_filename="dummy.epub",
+                config={"synthesizer": "dummy"},
+            )
+            job_id = job.id
+
+            # Verify job directory and job.json exist
+            job_json = data_dir / job_id / "job.json"
+            self.assertTrue(job_json.exists())
+
+            # Change status to running and save
+            job.status = JobStatus.RUNNING
+            job.save_to_disk()
+
+            # 2. Initialize new JobManager to simulate server restart
+            jm2 = JobManager(data_dir=data_dir)
+            loaded_job = jm2.get_job(job_id)
+            self.assertIsNotNone(loaded_job)
+            self.assertEqual(loaded_job.original_filename, "dummy.epub")
+            
+            # Verify status correction: RUNNING should have transitioned to FAILED with server restarted error
+            self.assertEqual(loaded_job.status, JobStatus.FAILED)
+            self.assertIn("Server restarted", loaded_job.error)
+
+    def test_web_api_job_persistence(self) -> None:
+        from fastapi.testclient import TestClient
+        from epuboverlay.web.server import app
+        from epuboverlay.web.jobs import JobManager
+        import epuboverlay.web.server as server_mod
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_jobs_dir = Path(tmpdir) / "jobs"
+            temp_jobs_dir.mkdir()
+
+            original_jm = server_mod.job_manager
+
+            try:
+                server_mod.job_manager = JobManager(data_dir=temp_jobs_dir)
+                client = TestClient(app)
+
+                # Check empty list
+                response = client.get("/api/jobs")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), [])
+
+                # Create a job using upload epub
+                dummy_epub = Path(tmpdir) / "dummy.epub"
+                with zipfile.ZipFile(dummy_epub, "w") as zf:
+                    zf.writestr("mimetype", "application/epub+zip")
+                    zf.writestr(
+                        "META-INF/container.xml",
+                        """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
+                    )
+                    zf.writestr(
+                        "OEBPS/content.opf",
+                        """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test Web Persist</dc:title></metadata><manifest></manifest><spine></spine></package>""",
+                    )
+
+                with open(dummy_epub, "rb") as f:
+                    response = client.post(
+                        "/api/jobs",
+                        files={"epub": ("dummy.epub", f, "application/epub+zip")},
+                        data={
+                            "synthesizer": "dummy",
+                            "speed": 1.0,
+                            "max_chars": 150,
+                            "frame_rate": 24000.0,
+                        }
+                    )
+                self.assertEqual(response.status_code, 200)
+                job_data = response.json()
+                job_id = job_data["id"]
+                self.assertEqual(job_data["book_title"], "Test Web Persist")
+
+                # Verify job.json is on disk
+                self.assertTrue((temp_jobs_dir / job_id / "job.json").exists())
+
+                # Re-initialize the job manager to simulate server restart
+                server_mod.job_manager = JobManager(data_dir=temp_jobs_dir)
+
+                # List again, verify the job is restored!
+                response = client.get("/api/jobs")
+                self.assertEqual(response.status_code, 200)
+                jobs_list = response.json()
+                self.assertEqual(len(jobs_list), 1)
+                self.assertEqual(jobs_list[0]["id"], job_id)
+                self.assertEqual(jobs_list[0]["book_title"], "Test Web Persist")
+
+            finally:
+                server_mod.job_manager = original_jm
+
+    def test_cli_process_discovery_and_cancellation(self) -> None:
+        import subprocess
+        import time
+        import os
+        import json
+        from epuboverlay.web.jobs import JobManager, JobStatus
+
+        process = subprocess.Popen([
+            sys.executable,
+            "-c",
+            "import time; time.sleep(10)",
+            "--dummy-arg-epuboverlay-test"
+        ])
+        pid = process.pid
+
+        cache_dir = Path.home() / ".epuboverlay" / "cache" / f"test_cli_{pid}"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        progress_json = cache_dir / "progress.json"
+
+        try:
+            progress_data = {
+                "pid": pid,
+                "input_epub_path": "/tmp/mock_book.epub",
+                "output_epub_path": "/tmp/mock_book_synced.epub",
+                "book_title": "CLI Test Book Title",
+                "phase": "synthesizing",
+                "chapter_index": 3,
+                "chapter_total": 8,
+                "overall_percent": 37.5,
+                "updated_at": time.time(),
+            }
+            with open(progress_json, "w", encoding="utf-8") as f:
+                json.dump(progress_data, f, indent=2)
+
+            jm = JobManager()
+            cli_jobs = jm._scan_cli_jobs()
+
+            self.assertEqual(len(cli_jobs), 1)
+            discovered_job = cli_jobs[0]
+            self.assertEqual(discovered_job.id, f"cli-{pid}")
+            self.assertEqual(discovered_job.book_title, "CLI Test Book Title")
+            self.assertEqual(discovered_job.status, JobStatus.RUNNING)
+            self.assertEqual(discovered_job.current_phase, "synthesizing")
+            self.assertEqual(discovered_job.overall_percent, 37.5)
+
+            result = jm.cancel_job(f"cli-{pid}")
+            self.assertTrue(result)
+
+            process.wait(timeout=2.0)
+            self.assertIsNotNone(process.returncode)
+
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                process.wait()
+            if progress_json.exists():
+                progress_json.unlink()
+            if cache_dir.exists():
+                cache_dir.rmdir()
 
 
 if __name__ == "__main__":

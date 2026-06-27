@@ -6,6 +6,8 @@ import hashlib
 from html.parser import HTMLParser
 import html.entities
 import io
+import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -565,19 +567,52 @@ def generate_media_overlay_epub(
     output_epub = Path(output_epub)
     start_time = _time.monotonic()
 
+    book_title = Path(input_epub).stem
+    cache_dir_path = None
+
     def _emit(phase: str, message: str, chapter_idx: int = 0, chapter_total: int = 0,
               chapter_name: str = "", chunk_idx: int = 0, chunk_total: int = 0) -> None:
+        elapsed = _time.monotonic() - start_time
+        event = ProgressEvent(
+            phase=phase,
+            chapter_index=chapter_idx,
+            chapter_total=chapter_total,
+            chapter_name=chapter_name,
+            chunk_index=chunk_idx,
+            chunk_total=chunk_total,
+            elapsed_seconds=elapsed,
+            message=message,
+        )
         if progress_callback is not None:
-            progress_callback(ProgressEvent(
-                phase=phase,
-                chapter_index=chapter_idx,
-                chapter_total=chapter_total,
-                chapter_name=chapter_name,
-                chunk_index=chunk_idx,
-                chunk_total=chunk_total,
-                elapsed_seconds=_time.monotonic() - start_time,
-                message=message,
-            ))
+            progress_callback(event)
+
+        nonlocal cache_dir_path
+        if cache_dir_path is not None:
+            try:
+                progress_file = cache_dir_path / "progress.json"
+                overall_percent = event.overall_percent
+                data = {
+                    "pid": os.getpid(),
+                    "input_epub_path": str(Path(input_epub).resolve()),
+                    "output_epub_path": str(Path(output_epub).resolve()),
+                    "book_title": str(book_title),
+                    "phase": phase,
+                    "chapter_index": chapter_idx,
+                    "chapter_total": chapter_total,
+                    "chapter_name": chapter_name,
+                    "chunk_index": chunk_idx,
+                    "chunk_total": chunk_total,
+                    "elapsed_seconds": elapsed,
+                    "message": message,
+                    "overall_percent": overall_percent,
+                    "updated_at": _time.time(),
+                }
+                temp_file = progress_file.with_suffix(".tmp")
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                temp_file.replace(progress_file)
+            except Exception:
+                pass
 
     def _check_cancel() -> None:
         if cancel_event is not None and cancel_event.is_set():
@@ -625,8 +660,9 @@ def generate_media_overlay_epub(
         def __exit__(self, exc_type, exc_val, exc_tb):
             pass
 
-    with _DummyContext(cache_dir_path) as tmp_dir:
-        marker_file = tmp_dir / ".extracted"
+    try:
+        with _DummyContext(cache_dir_path) as tmp_dir:
+            marker_file = tmp_dir / ".extracted"
         if not marker_file.exists() or marker_file.read_text().strip() != epub_hash:
             _emit("parsing", "Extracting EPUB contents to cache...")
             if tmp_dir.exists():
@@ -662,6 +698,10 @@ def generate_media_overlay_epub(
         # Parse OPF
         opf_tree = ET.parse(opf_path)
         opf_root = opf_tree.getroot()
+
+        title_el = opf_root.find(".//{*}title")
+        if title_el is not None and title_el.text:
+            book_title = title_el.text.strip()
 
         manifest_node = opf_root.find(".//{*}manifest")
         spine_node = opf_root.find(".//{*}spine")
@@ -980,3 +1020,11 @@ def generate_media_overlay_epub(
         elapsed = _time.monotonic() - start_time
         _emit("done", f"EPUB generated successfully in {elapsed:.1f}s → {output_epub}",
               chapter_idx=chapter_total, chapter_total=chapter_total)
+    finally:
+        if cache_dir_path is not None:
+            progress_file = cache_dir_path / "progress.json"
+            if progress_file.exists():
+                try:
+                    progress_file.unlink()
+                except Exception:
+                    pass

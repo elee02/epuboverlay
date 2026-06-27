@@ -1,7 +1,11 @@
 """Job manager for epuboverlay web dashboard — single-job, thread-safe."""
 from __future__ import annotations
 
+import json
+import os
+import psutil
 import shutil
+import signal
 import threading
 import time
 import uuid
@@ -57,6 +61,94 @@ class Job:
     elapsed_seconds: float = 0.0
     message: str = ""
     overall_percent: float = 0.0
+
+    @property
+    def job_dir(self) -> Path:
+        return self.input_epub_path.parent
+
+    def save_to_disk(self) -> None:
+        """Save job state to job.json in its directory."""
+        try:
+            job_file = self.job_dir / "job.json"
+            data = self.to_serialize_dict()
+            temp_file = job_file.with_suffix(".tmp")
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            temp_file.replace(job_file)
+        except Exception as e:
+            print(f"Error saving job {self.id} to disk: {e}")
+
+    def to_serialize_dict(self) -> dict:
+        """Return a dictionary representing the job suitable for JSON serialization."""
+        return {
+            "id": self.id,
+            "input_epub_path": str(self.input_epub_path),
+            "output_epub_path": str(self.output_epub_path),
+            "original_filename": self.original_filename,
+            "book_title": self.book_title,
+            "status": self.status.value,
+            "config": self.config,
+            "created_at": self.created_at,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "error": self.error,
+            "progress": {
+                "phase": self.current_phase,
+                "chapter_index": self.chapter_index,
+                "chapter_total": self.chapter_total,
+                "chapter_name": self.chapter_name,
+                "chunk_index": self.chunk_index,
+                "chunk_total": self.chunk_total,
+                "elapsed_seconds": self.elapsed_seconds,
+                "message": self.message,
+                "overall_percent": self.overall_percent,
+            },
+            "chapter_audios": [
+                {
+                    "idref": ca.idref,
+                    "mp3_path": str(ca.mp3_path),
+                    "completed_at": ca.completed_at
+                }
+                for ca in self.chapter_audios
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Job:
+        """Reconstruct a Job object from a dictionary."""
+        job = cls(
+            id=data["id"],
+            input_epub_path=Path(data["input_epub_path"]),
+            output_epub_path=Path(data["output_epub_path"]),
+            original_filename=data["original_filename"],
+            book_title=data.get("book_title", ""),
+            status=JobStatus(data.get("status", "queued")),
+            config=data.get("config", {}),
+            created_at=data.get("created_at", time.time()),
+            started_at=data.get("started_at", 0.0),
+            completed_at=data.get("completed_at", 0.0),
+            error=data.get("error", ""),
+        )
+        progress = data.get("progress", {})
+        job.current_phase = progress.get("phase", "")
+        job.chapter_index = progress.get("chapter_index", 0)
+        job.chapter_total = progress.get("chapter_total", 0)
+        job.chapter_name = progress.get("chapter_name", "")
+        job.chunk_index = progress.get("chunk_index", 0)
+        job.chunk_total = progress.get("chunk_total", 0)
+        job.elapsed_seconds = progress.get("elapsed_seconds", 0.0)
+        job.message = progress.get("message", "")
+        job.overall_percent = progress.get("overall_percent", 0.0)
+
+        job.chapter_audios = [
+            ChapterAudio(
+                idref=ca["idref"],
+                mp3_path=Path(ca["mp3_path"]),
+                completed_at=ca.get("completed_at", 0.0)
+            )
+            for ca in data.get("chapter_audios", [])
+        ]
+        return job
 
     def to_dict(self) -> dict:
         """Serialize job state for JSON API responses."""
@@ -121,6 +213,34 @@ class JobManager:
         self._lock = threading.Lock()
         self._current_thread: threading.Thread | None = None
         self._sse_queues: dict[str, list[Queue]] = {}  # job_id -> list of subscriber queues
+        self._load_jobs_from_disk()
+
+    def _load_jobs_from_disk(self) -> None:
+        """Scan data_dir, load existing job.json files, and correct stuck states."""
+        try:
+            for job_dir in self._data_dir.iterdir():
+                if not job_dir.is_dir():
+                    continue
+                job_json = job_dir / "job.json"
+                if not job_json.exists():
+                    continue
+                try:
+                    with open(job_json, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    job = Job.from_dict(data)
+                    
+                    if job.status in (JobStatus.RUNNING, JobStatus.QUEUED):
+                        job.status = JobStatus.FAILED
+                        job.error = "Server restarted during execution."
+                        job.completed_at = time.time()
+                        job.save_to_disk()
+                        
+                    self._jobs[job.id] = job
+                    self._sse_queues[job.id] = []
+                except Exception as e:
+                    print(f"Error loading job from {job_json}: {e}")
+        except Exception as e:
+            print(f"Error scanning jobs directory {self._data_dir}: {e}")
 
     @property
     def data_dir(self) -> Path:
@@ -168,6 +288,7 @@ class JobManager:
             self._jobs[job_id] = job
             self._sse_queues[job_id] = []
 
+        job.save_to_disk()
         return job
 
     def start_job(self, job_id: str, run_fn: Callable[[Job], None]) -> None:
@@ -179,6 +300,7 @@ class JobManager:
         def _worker():
             job.status = JobStatus.RUNNING
             job.started_at = time.time()
+            job.save_to_disk()
             self._push_sse(job_id, job)
             try:
                 run_fn(job)
@@ -194,14 +316,92 @@ class JobManager:
                     job.error = str(e)
                 job.completed_at = time.time()
             finally:
+                job.save_to_disk()
                 self._push_sse(job_id, job)
 
         thread = threading.Thread(target=_worker, daemon=True)
         self._current_thread = thread
         thread.start()
 
+    def _scan_cli_jobs(self) -> list[Job]:
+        """Scan the cache directory for progress.json files and verify active CLI processes."""
+        cli_jobs = []
+        cache_root = Path.home() / ".epuboverlay" / "cache"
+        if not cache_root.exists():
+            return cli_jobs
+
+        try:
+            for cache_dir in cache_root.iterdir():
+                if not cache_dir.is_dir():
+                    continue
+                progress_json = cache_dir / "progress.json"
+                if not progress_json.exists():
+                    continue
+                try:
+                    with open(progress_json, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+
+                    pid = data.get("pid")
+                    if pid is None:
+                        continue
+
+                    is_running = False
+                    try:
+                        proc = psutil.Process(pid)
+                        cmdline = proc.cmdline()
+                        for arg in cmdline:
+                            if 'epuboverlay' in arg and 'epuboverlay-web' not in arg:
+                                is_running = True
+                                break
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+
+                    if is_running:
+                        job_id = f"cli-{pid}"
+                        input_epub_path = Path(data.get("input_epub_path", ""))
+                        output_epub_path = Path(data.get("output_epub_path", ""))
+                        original_filename = input_epub_path.name
+
+                        job = Job(
+                            id=job_id,
+                            input_epub_path=input_epub_path,
+                            output_epub_path=output_epub_path,
+                            original_filename=original_filename,
+                            book_title=data.get("book_title", original_filename),
+                            status=JobStatus.RUNNING,
+                            config={"is_cli": True, "pid": pid},
+                            created_at=data.get("updated_at", time.time()),
+                            started_at=data.get("updated_at", time.time()),
+                        )
+                        job.current_phase = data.get("phase", "")
+                        job.chapter_index = data.get("chapter_index", 0)
+                        job.chapter_total = data.get("chapter_total", 0)
+                        job.chapter_name = data.get("chapter_name", "")
+                        job.chunk_index = data.get("chunk_index", 0)
+                        job.chunk_total = data.get("chunk_total", 0)
+                        job.elapsed_seconds = data.get("elapsed_seconds", 0.0)
+                        job.message = data.get("message", "")
+                        job.overall_percent = data.get("overall_percent", 0.0)
+
+                        cli_jobs.append(job)
+                except Exception as e:
+                    print(f"Error reading progress file {progress_json}: {e}")
+        except Exception as e:
+            print(f"Error scanning cache root {cache_root}: {e}")
+
+        return cli_jobs
+
     def cancel_job(self, job_id: str) -> bool:
         """Signal a running job to cancel."""
+        if job_id.startswith("cli-"):
+            try:
+                pid = int(job_id.split("-")[1])
+                os.kill(pid, signal.SIGTERM)
+                return True
+            except Exception as e:
+                print(f"Failed to kill CLI process {pid}: {e}")
+                return False
+
         job = self.get_job(job_id)
         if job is None or job.status != JobStatus.RUNNING:
             return False
@@ -209,12 +409,21 @@ class JobManager:
         return True
 
     def get_job(self, job_id: str) -> Job | None:
+        if job_id.startswith("cli-"):
+            cli_jobs = self._scan_cli_jobs()
+            for job in cli_jobs:
+                if job.id == job_id:
+                    return job
+            return None
+
         with self._lock:
             return self._jobs.get(job_id)
 
     def list_jobs(self) -> list[Job]:
         with self._lock:
-            return list(reversed(self._jobs.values()))
+            jobs = list(reversed(self._jobs.values()))
+        cli_jobs = self._scan_cli_jobs()
+        return cli_jobs + jobs
 
     def get_chapter_audio_path(self, job_id: str, chapter_idref: str) -> Path | None:
         """Get the MP3 file path for a completed chapter."""
@@ -257,6 +466,7 @@ class JobManager:
 
         ca = ChapterAudio(idref=idref, mp3_path=dest, completed_at=time.time())
         job.chapter_audios.append(ca)
+        job.save_to_disk()
         self._push_sse(job_id, job)
 
     # --- SSE (Server-Sent Events) support ---
