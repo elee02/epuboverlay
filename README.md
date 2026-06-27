@@ -1,4 +1,4 @@
-# epub2lrc
+# epuboverlay
 
 Minimal EPUB → F5-TTS orchestration helpers with internal timestamp capture (Approach B).
 

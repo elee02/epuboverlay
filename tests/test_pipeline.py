@@ -3,7 +3,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from epub2lrc.pipeline import (
+from epuboverlay.pipeline import (
     TextChunk,
     TimestampedLine,
     extract_spine_text_chunks,
