@@ -69,6 +69,12 @@ def main(args: list[str] | None = None) -> int:
 
     parsed = parser.parse_args(args)
 
+    # Expand tildes in paths
+    parsed.epub = parsed.epub.expanduser()
+    parsed.output_epub = parsed.output_epub.expanduser()
+    if parsed.ref_audio:
+        parsed.ref_audio = parsed.ref_audio.expanduser()
+
     if parsed.synthesizer == "f5-tts":
         if not parsed.ref_audio or not parsed.ref_text:
             parser.error("--ref-audio and --ref-text are required when using the f5-tts synthesizer.")
