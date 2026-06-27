@@ -15,12 +15,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from epuboverlay.pipeline import (
-    DummySynthesizer,
-    F5TTSSynthesizer,
-    generate_media_overlay_epub,
-)
-from epuboverlay.progress import ProgressEvent
+# Synthesizer imports moved to jobs.py runner process
 from epuboverlay.web.jobs import JobManager, Job, JobStatus
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -180,41 +175,7 @@ async def create_job(
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    def run_pipeline(job: Job):
-        """Execute the pipeline in a background thread."""
-        cfg = job.config
-
-        if cfg["synthesizer"] == "f5-tts":
-            synth = F5TTSSynthesizer(
-                ref_audio=cfg["ref_audio_path"],
-                ref_text=cfg["ref_text"],
-                device=cfg.get("device"),
-                speed=cfg["speed"],
-                nfe_step=cfg.get("nfe_step", 32),
-                compile=cfg.get("compile", False),
-            )
-        else:
-            synth = DummySynthesizer(sample_rate=int(cfg["frame_rate"]))
-
-        def progress_cb(event: ProgressEvent):
-            job_manager.update_job_progress(job.id, event)
-
-        def chapter_audio_cb(idref: str, mp3_path: Path):
-            job_manager.add_chapter_audio(job.id, idref, mp3_path)
-
-        generate_media_overlay_epub(
-            input_epub=job.input_epub_path,
-            output_epub=job.output_epub_path,
-            synthesizer=synth,
-            frame_rate_hz=cfg["frame_rate"],
-            max_chars=cfg["max_chars"],
-            progress_callback=progress_cb,
-            cancel_event=job.cancel_event,
-            chapter_audio_callback=chapter_audio_cb,
-            concurrency=cfg.get("concurrency", 2),
-        )
-
-    job_manager.start_job(job.id, run_pipeline)
+    job_manager.start_job(job.id)
 
     return job.to_dict()
 
@@ -234,6 +195,33 @@ async def cancel_job(job_id: str):
     if not job_manager.cancel_job(job_id):
         raise HTTPException(status_code=400, detail="Job is not running or not found.")
     return {"status": "cancellation_requested"}
+
+
+@app.post("/api/jobs/{job_id}/resume")
+async def resume_job(job_id: str):
+    """Resume a failed or cancelled job."""
+    if job_manager.has_running_job():
+        raise HTTPException(
+            status_code=409,
+            detail="A job is already running. Please wait or cancel it first.",
+        )
+
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status not in (JobStatus.FAILED, JobStatus.CANCELLED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only failed or cancelled jobs can be resumed. Current status: {job.status}",
+        )
+
+    try:
+        job_manager.start_job(job.id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return job.to_dict()
 
 
 @app.get("/api/jobs/{job_id}/download")

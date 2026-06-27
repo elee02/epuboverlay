@@ -16,6 +16,9 @@ from enum import Enum
 from pathlib import Path
 from queue import Queue, Empty
 from typing import Any, Callable
+import multiprocessing
+
+_mp_ctx = multiprocessing.get_context("spawn")
 
 
 class JobStatus(str, Enum):
@@ -49,7 +52,7 @@ class Job:
     completed_at: float = 0.0
     error: str = ""
     chapter_audios: list[ChapterAudio] = field(default_factory=list)
-    cancel_event: threading.Event = field(default_factory=threading.Event)
+    cancel_event: Any = field(default_factory=lambda: _mp_ctx.Event())
 
     # Live progress fields — updated by progress callback
     current_phase: str = ""
@@ -203,6 +206,66 @@ def extract_epub_title(epub_path: Path) -> str:
     return epub_path.stem
 
 
+def run_job_process(
+    job_id: str,
+    input_epub_path: Path,
+    output_epub_path: Path,
+    config: dict,
+    cancel_event: Any,
+    progress_queue: multiprocessing.Queue,
+) -> None:
+    """Target function executed in the child process."""
+    try:
+        from epuboverlay.pipeline import F5TTSSynthesizer, DummySynthesizer, generate_media_overlay_epub
+        from epuboverlay.progress import ProgressEvent
+
+        if config["synthesizer"] == "f5-tts":
+            synth = F5TTSSynthesizer(
+                ref_audio=config["ref_audio_path"],
+                ref_text=config["ref_text"],
+                device=config.get("device"),
+                speed=config["speed"],
+                nfe_step=config.get("nfe_step", 32),
+                compile=config.get("compile", False),
+            )
+        else:
+            synth = DummySynthesizer(sample_rate=int(config["frame_rate"]))
+
+        def progress_cb(event: ProgressEvent):
+            event_dict = {
+                "phase": event.phase,
+                "chapter_index": event.chapter_index,
+                "chapter_total": event.chapter_total,
+                "chapter_name": event.chapter_name,
+                "chunk_index": event.chunk_index,
+                "chunk_total": event.chunk_total,
+                "elapsed_seconds": event.elapsed_seconds,
+                "message": event.message,
+                "overall_percent": event.overall_percent,
+            }
+            progress_queue.put(("progress", job_id, event_dict))
+
+        def chapter_audio_cb(idref: str, mp3_path: Path):
+            progress_queue.put(("chapter_audio", job_id, (idref, str(mp3_path))))
+
+        generate_media_overlay_epub(
+            input_epub=input_epub_path,
+            output_epub=output_epub_path,
+            synthesizer=synth,
+            frame_rate_hz=config["frame_rate"],
+            max_chars=config["max_chars"],
+            progress_callback=progress_cb,
+            cancel_event=cancel_event,
+            chapter_audio_callback=chapter_audio_cb,
+            concurrency=config.get("concurrency", 2),
+        )
+        progress_queue.put(("completed", job_id, None))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        progress_queue.put(("failed", job_id, str(e)))
+
+
 class JobManager:
     """Manages job lifecycle — single-job at a time."""
 
@@ -211,9 +274,66 @@ class JobManager:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
-        self._current_thread: threading.Thread | None = None
+        self._active_processes: dict[str, multiprocessing.Process] = {}
         self._sse_queues: dict[str, list[Queue]] = {}  # job_id -> list of subscriber queues
+        
+        self._mp_queue = _mp_ctx.Queue()
+        self._reader_thread = threading.Thread(target=self._queue_reader, daemon=True)
+        self._reader_thread.start()
+        
         self._load_jobs_from_disk()
+
+    def _queue_reader(self) -> None:
+        while True:
+            try:
+                msg = self._mp_queue.get()
+                if msg is None:
+                    break
+                event_type, job_id, payload = msg
+                self._handle_mp_event(event_type, job_id, payload)
+            except Exception as e:
+                print(f"Error in queue reader thread: {e}")
+                time.sleep(0.1)
+
+    def _handle_mp_event(self, event_type: str, job_id: str, payload: Any) -> None:
+        job = self.get_job(job_id)
+        if job is None:
+            return
+
+        if event_type == "progress":
+            job.current_phase = payload.get("phase", "")
+            job.chapter_index = payload.get("chapter_index", 0)
+            job.chapter_total = payload.get("chapter_total", 0)
+            job.chapter_name = payload.get("chapter_name", "")
+            job.chunk_index = payload.get("chunk_index", 0)
+            job.chunk_total = payload.get("chunk_total", 0)
+            job.elapsed_seconds = payload.get("elapsed_seconds", 0.0)
+            job.message = payload.get("message", "")
+            job.overall_percent = payload.get("overall_percent", 0.0)
+            self._push_sse(job_id, job)
+
+        elif event_type == "chapter_audio":
+            idref, mp3_path_str = payload
+            self.add_chapter_audio(job_id, idref, Path(mp3_path_str))
+
+        elif event_type == "completed":
+            with self._lock:
+                job.status = JobStatus.COMPLETED
+                job.completed_at = time.time()
+                self._active_processes.pop(job_id, None)
+            job.save_to_disk()
+            self._push_sse(job_id, job)
+
+        elif event_type == "failed":
+            error_msg = payload
+            with self._lock:
+                if job.status != JobStatus.CANCELLED:
+                    job.status = JobStatus.FAILED
+                    job.error = error_msg
+                job.completed_at = time.time()
+                self._active_processes.pop(job_id, None)
+            job.save_to_disk()
+            self._push_sse(job_id, job)
 
     def _load_jobs_from_disk(self) -> None:
         """Scan data_dir, load existing job.json files, and correct stuck states."""
@@ -269,6 +389,15 @@ class JobManager:
         stored_epub = job_dir / "input.epub"
         shutil.copy2(input_epub_path, stored_epub)
 
+        # Copy reference audio if provided in config
+        ref_audio_path_str = config.get("ref_audio_path")
+        if ref_audio_path_str:
+            ref_audio_path = Path(ref_audio_path_str)
+            if ref_audio_path.exists():
+                stored_ref_audio = job_dir / f"ref_audio{ref_audio_path.suffix}"
+                shutil.copy2(ref_audio_path, stored_ref_audio)
+                config["ref_audio_path"] = str(stored_ref_audio)
+
         output_epub = job_dir / f"output_{original_filename}"
         audio_dir = job_dir / "audio"
         audio_dir.mkdir(exist_ok=True)
@@ -291,37 +420,37 @@ class JobManager:
         job.save_to_disk()
         return job
 
-    def start_job(self, job_id: str, run_fn: Callable[[Job], None]) -> None:
-        """Start a job in a background thread."""
+    def start_job(self, job_id: str) -> None:
+        """Start a job in a background subprocess."""
         job = self.get_job(job_id)
         if job is None:
             raise ValueError(f"Job {job_id} not found")
 
-        def _worker():
+        job.cancel_event.clear()
+
+        with self._lock:
             job.status = JobStatus.RUNNING
             job.started_at = time.time()
-            job.save_to_disk()
-            self._push_sse(job_id, job)
-            try:
-                run_fn(job)
-                if job.status == JobStatus.RUNNING:
-                    job.status = JobStatus.COMPLETED
-                    job.completed_at = time.time()
-            except Exception as e:
-                if job.cancel_event.is_set():
-                    job.status = JobStatus.CANCELLED
-                    job.error = "Cancelled by user."
-                else:
-                    job.status = JobStatus.FAILED
-                    job.error = str(e)
-                job.completed_at = time.time()
-            finally:
-                job.save_to_disk()
-                self._push_sse(job_id, job)
+            job.error = ""
+            job.completed_at = 0.0
+        job.save_to_disk()
+        self._push_sse(job_id, job)
 
-        thread = threading.Thread(target=_worker, daemon=True)
-        self._current_thread = thread
-        thread.start()
+        proc = _mp_ctx.Process(
+            target=run_job_process,
+            args=(
+                job.id,
+                job.input_epub_path,
+                job.output_epub_path,
+                job.config,
+                job.cancel_event,
+                self._mp_queue,
+            ),
+            daemon=True
+        )
+        with self._lock:
+            self._active_processes[job_id] = proc
+        proc.start()
 
     def _scan_cli_jobs(self) -> list[Job]:
         """Scan the cache directory for progress.json files and verify active CLI processes."""
@@ -405,7 +534,36 @@ class JobManager:
         job = self.get_job(job_id)
         if job is None or job.status != JobStatus.RUNNING:
             return False
+
         job.cancel_event.set()
+
+        with self._lock:
+            job.status = JobStatus.CANCELLED
+            job.error = "Cancelled by user."
+            job.completed_at = time.time()
+        job.save_to_disk()
+        self._push_sse(job_id, job)
+
+        proc = self._active_processes.get(job_id)
+        if proc and proc.is_alive():
+            def _terminator():
+                proc.join(timeout=5.0)
+                if proc.is_alive():
+                    print(f"Process for job {job_id} did not exit cleanly. Terminating...")
+                    proc.terminate()
+                    proc.join(timeout=3.0)
+                    if proc.is_alive():
+                        print(f"Process for job {job_id} still alive. Killing...")
+                        proc.kill()
+                        proc.join()
+                with self._lock:
+                    self._active_processes.pop(job_id, None)
+            
+            threading.Thread(target=_terminator, daemon=True).start()
+        else:
+            with self._lock:
+                self._active_processes.pop(job_id, None)
+
         return True
 
     def get_job(self, job_id: str) -> Job | None:

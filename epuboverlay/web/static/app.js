@@ -474,6 +474,12 @@ function renderFailedJobs(failedJobs) {
             </div>
 
             ${job.error ? `<div class="error-message">${escapeHtml(job.error)}</div>` : ''}
+
+            <div class="job-actions">
+                <button class="btn btn-primary btn-sm" onclick="resumeJob('${job.id}')">
+                    ↻ Resume
+                </button>
+            </div>
         </div>
     `).join('');
 }
@@ -490,6 +496,22 @@ async function cancelJob(jobId) {
         }
     } catch (err) {
         showToast('Failed to cancel job.', 'error');
+    }
+}
+
+// ── Resume Job ──
+async function resumeJob(jobId) {
+    try {
+        const resp = await fetch(`/api/jobs/${jobId}/resume`, { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json();
+            showToast(err.detail || 'Failed to resume', 'error');
+        } else {
+            showToast('Resuming job...', 'success');
+            loadJobs();
+        }
+    } catch (err) {
+        showToast('Failed to resume job.', 'error');
     }
 }
 
