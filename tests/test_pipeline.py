@@ -1,18 +1,28 @@
+import io
 import tempfile
 import unittest
+import wave
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from epuboverlay.pipeline import (
     TextChunk,
     TimestampedLine,
+    DummySynthesizer,
     extract_spine_text_chunks,
     format_lrc,
     synthesize_with_internal_timestamps,
+    replace_html_entities,
+    split_into_sentences,
+    chunk_text,
+    generate_smil_content,
+    concatenate_wavs,
+    generate_media_overlay_epub,
 )
 
 
-class DummySynthesizer:
+class DummyFrameSynthesizer:
     def __init__(self, frame_counts: list[int]) -> None:
         self._frame_counts = frame_counts
         self._index = 0
@@ -26,7 +36,7 @@ class DummySynthesizer:
 class PipelineTests(unittest.TestCase):
     def test_internal_timestamps_are_accumulated_from_frames(self) -> None:
         chunks = [TextChunk("Hello"), TextChunk("World")]
-        synth = DummySynthesizer([100, 50])
+        synth = DummyFrameSynthesizer([100, 50])
 
         audio_chunks, lines = synthesize_with_internal_timestamps(
             chunks, synth, frame_rate_hz=100
@@ -86,6 +96,137 @@ class PipelineTests(unittest.TestCase):
 
             chunks = extract_spine_text_chunks(epub_path)
             self.assertEqual([c.text for c in chunks], ["One First chapter.", "Two Second chapter."])
+
+    def test_replace_html_entities(self) -> None:
+        self.assertEqual(
+            replace_html_entities("Hello &nbsp; world &ldquo; test &rdquo; &amp; &lt;"),
+            "Hello &#160; world &#8220; test &#8221; &amp; &lt;"
+        )
+
+    def test_split_into_sentences(self) -> None:
+        text = "Mr. Smith went to the store. He bought milk. Dr. Jones was there, too!"
+        sentences = split_into_sentences(text)
+        self.assertEqual(
+            sentences,
+            [
+                "Mr. Smith went to the store.",
+                "He bought milk.",
+                "Dr. Jones was there, too!"
+            ]
+        )
+
+    def test_chunk_text(self) -> None:
+        text = "This is a sentence. And this is a very long sentence that has some clauses, which will split it, and more words."
+        chunks = chunk_text(text, max_chars=40)
+        # Ensure none of the chunks exceed 40 characters
+        for c in chunks:
+            self.assertTrue(len(c) <= 40, f"Chunk too long: {c}")
+
+    def test_generate_smil_content(self) -> None:
+        mappings = [
+            ("s1", 0.0, 1.5),
+            ("s2", 1.5, 3.75)
+        ]
+        smil = generate_smil_content("chapter1.xhtml", mappings, "audio/chapter1.mp3")
+        self.assertIn('<text src="chapter1.xhtml#s1"/>', smil)
+        self.assertIn('<audio src="audio/chapter1.mp3" clipBegin="1.500s" clipEnd="3.750s"/>', smil)
+
+    def test_concatenate_wavs(self) -> None:
+        out1 = io.BytesIO()
+        with wave.open(out1, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(8000)
+            w.writeframes(b"\x00" * 100)
+        wav1 = out1.getvalue()
+
+        out2 = io.BytesIO()
+        with wave.open(out2, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(8000)
+            w.writeframes(b"\x11" * 100)
+        wav2 = out2.getvalue()
+
+        merged = concatenate_wavs([wav1, wav2])
+        merged_io = io.BytesIO(merged)
+        with wave.open(merged_io, "rb") as w:
+            self.assertEqual(w.getnchannels(), 1)
+            self.assertEqual(w.getsampwidth(), 2)
+            self.assertEqual(w.getframerate(), 8000)
+            self.assertEqual(w.getnframes(), 100)
+
+    def test_generate_media_overlay_epub(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_epub = Path(tmpdir) / "sample.epub"
+            output_epub = Path(tmpdir) / "synced.epub"
+
+            with zipfile.ZipFile(input_epub, "w") as zf:
+                zf.writestr(
+                    "mimetype",
+                    "application/epub+zip",
+                )
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?>
+                    <container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'>
+                      <rootfiles>
+                        <rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/>
+                      </rootfiles>
+                    </container>
+                    """,
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?>
+                    <package xmlns='http://www.idpf.org/2007/opf' version='3.0'>
+                      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                        <dc:title>Test Book</dc:title>
+                      </metadata>
+                      <manifest>
+                        <item id='c1' href='chapter1.xhtml' media-type='application/xhtml+xml'/>
+                      </manifest>
+                      <spine>
+                        <itemref idref='c1'/>
+                      </spine>
+                    </package>
+                    """,
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    "<html><body><p>Hello world. This is a synced book test.</p></body></html>",
+                )
+
+            synth = DummySynthesizer(sample_rate=8000)
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub,
+                synthesizer=synth,
+                frame_rate_hz=8000.0,
+            )
+
+            self.assertTrue(output_epub.exists())
+
+            with zipfile.ZipFile(output_epub, "r") as zf:
+                files = zf.namelist()
+                self.assertIn("OEBPS/chapter1.xhtml", files)
+                self.assertIn("OEBPS/smil_c1.smil", files)
+                self.assertIn("OEBPS/audio/audio_c1.mp3", files)
+
+                opf_data = zf.read("OEBPS/content.opf")
+                opf_root = ET.fromstring(opf_data)
+
+                manifest = opf_root.find(".//{*}manifest")
+                items = manifest.findall(".//{*}item")
+                media_overlays = [i.attrib.get("media-overlay") for i in items if i.attrib.get("id") == "c1"]
+                self.assertEqual(media_overlays, ["smil_c1"])
+
+                metadata = opf_root.find(".//{*}metadata")
+                metas = metadata.findall(".//{*}meta")
+                durations = [m.text for m in metas if m.attrib.get("property") == "media:duration"]
+                self.assertEqual(len(durations), 2)
+                refined_durations = [m.text for m in metas if m.attrib.get("refines") == "#smil_c1"]
+                self.assertEqual(len(refined_durations), 1)
 
 
 if __name__ == "__main__":
