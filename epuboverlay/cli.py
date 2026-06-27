@@ -72,6 +72,12 @@ def main(args: list[str] | None = None) -> int:
         type=Path,
         help="Custom directory to cache intermediate files and skip already processed chapters."
     )
+    parser.add_argument(
+        "-c", "--concurrency",
+        type=int,
+        default=2,
+        help="Number of concurrent workers for synthesis (default: 2)."
+    )
 
     parsed = parser.parse_args(args)
 
@@ -104,6 +110,7 @@ def main(args: list[str] | None = None) -> int:
     print(f"Input EPUB: {parsed.epub}")
     print(f"Output EPUB: {parsed.output_epub}")
     print(f"Synthesizer: {parsed.synthesizer}")
+    print(f"Concurrency: {parsed.concurrency}")
     print()
 
     reporter = ConsoleProgressReporter()
@@ -117,6 +124,7 @@ def main(args: list[str] | None = None) -> int:
             max_chars=parsed.max_chars,
             progress_callback=reporter.report,
             cache_dir=parsed.cache_dir,
+            concurrency=parsed.concurrency,
         )
         print("\nSuccess! Synced EPUB generated successfully.")
         return 0

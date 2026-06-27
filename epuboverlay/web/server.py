@@ -102,6 +102,7 @@ async def get_config():
             "speed": 1.0,
             "max_chars": 150,
             "frame_rate": 24000.0,
+            "concurrency": 2,
         },
     }
 
@@ -122,6 +123,7 @@ async def create_job(
     speed: float = Form(1.0),
     max_chars: int = Form(150),
     frame_rate: float = Form(24000.0),
+    concurrency: int = Form(2),
 ):
     """Submit a new EPUB overlay generation job."""
     if job_manager.has_running_job():
@@ -150,6 +152,7 @@ async def create_job(
         "speed": speed,
         "max_chars": max_chars,
         "frame_rate": frame_rate,
+        "concurrency": concurrency,
     }
 
     # Save ref audio if provided
@@ -200,6 +203,7 @@ async def create_job(
             progress_callback=progress_cb,
             cancel_event=job.cancel_event,
             chapter_audio_callback=chapter_audio_cb,
+            concurrency=cfg.get("concurrency", 2),
         )
 
     job_manager.start_job(job.id, run_pipeline)

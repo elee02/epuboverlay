@@ -8,8 +8,12 @@ This enables standard e-book readers (like Apple Books, Kobo, or Thorium Reader)
 
 ## Features
 - 🚀 **AI Voice Cloning**: Zero-shot voice cloning using F5-TTS.
-- 📊 **CLI Live Progress**: Visual chapter/chunk progress bar, elapsed time, and ETA.
+- ⚡ **Parallel Synthesis (Concurrency)**: Process multiple text segments concurrently to saturate modern GPUs (like the RTX 4060 Laptop GPU) and speed up generation by up to 2x–3x.
+- 💾 **Persistent Caching & Resuming**: Automatically hashes EPUB content and synthesis settings to cache processed chapters, allowing you to safely interrupt and resume generation at any time.
+- 📂 **Job History & Persistence**: Saves job execution states to disk. Jobs persist across server restarts, letting you view progress or download past books later.
+- 📈 **Real-time System Resource Monitoring**: Live tracking of CPU, RAM, VRAM, and GPU utilization/temperature directly on the web dashboard.
 - 🖥️ **Web Dashboard**: Premium dark-mode SPA to upload files, configure jobs, monitor progress, play live audio previews of finished chapters, and download final EPUBs.
+- 📊 **CLI Live Progress**: Visual chapter/chunk progress bar, elapsed time, and ETA.
 
 ## Prerequisites
 
@@ -92,6 +96,15 @@ Running the CLI displays a live progress indicator:
 | `--speed` | | Speech generation speed multiplier | `1.0` |
 | `--max-chars` | | Maximum character limit per sentence segment | `150` |
 | `--frame-rate` | | Audio sampling rate in Hz | `24000.0` |
+| `--concurrency` | `-c` | Number of concurrent threads for parallel synthesis | `2` |
+| `--cache-dir` | | Custom directory to cache intermediate files and skip already processed chapters | `None` (uses system temp cache) |
+
+## Concurrency & GPU Performance Tips
+
+For GPUs with limited VRAM (such as modern laptops with 8GB VRAM like the RTX 4060):
+- **Default Concurrency (`2`):** Highly recommended. It provides a massive speedup (around 2x) with safe memory overhead.
+- **Higher Concurrency (`3`-`4`):** Further speeds up generation by saturating GPU compute cores. Only use this if you have other applications closed.
+- **Sequential Fallback (`1`):** Use this if you run out of GPU memory (OOM) or are running on CPU.
 
 ## Testing
 

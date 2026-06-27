@@ -547,6 +547,7 @@ def generate_media_overlay_epub(
     cancel_event: "threading.Event | None" = None,
     chapter_audio_callback: "Callable[[str, Path], None] | None" = None,
     cache_dir: str | Path | None = None,
+    concurrency: int = 2,
 ) -> None:
     """Orchestrate EPUB extraction, synthesis, SMIL creation, OPF updates, and repackaging.
 
@@ -560,6 +561,8 @@ def generate_media_overlay_epub(
         cancel_event: Optional threading.Event; if set, the pipeline will abort.
         chapter_audio_callback: Optional callback(idref, mp3_path) called after each
             chapter's MP3 is written — enables per-chapter audio preview.
+        cache_dir: Custom directory to cache intermediate files and skip already processed chapters.
+        concurrency: Number of concurrent threads for parallel synthesis.
     """
     import threading
     import time as _time
@@ -844,21 +847,62 @@ def generate_media_overlay_epub(
             chunk_total = len(id_to_text_list)
 
             # Synthesize
+            results = [None] * chunk_total
+            if concurrency > 1:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                completed_chunks = 0
+                progress_lock = threading.Lock()
+
+                def process_chunk(idx: int, span_id: str, text: str):
+                    nonlocal completed_chunks
+                    _check_cancel()
+                    with progress_lock:
+                        _emit("synthesizing", f"Synthesizing: {text[:60]}...",
+                              chapter_idx=chapter_idx, chapter_total=chapter_total,
+                              chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
+                    
+                    audio, generated_frames = synthesizer.synthesize(text)
+                    if generated_frames < 0:
+                        raise ValueError("Synthesizer returned negative frame count")
+                    
+                    with progress_lock:
+                        completed_chunks += 1
+                        _emit("synthesizing", f"Finished chunk: {text[:30]}...",
+                              chapter_idx=chapter_idx, chapter_total=chapter_total,
+                              chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
+                    return idx, audio, generated_frames
+
+                with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                    futures = {
+                        executor.submit(process_chunk, idx, span_id, text): idx
+                        for idx, (span_id, text) in enumerate(id_to_text_list)
+                    }
+                    try:
+                        for future in as_completed(futures):
+                            _check_cancel()
+                            idx, audio, generated_frames = future.result()
+                            results[idx] = (audio, generated_frames)
+                    except Exception as e:
+                        for f in futures:
+                            f.cancel()
+                        raise e
+            else:
+                for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
+                    _check_cancel()
+                    _emit("synthesizing", f"Synthesizing: {text[:60]}...",
+                          chapter_idx=chapter_idx, chapter_total=chapter_total,
+                          chapter_name=idref, chunk_idx=chunk_idx, chunk_total=chunk_total)
+                    audio, generated_frames = synthesizer.synthesize(text)
+                    if generated_frames < 0:
+                        raise ValueError("Synthesizer returned negative frame count")
+                    results[chunk_idx] = (audio, generated_frames)
+
+            # Reconstruct wav chunks and timings sequentially
             wav_chunks = []
             current_time = 0.0
             mappings = []
-
             for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
-                _check_cancel()
-
-                _emit("synthesizing", f"Synthesizing: {text[:60]}...",
-                      chapter_idx=chapter_idx, chapter_total=chapter_total,
-                      chapter_name=idref, chunk_idx=chunk_idx, chunk_total=chunk_total)
-
-                audio, generated_frames = synthesizer.synthesize(text)
-                if generated_frames < 0:
-                    raise ValueError("Synthesizer returned negative frame count")
-
+                audio, generated_frames = results[chunk_idx]
                 duration = generated_frames / frame_rate_hz
                 begin_time = current_time
                 end_time = current_time + duration

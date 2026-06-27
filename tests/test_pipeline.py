@@ -623,6 +623,76 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("utilization", gpu_data)
             self.assertIn("temperature", gpu_data)
 
+    def test_generate_media_overlay_epub_parallel(self) -> None:
+        import io
+        import wave
+        import zipfile
+        import threading
+        from pathlib import Path
+        import tempfile
+        import shutil
+
+        # Create temporary directory
+        tmpdir = tempfile.mkdtemp()
+        try:
+            input_epub = Path(tmpdir) / "input.epub"
+            output_epub = Path(tmpdir) / "output.epub"
+
+            # Create a simple mock EPUB
+            with zipfile.ZipFile(input_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Parallel Test</dc:title></metadata><manifest><item id="chap1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chap1"/></spine></package>""",
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    "<html><body><p>Hello chunk one. Hello chunk two. Hello chunk three. Hello chunk four.</p></body></html>",
+                )
+
+            class ThreadSafeTrackingSynthesizer:
+                def __init__(self):
+                    self.synthesize_calls = []
+                    self.lock = threading.Lock()
+
+                def synthesize(self, text: str) -> tuple[bytes, int]:
+                    with self.lock:
+                        self.synthesize_calls.append(text)
+                    # Return mock WAV (silence)
+                    out_io = io.BytesIO()
+                    with wave.open(out_io, "wb") as wav_out:
+                        wav_out.setnchannels(1)
+                        wav_out.setsampwidth(2)
+                        wav_out.setframerate(8000)
+                        wav_out.writeframes(b"\x00" * 1600)  # 0.2 seconds
+                    return out_io.getvalue(), 1600
+
+            synth = ThreadSafeTrackingSynthesizer()
+            # Generate with concurrency = 3
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub,
+                synthesizer=synth,
+                frame_rate_hz=8000.0,
+                max_chars=30,  # make max_chars small to force splitting into multiple chunks
+                concurrency=3,
+            )
+
+            self.assertTrue(output_epub.exists())
+            # Verify we generated multiple chunks and all of them were synthesized
+            self.assertEqual(len(synth.synthesize_calls), 4)
+            self.assertIn("Hello chunk one.", synth.synthesize_calls)
+            self.assertIn("Hello chunk two.", synth.synthesize_calls)
+            self.assertIn("Hello chunk three.", synth.synthesize_calls)
+            self.assertIn("Hello chunk four.", synth.synthesize_calls)
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main())
