@@ -14,6 +14,10 @@ from .pipeline import (
     convert_wav_to_mp3,
     generate_media_overlay_epub,
 )
+from .progress import (
+    ProgressEvent,
+    ProgressReporter,
+)
 
 __all__ = [
     "TextChunk",
@@ -30,4 +34,6 @@ __all__ = [
     "concatenate_wavs",
     "convert_wav_to_mp3",
     "generate_media_overlay_epub",
+    "ProgressEvent",
+    "ProgressReporter",
 ]

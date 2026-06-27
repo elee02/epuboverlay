@@ -12,7 +12,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
-dependencies = []
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+]
 
 [project.scripts]
 epuboverlay = "epuboverlay.cli:main"
+epuboverlay-web = "epuboverlay.web.server:main"

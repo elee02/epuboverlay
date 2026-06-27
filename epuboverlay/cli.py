@@ -9,6 +9,7 @@ from epuboverlay.pipeline import (
     F5TTSSynthesizer,
     generate_media_overlay_epub,
 )
+from epuboverlay.progress import ConsoleProgressReporter
 
 
 def main(args: list[str] | None = None) -> int:
@@ -96,6 +97,9 @@ def main(args: list[str] | None = None) -> int:
     print(f"Input EPUB: {parsed.epub}")
     print(f"Output EPUB: {parsed.output_epub}")
     print(f"Synthesizer: {parsed.synthesizer}")
+    print()
+
+    reporter = ConsoleProgressReporter()
 
     try:
         generate_media_overlay_epub(
@@ -104,15 +108,17 @@ def main(args: list[str] | None = None) -> int:
             synthesizer=synthesizer,
             frame_rate_hz=parsed.frame_rate,
             max_chars=parsed.max_chars,
+            progress_callback=reporter.report,
         )
-        print("Success! Synced EPUB generated successfully.")
+        print("\nSuccess! Synced EPUB generated successfully.")
         return 0
     except Exception as e:
         import traceback
-        print(f"Orchestration failed: {e}", file=sys.stderr)
+        print(f"\nOrchestration failed: {e}", file=sys.stderr)
         traceback.print_exc()
         return 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
+

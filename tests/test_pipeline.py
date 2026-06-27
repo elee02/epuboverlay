@@ -228,6 +228,67 @@ class PipelineTests(unittest.TestCase):
                 refined_durations = [m.text for m in metas if m.attrib.get("refines") == "#smil_c1"]
                 self.assertEqual(len(refined_durations), 1)
 
+    def test_progress_events_are_emitted(self) -> None:
+        from epuboverlay.progress import ProgressEvent
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_epub = Path(tmpdir) / "sample.epub"
+            output_epub = Path(tmpdir) / "synced.epub"
+
+            with zipfile.ZipFile(input_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?>
+                    <container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'>
+                      <rootfiles>
+                        <rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/>
+                      </rootfiles>
+                    </container>
+                    """,
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?>
+                    <package xmlns='http://www.idpf.org/2007/opf' version='3.0'>
+                      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                        <dc:title>Test Book</dc:title>
+                      </metadata>
+                      <manifest>
+                        <item id='c1' href='chapter1.xhtml' media-type='application/xhtml+xml'/>
+                      </manifest>
+                      <spine>
+                        <itemref idref='c1'/>
+                      </spine>
+                    </package>
+                    """,
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    "<html><body><p>Hello world.</p></body></html>",
+                )
+
+            events = []
+            def progress_cb(event: ProgressEvent):
+                events.append(event)
+
+            synth = DummySynthesizer(sample_rate=8000)
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub,
+                synthesizer=synth,
+                frame_rate_hz=8000.0,
+                progress_callback=progress_cb,
+            )
+
+            self.assertTrue(len(events) > 0)
+            phases = [e.phase for e in events]
+            self.assertIn("parsing", phases)
+            self.assertIn("synthesizing", phases)
+            self.assertIn("converting", phases)
+            self.assertIn("packaging", phases)
+            self.assertIn("done", phases)
+
 
 if __name__ == "__main__":
-    unittest.main()
+    sys.exit(unittest.main())

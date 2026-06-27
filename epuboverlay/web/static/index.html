@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="epuboverlay Dashboard — Generate narrated EPUB 3 files with Media Overlays using AI voice cloning.">
+    <title>epuboverlay — Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>🎧 epuboverlay</h1>
+            <p class="subtitle">EPUB 3 Media Overlay Generator with AI Voice Cloning</p>
+        </header>
+
+        <!-- New Job Card -->
+        <div class="card" id="new-job-card">
+            <div class="card-header">
+                <div class="card-title">
+                    <span class="icon">📚</span>
+                    New Job
+                </div>
+            </div>
+
+            <form id="job-form" enctype="multipart/form-data">
+                <!-- EPUB Upload -->
+                <div class="form-group full-width" style="margin-bottom: 1rem;">
+                    <label>EPUB File</label>
+                    <div class="file-upload-zone" id="epub-upload-zone">
+                        <div class="upload-icon">📖</div>
+                        <div class="upload-text">
+                            <strong>Click to browse</strong> or drag &amp; drop your EPUB file
+                        </div>
+                        <div class="file-name" id="epub-file-name" style="display: none;"></div>
+                        <input type="file" id="epub-file" name="epub" accept=".epub" required>
+                    </div>
+                </div>
+
+                <!-- Configuration -->
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="synthesizer-select">Synthesizer</label>
+                        <select id="synthesizer-select" name="synthesizer">
+                            <option value="f5-tts">F5-TTS (Voice Cloning)</option>
+                            <option value="dummy">Dummy (Silent / Testing)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="device-select">Device</label>
+                        <select id="device-select" name="device">
+                            <option value="">Auto</option>
+                            <option value="cuda">CUDA (GPU)</option>
+                            <option value="cpu">CPU</option>
+                            <option value="mps">MPS (Apple Silicon)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="speed-input">Speed</label>
+                        <input type="number" id="speed-input" name="speed" value="1.0" min="0.1" max="3.0" step="0.1">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="max-chars-input">Max Chars/Chunk</label>
+                        <input type="number" id="max-chars-input" name="max_chars" value="150" min="50" max="500" step="10">
+                    </div>
+                </div>
+
+                <!-- F5-TTS specific fields -->
+                <div class="ref-audio-fields" id="ref-audio-fields" style="margin-top: 1rem;">
+                    <div class="form-group">
+                        <label>Reference Audio</label>
+                        <div class="file-upload-zone" id="ref-audio-upload-zone" style="padding: 0.8rem;">
+                            <div class="upload-text" style="font-size: 0.8rem;">
+                                <strong>Upload</strong> voice clip (.wav)
+                            </div>
+                            <div class="file-name" id="ref-audio-file-name" style="display: none;"></div>
+                            <input type="file" id="ref-audio-file" name="ref_audio" accept=".wav,.mp3,.flac,.ogg">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ref-text-input">Reference Text</label>
+                        <textarea id="ref-text-input" name="ref_text" placeholder="Exact transcript of your reference audio clip..." rows="3"></textarea>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
+                    <button type="submit" class="btn btn-primary" id="submit-btn">
+                        🚀 Start Generation
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Active Job Section -->
+        <div id="active-job-section" style="display: none;">
+            <div class="section-header">
+                <h2>⚡ Active Job</h2>
+            </div>
+            <div id="active-job-container"></div>
+        </div>
+
+        <!-- Completed Jobs Section -->
+        <div id="completed-section" style="display: none;">
+            <div class="section-header">
+                <h2>✅ Completed</h2>
+                <span class="badge" id="completed-count">0</span>
+            </div>
+            <div id="completed-container"></div>
+        </div>
+
+        <!-- Failed/Cancelled Jobs Section -->
+        <div id="failed-section" style="display: none;">
+            <div class="section-header">
+                <h2>⚠️ Failed / Cancelled</h2>
+                <span class="badge" id="failed-count">0</span>
+            </div>
+            <div id="failed-container"></div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

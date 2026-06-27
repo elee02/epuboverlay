@@ -510,10 +510,51 @@ def generate_media_overlay_epub(
     synthesizer: FrameTimedSynthesizer,
     frame_rate_hz: float,
     max_chars: int = 150,
+    progress_callback: "Callable[[ProgressEvent], None] | None" = None,
+    cancel_event: "threading.Event | None" = None,
+    chapter_audio_callback: "Callable[[str, Path], None] | None" = None,
 ) -> None:
-    """Orchestrate EPUB extraction, synthesis, SMIL creation, OPF updates, and repackaging."""
+    """Orchestrate EPUB extraction, synthesis, SMIL creation, OPF updates, and repackaging.
+
+    Args:
+        input_epub: Path to the input EPUB file.
+        output_epub: Path to save the generated synced EPUB file.
+        synthesizer: Synthesizer implementation to use.
+        frame_rate_hz: Audio sample rate in Hz.
+        max_chars: Maximum characters per chunk of synthesis.
+        progress_callback: Optional callback receiving ProgressEvent updates.
+        cancel_event: Optional threading.Event; if set, the pipeline will abort.
+        chapter_audio_callback: Optional callback(idref, mp3_path) called after each
+            chapter's MP3 is written — enables per-chapter audio preview.
+    """
+    import threading
+    import time as _time
+    from epuboverlay.progress import ProgressEvent
+
     input_epub = Path(input_epub)
     output_epub = Path(output_epub)
+    start_time = _time.monotonic()
+
+    def _emit(phase: str, message: str, chapter_idx: int = 0, chapter_total: int = 0,
+              chapter_name: str = "", chunk_idx: int = 0, chunk_total: int = 0) -> None:
+        if progress_callback is not None:
+            progress_callback(ProgressEvent(
+                phase=phase,
+                chapter_index=chapter_idx,
+                chapter_total=chapter_total,
+                chapter_name=chapter_name,
+                chunk_index=chunk_idx,
+                chunk_total=chunk_total,
+                elapsed_seconds=_time.monotonic() - start_time,
+                message=message,
+            ))
+
+    def _check_cancel() -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            _emit("error", "Job cancelled by user.")
+            raise RuntimeError("Job cancelled by user.")
+
+    _emit("parsing", "Extracting EPUB contents...")
 
     with tempfile.TemporaryDirectory() as tmp_dir_str:
         tmp_dir = Path(tmp_dir_str)
@@ -557,6 +598,25 @@ def generate_media_overlay_epub(
 
         spine_itemrefs = spine_node.findall(".//{*}itemref")
 
+        # Pre-filter to only processable XHTML spine items for accurate chapter count
+        processable_itemrefs = []
+        for itemref in spine_itemrefs:
+            idref = itemref.attrib.get("idref")
+            item = manifest_items.get(idref or "")
+            if item is None:
+                continue
+            media_type = item.attrib.get("media-type")
+            if media_type != "application/xhtml+xml":
+                continue
+            href = item.attrib.get("href")
+            xhtml_file_path = opf_dir / href
+            if not xhtml_file_path.exists():
+                continue
+            processable_itemrefs.append((itemref, idref, item, href, xhtml_file_path))
+
+        chapter_total = len(processable_itemrefs)
+        _emit("parsing", f"Found {chapter_total} chapters to process.", chapter_total=chapter_total)
+
         global_duration_secs = 0.0
         smil_durations = {}
 
@@ -567,20 +627,11 @@ def generate_media_overlay_epub(
             span_id_counter += 1
             return f"epuboverlay-s-{span_id_counter}"
 
-        for itemref in spine_itemrefs:
-            idref = itemref.attrib.get("idref")
-            item = manifest_items.get(idref or "")
-            if item is None:
-                continue
+        for chapter_idx, (itemref, idref, item, href, xhtml_file_path) in enumerate(processable_itemrefs):
+            _check_cancel()
 
-            href = item.attrib.get("href")
-            media_type = item.attrib.get("media-type")
-            if media_type != "application/xhtml+xml":
-                continue
-
-            xhtml_file_path = opf_dir / href
-            if not xhtml_file_path.exists():
-                continue
+            _emit("parsing", f"Parsing chapter: {idref}",
+                  chapter_idx=chapter_idx, chapter_total=chapter_total, chapter_name=idref)
 
             with open(xhtml_file_path, "rb") as f:
                 xhtml_bytes = f.read()
@@ -601,12 +652,20 @@ def generate_media_overlay_epub(
             if not id_to_text_list:
                 continue
 
+            chunk_total = len(id_to_text_list)
+
             # Synthesize
             wav_chunks = []
             current_time = 0.0
             mappings = []
 
-            for span_id, text in id_to_text_list:
+            for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
+                _check_cancel()
+
+                _emit("synthesizing", f"Synthesizing: {text[:60]}...",
+                      chapter_idx=chapter_idx, chapter_total=chapter_total,
+                      chapter_name=idref, chunk_idx=chunk_idx, chunk_total=chunk_total)
+
                 audio, generated_frames = synthesizer.synthesize(text)
                 if generated_frames < 0:
                     raise ValueError("Synthesizer returned negative frame count")
@@ -620,6 +679,10 @@ def generate_media_overlay_epub(
                 current_time = end_time
 
             # Merge audio
+            _emit("converting", f"Concatenating audio for chapter: {idref}",
+                  chapter_idx=chapter_idx, chapter_total=chapter_total,
+                  chapter_name=idref, chunk_idx=chunk_total, chunk_total=chunk_total)
+
             chapter_wav_bytes = concatenate_wavs(wav_chunks)
             if not chapter_wav_bytes:
                 continue
@@ -631,7 +694,15 @@ def generate_media_overlay_epub(
             audio_file_path = audio_dir / audio_filename
 
             # Compress to MP3
+            _emit("converting", f"Converting to MP3: {idref}",
+                  chapter_idx=chapter_idx, chapter_total=chapter_total,
+                  chapter_name=idref, chunk_idx=chunk_total, chunk_total=chunk_total)
+
             convert_wav_to_mp3(chapter_wav_bytes, audio_file_path)
+
+            # Notify about completed chapter audio for preview
+            if chapter_audio_callback is not None:
+                chapter_audio_callback(idref, audio_file_path)
 
             # Write back XHTML
             modified_xhtml_bytes = serialize_xhtml(xhtml_root, xhtml_bytes)
@@ -691,7 +762,14 @@ def generate_media_overlay_epub(
             global_duration_secs += chapter_duration
             smil_durations[smil_id] = chapter_duration
 
+            _emit("converting", f"Chapter {chapter_idx + 1}/{chapter_total} complete: {idref}",
+                  chapter_idx=chapter_idx + 1, chapter_total=chapter_total,
+                  chapter_name=idref, chunk_idx=0, chunk_total=0)
+
         # Add duration metadata
+        _emit("packaging", "Adding duration metadata...",
+              chapter_idx=chapter_total, chapter_total=chapter_total)
+
         metadata_node = opf_root.find(".//{*}metadata")
         if metadata_node is not None:
             total_duration_str = format_duration(global_duration_secs)
@@ -727,6 +805,9 @@ def generate_media_overlay_epub(
             f.write(modified_opf_bytes)
 
         # Repackage EPUB
+        _emit("packaging", "Repackaging EPUB...",
+              chapter_idx=chapter_total, chapter_total=chapter_total)
+
         with zipfile.ZipFile(output_epub, "w") as zout:
             mimetype_path = tmp_dir / "mimetype"
             if mimetype_path.exists():
@@ -744,3 +825,7 @@ def generate_media_overlay_epub(
                         str(rel_path.as_posix()),
                         compress_type=zipfile.ZIP_DEFLATED,
                     )
+
+        elapsed = _time.monotonic() - start_time
+        _emit("done", f"EPUB generated successfully in {elapsed:.1f}s → {output_epub}",
+              chapter_idx=chapter_total, chapter_total=chapter_total)
