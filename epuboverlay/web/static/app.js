@@ -378,6 +378,7 @@ function renderActiveJob(job) {
             }
         });
     }
+}
 
 // ── Move Job to Completed ──
 function moveToCompleted(job) {
