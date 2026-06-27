@@ -827,12 +827,25 @@ def generate_media_overlay_epub(
             _check_cancel()
 
             # Cache paths setup
-            audio_dir = opf_dir / "audio"
+            rel_dir = Path(href).parent
+            audio_dir = opf_dir / rel_dir / "audio"
             audio_filename = f"audio_{idref}.mp3"
             audio_file_path = audio_dir / audio_filename
 
             smil_filename = f"smil_{idref}.smil"
-            smil_file_path = opf_dir / smil_filename
+            smil_file_path = opf_dir / rel_dir / smil_filename
+
+            # Automatically migrate legacy cache files if they exist in the parent/opf_dir instead of rel_dir
+            legacy_audio_path = opf_dir / "audio" / audio_filename
+            legacy_smil_path = opf_dir / smil_filename
+
+            if legacy_audio_path.exists() and not audio_file_path.exists():
+                audio_dir.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(legacy_audio_path), str(audio_file_path))
+
+            if legacy_smil_path.exists() and not smil_file_path.exists():
+                (opf_dir / rel_dir).mkdir(parents=True, exist_ok=True)
+                shutil.move(str(legacy_smil_path), str(smil_file_path))
 
             # Check if already processed (completed cache)
             chapter_duration = 0.0
