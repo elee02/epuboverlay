@@ -19,6 +19,12 @@ class ProgressEvent:
     chunk_total: int = 0  # total chunks in chapter
     elapsed_seconds: float = 0.0
     message: str = ""  # human-readable status line
+    synthesis_elapsed_seconds: float = 0.0
+    total_chunks_to_synthesize: int = 0
+    chunks_processed_so_far: int = 0
+    total_characters: int = 0
+    estimated_total_hours: float = 0.0
+    audiobook_duration_seconds: float = 0.0
 
     @property
     def overall_percent(self) -> float:
@@ -32,6 +38,21 @@ class ProgressEvent:
             chunk_progress = 0.0
         return min((chapter_progress + chunk_progress / self.chapter_total) * 100.0, 100.0)
 
+    @property
+    def estimated_remaining_seconds(self) -> float | None:
+        """Calculate faithful remaining seconds based on average time per chunk."""
+        if self.phase == "done":
+            return 0.0
+        if self.phase in ("error", "cancelled"):
+            return None
+        if self.chunks_processed_so_far > 0 and self.total_chunks_to_synthesize > 0:
+            if self.chunks_processed_so_far >= self.total_chunks_to_synthesize:
+                return 5.0  # nominal estimate for final packaging
+            avg_time_per_chunk = self.synthesis_elapsed_seconds / self.chunks_processed_so_far
+            remaining_chunks = self.total_chunks_to_synthesize - self.chunks_processed_so_far
+            return remaining_chunks * avg_time_per_chunk
+        return None
+
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON transport."""
         return {
@@ -44,6 +65,13 @@ class ProgressEvent:
             "elapsed_seconds": round(self.elapsed_seconds, 2),
             "message": self.message,
             "overall_percent": round(self.overall_percent, 1),
+            "synthesis_elapsed_seconds": round(self.synthesis_elapsed_seconds, 2),
+            "total_chunks_to_synthesize": self.total_chunks_to_synthesize,
+            "chunks_processed_so_far": self.chunks_processed_so_far,
+            "total_characters": self.total_characters,
+            "estimated_total_hours": round(self.estimated_total_hours, 2),
+            "audiobook_duration_seconds": round(self.audiobook_duration_seconds, 2),
+            "estimated_remaining_seconds": round(self.estimated_remaining_seconds, 2) if self.estimated_remaining_seconds is not None else None,
         }
 
 
@@ -97,7 +125,10 @@ class ConsoleProgressReporter:
         parts.append(f"Elapsed: {elapsed_str}")
 
         # ETA estimate
-        if pct > 0:
+        eta_secs = event.estimated_remaining_seconds
+        if eta_secs is not None:
+            parts.append(f"ETA: ~{self._format_time(eta_secs)}")
+        elif pct > 0:
             total_est = elapsed / (pct / 100.0)
             remaining = total_est - elapsed
             parts.append(f"ETA: ~{self._format_time(remaining)}")

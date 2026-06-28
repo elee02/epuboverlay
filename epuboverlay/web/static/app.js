@@ -259,12 +259,38 @@ function renderActiveJob(job) {
     const message = progress.message || '';
     const chapterName = progress.chapter_name || '';
 
+    // Chunk progress
+    const chunksProcessed = progress.chunks_processed_so_far || 0;
+    const totalChunksToSynthesize = progress.total_chunks_to_synthesize || 0;
+    const synthesisElapsed = progress.synthesis_elapsed_seconds || 0;
+
+    let synthPercent = 0;
+    if (totalChunksToSynthesize > 0) {
+        synthPercent = Math.min((chunksProcessed / totalChunksToSynthesize) * 100, 100);
+    }
+
+    let avgTimePerChunkStr = '—';
+    if (chunksProcessed > 0) {
+        const avgTime = synthesisElapsed / chunksProcessed;
+        avgTimePerChunkStr = `${avgTime.toFixed(1)}s`;
+    }
+
     // ETA calculation
     let etaStr = '—';
-    if (percent > 0 && percent < 100) {
+    if (progress.estimated_remaining_seconds !== undefined && progress.estimated_remaining_seconds !== null) {
+        etaStr = formatTime(progress.estimated_remaining_seconds);
+    } else if (percent > 0 && percent < 100) {
         const totalEst = elapsed / (percent / 100);
         const remaining = totalEst - elapsed;
         etaStr = formatTime(remaining);
+    }
+
+    let estHrsStr = '—';
+    if (job.estimated_total_hours) {
+        estHrsStr = `~${job.estimated_total_hours.toFixed(1)} hrs`;
+        if (job.total_characters) {
+            estHrsStr += ` (${(job.total_characters / 1000).toFixed(0)}k chars)`;
+        }
     }
 
     // Check if card for this job already exists
@@ -284,24 +310,42 @@ function renderActiveJob(job) {
                     </span>
                 </div>
 
-                <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.5rem;">
-                    <span class="progress-percent">${percent.toFixed(1)}%</span>
-                    <span class="progress-stat progress-chapter-stat">
+                <!-- Overall Book Progress -->
+                <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.25rem;">
+                    <span class="progress-label" style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Overall Book Progress</span>
+                    <span class="progress-percent" style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">${percent.toFixed(1)}%</span>
+                </div>
+                <div style="display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.5rem; font-size: 0.82rem; color: var(--text-secondary);">
+                    <span class="progress-chapter-stat">
                         Chapter <strong>${chapterIdx + (phase === 'synthesizing' || phase === 'converting' ? 1 : 0)}/${chapterTotal}</strong>
                     </span>
-                    <span class="progress-stat progress-chunk-stat">
+                    <span class="progress-chunk-stat">
                         ${chunkTotal > 0 ? `Chunk <strong>${chunkIdx + 1}/${chunkTotal}</strong>` : ''}
                     </span>
                 </div>
+                <div class="progress-bar-container" style="margin-bottom: 1rem;">
+                    <div class="progress-bar overall-bar" style="width: ${percent}%"></div>
+                </div>
 
-                <div class="progress-bar-container">
-                    <div class="progress-bar" style="width: ${percent}%"></div>
+                <!-- Active Synthesis Progress -->
+                <div class="synthesis-progress-section" style="display: ${totalChunksToSynthesize > 0 ? 'block' : 'none'};">
+                    <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.25rem;">
+                        <span class="progress-label" style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Speech Synthesis Progress</span>
+                        <span class="synthesis-percent" style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">${synthPercent.toFixed(1)}%</span>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar synthesis-bar" style="width: ${synthPercent}%; background: linear-gradient(135deg, #f43f5e, #fb923c);"></div>
+                    </div>
+                    <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 1rem; display: flex; justify-content: space-between;">
+                        <span>Chunks: <strong class="synthesis-chunks-val">${chunksProcessed}/${totalChunksToSynthesize}</strong></span>
+                        <span>Avg. speed: <strong class="synthesis-avg-time-val">${avgTimePerChunkStr} / chunk</strong></span>
+                    </div>
                 </div>
 
                 <div class="progress-stats">
                     <span class="progress-stat progress-elapsed">Elapsed: <strong>${formatTime(elapsed)}</strong></span>
                     <span class="progress-stat progress-eta">ETA: <strong>${etaStr}</strong></span>
-                    <span class="progress-stat progress-current-chapter">${chapterName ? `Current: <strong>${escapeHtml(chapterName)}</strong>` : ''}</span>
+                    <span class="progress-stat progress-audiobook-length">Est. Audiobook: <strong class="job-est-hours">${estHrsStr}</strong></span>
                 </div>
 
                 <div class="synth-preview">${escapeHtml(message)}</div>
@@ -339,8 +383,32 @@ function renderActiveJob(job) {
         chunkStat.innerHTML = chunkTotal > 0 ? `Chunk <strong>${chunkIdx + 1}/${chunkTotal}</strong>` : '';
     }
 
-    const progressBar = card.querySelector('.progress-bar');
-    if (progressBar) progressBar.style.width = `${percent}%`;
+    const overallBar = card.querySelector('.overall-bar');
+    if (overallBar) overallBar.style.width = `${percent}%`;
+
+    const synthSection = card.querySelector('.synthesis-progress-section');
+    if (synthSection) {
+        if (totalChunksToSynthesize > 0) {
+            synthSection.style.display = 'block';
+            
+            const synthPercentEl = card.querySelector('.synthesis-percent');
+            if (synthPercentEl) synthPercentEl.textContent = `${synthPercent.toFixed(1)}%`;
+            
+            const synthBar = card.querySelector('.synthesis-bar');
+            if (synthBar) {
+                synthBar.style.width = `${synthPercent}%`;
+                synthBar.style.background = 'linear-gradient(135deg, #f43f5e, #fb923c)';
+            }
+            
+            const chunksVal = card.querySelector('.synthesis-chunks-val');
+            if (chunksVal) chunksVal.textContent = `${chunksProcessed}/${totalChunksToSynthesize}`;
+            
+            const avgTimeVal = card.querySelector('.synthesis-avg-time-val');
+            if (avgTimeVal) avgTimeVal.textContent = `${avgTimePerChunkStr} / chunk`;
+        } else {
+            synthSection.style.display = 'none';
+        }
+    }
 
     const elapsedEl = card.querySelector('.progress-elapsed strong');
     if (elapsedEl) elapsedEl.textContent = formatTime(elapsed);
@@ -348,10 +416,8 @@ function renderActiveJob(job) {
     const etaEl = card.querySelector('.progress-eta strong');
     if (etaEl) etaEl.textContent = etaStr;
 
-    const currentChap = card.querySelector('.progress-current-chapter');
-    if (currentChap) {
-        currentChap.innerHTML = chapterName ? `Current: <strong>${escapeHtml(chapterName)}</strong>` : '';
-    }
+    const estHoursEl = card.querySelector('.job-est-hours');
+    if (estHoursEl) estHoursEl.textContent = estHrsStr;
 
     const preview = card.querySelector('.synth-preview');
     if (preview) {
@@ -412,6 +478,11 @@ function renderCompletedJobs(completedJobs) {
             ? formatTime(job.completed_at - job.started_at)
             : '—';
 
+        // Actual or fallback estimated audiobook length
+        const audiobookLength = job.audiobook_duration_seconds 
+            ? formatTime(job.audiobook_duration_seconds)
+            : (job.estimated_total_hours ? `~${job.estimated_total_hours.toFixed(1)} hrs` : '—');
+
         let audioHTML = '';
         if (audios.length > 0) {
             audioHTML = `
@@ -437,7 +508,8 @@ function renderCompletedJobs(completedJobs) {
                 </div>
 
                 <div class="progress-stats" style="margin-top: 0;">
-                    <span class="progress-stat">Duration: <strong>${duration}</strong></span>
+                    <span class="progress-stat">Audiobook Length: <strong>${audiobookLength}</strong></span>
+                    <span class="progress-stat">Compute Time: <strong>${duration}</strong></span>
                     <span class="progress-stat">Chapters: <strong>${job.progress?.chapter_total || '—'}</strong></span>
                 </div>
 
@@ -463,7 +535,12 @@ function renderFailedJobs(failedJobs) {
     failedSection.style.display = 'block';
     failedCount.textContent = failedJobs.length;
 
-    failedContainer.innerHTML = failedJobs.map(job => `
+    failedContainer.innerHTML = failedJobs.map(job => {
+        const estHrsStr = job.estimated_total_hours 
+            ? `~${job.estimated_total_hours.toFixed(1)} hrs` 
+            : '—';
+
+        return `
         <div class="card">
             <div class="card-header">
                 <div class="card-title">
@@ -475,13 +552,19 @@ function renderFailedJobs(failedJobs) {
 
             ${job.error ? `<div class="error-message">${escapeHtml(job.error)}</div>` : ''}
 
+            <div class="progress-stats" style="margin-top: 0; margin-bottom: 1rem;">
+                <span class="progress-stat">Est. Audiobook: <strong>${estHrsStr}</strong></span>
+                <span class="progress-stat">Chapters: <strong>${job.progress?.chapter_total || '—'}</strong></span>
+            </div>
+
             <div class="job-actions">
                 <button class="btn btn-primary btn-sm" onclick="resumeJob('${job.id}')">
                     ↻ Resume
                 </button>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // ── Cancel Job ──

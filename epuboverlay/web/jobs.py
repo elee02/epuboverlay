@@ -65,6 +65,14 @@ class Job:
     message: str = ""
     overall_percent: float = 0.0
 
+    # Audiobook size and chunk ETA fields
+    total_characters: int = 0
+    estimated_total_hours: float = 0.0
+    audiobook_duration_seconds: float = 0.0
+    total_chunks_to_synthesize: int = 0
+    chunks_processed_so_far: int = 0
+    synthesis_elapsed_seconds: float = 0.0
+
     @property
     def job_dir(self) -> Path:
         return self.input_epub_path.parent
@@ -95,6 +103,9 @@ class Job:
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "error": self.error,
+            "total_characters": self.total_characters,
+            "estimated_total_hours": self.estimated_total_hours,
+            "audiobook_duration_seconds": self.audiobook_duration_seconds,
             "progress": {
                 "phase": self.current_phase,
                 "chapter_index": self.chapter_index,
@@ -105,6 +116,9 @@ class Job:
                 "elapsed_seconds": self.elapsed_seconds,
                 "message": self.message,
                 "overall_percent": self.overall_percent,
+                "total_chunks_to_synthesize": self.total_chunks_to_synthesize,
+                "chunks_processed_so_far": self.chunks_processed_so_far,
+                "synthesis_elapsed_seconds": self.synthesis_elapsed_seconds,
             },
             "chapter_audios": [
                 {
@@ -131,6 +145,9 @@ class Job:
             started_at=data.get("started_at", 0.0),
             completed_at=data.get("completed_at", 0.0),
             error=data.get("error", ""),
+            total_characters=data.get("total_characters", 0),
+            estimated_total_hours=data.get("estimated_total_hours", 0.0),
+            audiobook_duration_seconds=data.get("audiobook_duration_seconds", 0.0),
         )
         progress = data.get("progress", {})
         job.current_phase = progress.get("phase", "")
@@ -142,6 +159,9 @@ class Job:
         job.elapsed_seconds = progress.get("elapsed_seconds", 0.0)
         job.message = progress.get("message", "")
         job.overall_percent = progress.get("overall_percent", 0.0)
+        job.total_chunks_to_synthesize = progress.get("total_chunks_to_synthesize", 0)
+        job.chunks_processed_so_far = progress.get("chunks_processed_so_far", 0)
+        job.synthesis_elapsed_seconds = progress.get("synthesis_elapsed_seconds", 0.0)
 
         job.chapter_audios = [
             ChapterAudio(
@@ -165,6 +185,9 @@ class Job:
             "started_at": self.started_at,
             "completed_at": self.completed_at,
             "error": self.error,
+            "total_characters": self.total_characters,
+            "estimated_total_hours": self.estimated_total_hours,
+            "audiobook_duration_seconds": self.audiobook_duration_seconds,
             "progress": {
                 "phase": self.current_phase,
                 "chapter_index": self.chapter_index,
@@ -175,12 +198,89 @@ class Job:
                 "elapsed_seconds": round(self.elapsed_seconds, 2),
                 "message": self.message,
                 "overall_percent": round(self.overall_percent, 1),
+                "total_chunks_to_synthesize": self.total_chunks_to_synthesize,
+                "chunks_processed_so_far": self.chunks_processed_so_far,
+                "synthesis_elapsed_seconds": round(self.synthesis_elapsed_seconds, 2),
             },
             "chapter_audios": [
                 {"idref": ca.idref, "completed_at": ca.completed_at}
                 for ca in self.chapter_audios
             ],
         }
+
+
+def estimate_epub_audiobook_duration(epub_path: Path, speed: float = 1.0) -> tuple[int, float]:
+    """Calculate the total character count and estimated audiobook duration of an EPUB."""
+    total_chars = 0
+    try:
+        with zipfile.ZipFile(epub_path) as zf:
+            container_xml = zf.read("META-INF/container.xml")
+            container_root = ET.fromstring(container_xml)
+            rootfile = container_root.find(".//{*}rootfile")
+            if rootfile is None:
+                return 0, 0.0
+
+            opf_path = rootfile.attrib.get("full-path", "")
+            if not opf_path:
+                return 0, 0.0
+
+            opf_root = ET.fromstring(zf.read(opf_path))
+            manifest_node = opf_root.find(".//{*}manifest")
+            spine_node = opf_root.find(".//{*}spine")
+            if manifest_node is None or spine_node is None:
+                return 0, 0.0
+
+            manifest_items = {}
+            for item in manifest_node.findall(".//{*}item"):
+                item_id = item.attrib.get("id")
+                if item_id:
+                    manifest_items[item_id] = item
+
+            spine_itemrefs = spine_node.findall(".//{*}itemref")
+            opf_dir = Path(opf_path).parent
+
+            from html.parser import HTMLParser
+            class SimpleTextExtractor(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.text_parts = []
+                def handle_data(self, data):
+                    stripped = data.strip()
+                    if stripped:
+                        self.text_parts.append(stripped)
+                def get_text(self):
+                    return " ".join(self.text_parts)
+
+            for itemref in spine_itemrefs:
+                idref = itemref.attrib.get("idref")
+                item = manifest_items.get(idref or "")
+                if item is None:
+                    continue
+                media_type = item.attrib.get("media-type")
+                if media_type != "application/xhtml+xml":
+                    continue
+                href = item.attrib.get("href")
+                
+                # Normalize zip path
+                zip_href = (opf_dir / href).as_posix()
+                zip_href = os.path.normpath(zip_href)
+                if zip_href.startswith("."):
+                    zip_href = zip_href.lstrip("./")
+                try:
+                    content_bytes = zf.read(zip_href)
+                    content_str = content_bytes.decode("utf-8", errors="ignore")
+                    extractor = SimpleTextExtractor()
+                    extractor.feed(content_str)
+                    total_chars += len(extractor.get_text())
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    chars_per_sec = 15.0 * speed
+    duration_seconds = total_chars / chars_per_sec if chars_per_sec > 0 else 0
+    duration_hours = duration_seconds / 3600.0
+    return total_chars, duration_hours
 
 
 def extract_epub_title(epub_path: Path) -> str:
@@ -242,6 +342,12 @@ def run_job_process(
                 "elapsed_seconds": event.elapsed_seconds,
                 "message": event.message,
                 "overall_percent": event.overall_percent,
+                "total_chunks_to_synthesize": event.total_chunks_to_synthesize,
+                "chunks_processed_so_far": event.chunks_processed_so_far,
+                "synthesis_elapsed_seconds": event.synthesis_elapsed_seconds,
+                "total_characters": event.total_characters,
+                "estimated_total_hours": event.estimated_total_hours,
+                "audiobook_duration_seconds": event.audiobook_duration_seconds,
             }
             progress_queue.put(("progress", job_id, event_dict))
 
@@ -310,6 +416,17 @@ class JobManager:
             job.elapsed_seconds = payload.get("elapsed_seconds", 0.0)
             job.message = payload.get("message", "")
             job.overall_percent = payload.get("overall_percent", 0.0)
+            job.total_chunks_to_synthesize = payload.get("total_chunks_to_synthesize", 0)
+            job.chunks_processed_so_far = payload.get("chunks_processed_so_far", 0)
+            job.synthesis_elapsed_seconds = payload.get("synthesis_elapsed_seconds", 0.0)
+            
+            if payload.get("total_characters", 0) > 0:
+                job.total_characters = payload.get("total_characters", 0)
+            if payload.get("estimated_total_hours", 0.0) > 0:
+                job.estimated_total_hours = payload.get("estimated_total_hours", 0.0)
+            if payload.get("audiobook_duration_seconds", 0.0) > 0:
+                job.audiobook_duration_seconds = payload.get("audiobook_duration_seconds", 0.0)
+                
             self._push_sse(job_id, job)
 
         elif event_type == "chapter_audio":
@@ -403,6 +520,7 @@ class JobManager:
         audio_dir.mkdir(exist_ok=True)
 
         book_title = extract_epub_title(stored_epub)
+        total_chars, est_hours = estimate_epub_audiobook_duration(stored_epub, config.get("speed", 1.0))
 
         job = Job(
             id=job_id,
@@ -411,6 +529,8 @@ class JobManager:
             original_filename=original_filename,
             book_title=book_title,
             config=config,
+            total_characters=total_chars,
+            estimated_total_hours=est_hours,
         )
 
         with self._lock:
@@ -491,6 +611,15 @@ class JobManager:
                         output_epub_path = Path(data.get("output_epub_path", ""))
                         original_filename = input_epub_path.name
 
+                        total_chars = data.get("total_characters", 0)
+                        est_hours = data.get("estimated_total_hours", 0.0)
+                        audiobook_dur = data.get("audiobook_duration_seconds", 0.0)
+
+                        if total_chars == 0 and input_epub_path.exists():
+                            total_chars, est_hours = estimate_epub_audiobook_duration(
+                                input_epub_path, 1.0
+                            )
+
                         job = Job(
                             id=job_id,
                             input_epub_path=input_epub_path,
@@ -501,6 +630,9 @@ class JobManager:
                             config={"is_cli": True, "pid": pid},
                             created_at=data.get("updated_at", time.time()),
                             started_at=data.get("updated_at", time.time()),
+                            total_characters=total_chars,
+                            estimated_total_hours=est_hours,
+                            audiobook_duration_seconds=audiobook_dur,
                         )
                         job.current_phase = data.get("phase", "")
                         job.chapter_index = data.get("chapter_index", 0)
@@ -511,6 +643,9 @@ class JobManager:
                         job.elapsed_seconds = data.get("elapsed_seconds", 0.0)
                         job.message = data.get("message", "")
                         job.overall_percent = data.get("overall_percent", 0.0)
+                        job.total_chunks_to_synthesize = data.get("total_chunks_to_synthesize", 0)
+                        job.chunks_processed_so_far = data.get("chunks_processed_so_far", 0)
+                        job.synthesis_elapsed_seconds = data.get("synthesis_elapsed_seconds", 0.0)
 
                         cli_jobs.append(job)
                 except Exception as e:
