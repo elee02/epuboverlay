@@ -198,8 +198,18 @@ async def cancel_job(job_id: str):
 
 
 @app.post("/api/jobs/{job_id}/resume")
-async def resume_job(job_id: str):
-    """Resume a failed or cancelled job."""
+async def resume_job(
+    job_id: str,
+    synthesizer: str | None = Form(None),
+    device: str | None = Form(None),
+    speed: float | None = Form(None),
+    max_chars: int | None = Form(None),
+    frame_rate: float | None = Form(None),
+    concurrency: int | None = Form(None),
+    nfe_step: int | None = Form(None),
+    compile: bool | None = Form(None),
+):
+    """Resume a failed or cancelled job, optionally updating its configuration options."""
     if job_manager.has_running_job():
         raise HTTPException(
             status_code=409,
@@ -215,6 +225,44 @@ async def resume_job(job_id: str):
             status_code=400,
             detail=f"Only failed or cancelled jobs can be resumed. Current status: {job.status}",
         )
+
+    # Update job config with any options provided
+    has_changes = False
+
+    if synthesizer is not None:
+        job.config["synthesizer"] = synthesizer
+        has_changes = True
+    if device is not None:
+        job.config["device"] = device if device else None
+        has_changes = True
+    if speed is not None:
+        job.config["speed"] = speed
+        has_changes = True
+    if max_chars is not None:
+        job.config["max_chars"] = max_chars
+        has_changes = True
+    if frame_rate is not None:
+        job.config["frame_rate"] = frame_rate
+        has_changes = True
+    if concurrency is not None:
+        job.config["concurrency"] = concurrency
+        has_changes = True
+    if nfe_step is not None:
+        job.config["nfe_step"] = nfe_step
+        has_changes = True
+    if compile is not None:
+        job.config["compile"] = compile
+        has_changes = True
+
+    if has_changes:
+        # Re-estimate audiobook duration if configuration has changed
+        from epuboverlay.web.jobs import estimate_epub_audiobook_duration
+        total_chars, est_hours = estimate_epub_audiobook_duration(
+            job.input_epub_path, job.config.get("speed", 1.0)
+        )
+        job.total_characters = total_chars
+        job.estimated_total_hours = est_hours
+        job.save_to_disk()
 
     try:
         job_manager.start_job(job.id)

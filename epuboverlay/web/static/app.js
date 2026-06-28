@@ -585,16 +585,165 @@ async function cancelJob(jobId) {
 // ── Resume Job ──
 async function resumeJob(jobId) {
     try {
-        const resp = await fetch(`/api/jobs/${jobId}/resume`, { method: 'POST' });
+        const resp = await fetch(`/api/jobs/${jobId}`);
         if (!resp.ok) {
-            const err = await resp.json();
-            showToast(err.detail || 'Failed to resume', 'error');
-        } else {
-            showToast('Resuming job...', 'success');
-            loadJobs();
+            showToast('Failed to fetch job details.', 'error');
+            return;
         }
+        const job = await resp.json();
+        const originalConfig = job.config || {};
+
+        // Create overlay element
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        
+        // Modal content HTML
+        overlay.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>↻ Resume Job Configuration</h3>
+                    <button class="modal-close-btn">&times;</button>
+                </div>
+                <form id="resume-form" style="display: flex; flex-direction: column; gap: 1rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="modal-synthesizer">Synthesizer</label>
+                            <select id="modal-synthesizer" name="synthesizer">
+                                <option value="f5-tts" ${originalConfig.synthesizer === 'f5-tts' ? 'selected' : ''}>F5-TTS (Voice Cloning)</option>
+                                <option value="dummy" ${originalConfig.synthesizer === 'dummy' ? 'selected' : ''}>Dummy (Silent / Testing)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="modal-device">Device</label>
+                            <select id="modal-device" name="device">
+                                <option value="" ${!originalConfig.device ? 'selected' : ''}>Auto</option>
+                                <option value="cuda" ${originalConfig.device === 'cuda' ? 'selected' : ''}>CUDA (GPU)</option>
+                                <option value="cpu" ${originalConfig.device === 'cpu' ? 'selected' : ''}>CPU</option>
+                                <option value="mps" ${originalConfig.device === 'mps' ? 'selected' : ''}>MPS (Apple Silicon)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="modal-speed">Speed</label>
+                            <input type="number" id="modal-speed" name="speed" value="${originalConfig.speed || 1.0}" min="0.1" max="3.0" step="0.1">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="modal-concurrency">Concurrency</label>
+                            <input type="number" id="modal-concurrency" name="concurrency" value="${originalConfig.concurrency || 2}" min="1" max="16" step="1">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="modal-nfe-step">Inference Steps (NFE)</label>
+                            <input type="number" id="modal-nfe-step" name="nfe_step" value="${originalConfig.nfe_step || 32}" min="10" max="64" step="2">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="modal-max-chars">Max Chars/Chunk</label>
+                            <input type="number" id="modal-max-chars" name="max_chars" value="${originalConfig.max_chars || 150}" min="50" max="500" step="10">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                        <input type="checkbox" id="modal-compile" name="compile" style="width: auto; margin: 0; cursor: pointer;" ${originalConfig.compile ? 'checked' : ''}>
+                        <label for="modal-compile" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">Compile Model (torch.compile)</label>
+                    </div>
+
+                    <div class="modal-footer" style="margin-top: 0.5rem;">
+                        <button type="button" class="btn btn-secondary btn-sm cancel-btn">Cancel</button>
+                        <button type="submit" class="btn btn-primary btn-sm submit-btn">Resume Job</button>
+                    </div>
+                </form>
+            </div>
+        `;
+        
+        document.body.appendChild(overlay);
+        
+        // Trigger reflow to animate opacity/translate
+        overlay.offsetHeight;
+        overlay.classList.add('active');
+
+        const form = overlay.querySelector('#resume-form');
+        const submitBtn = form.querySelector('.submit-btn');
+        const closeBtn = overlay.querySelector('.modal-close-btn');
+        const cancelBtn = overlay.querySelector('.cancel-btn');
+
+        // Check if options differ from the original configuration
+        function checkChanges() {
+            const currentSynth = form.querySelector('#modal-synthesizer').value;
+            const currentDevice = form.querySelector('#modal-device').value;
+            const currentSpeed = parseFloat(form.querySelector('#modal-speed').value);
+            const currentConcurrency = parseInt(form.querySelector('#modal-concurrency').value);
+            const currentNfe = parseInt(form.querySelector('#modal-nfe-step').value);
+            const currentMaxChars = parseInt(form.querySelector('#modal-max-chars').value);
+            const currentCompile = form.querySelector('#modal-compile').checked;
+
+            const hasChanged = 
+                currentSynth !== (originalConfig.synthesizer || 'f5-tts') ||
+                currentDevice !== (originalConfig.device || '') ||
+                currentSpeed !== (originalConfig.speed || 1.0) ||
+                currentConcurrency !== (originalConfig.concurrency || 2) ||
+                currentNfe !== (originalConfig.nfe_step || 32) ||
+                currentMaxChars !== (originalConfig.max_chars || 150) ||
+                currentCompile !== !!originalConfig.compile;
+
+            if (hasChanged) {
+                submitBtn.textContent = 'Resume Job with New Options';
+            } else {
+                submitBtn.textContent = 'Resume Job';
+            }
+        }
+
+        // Add input/change listeners
+        form.querySelectorAll('input, select').forEach(el => {
+            el.addEventListener('input', checkChanges);
+            el.addEventListener('change', checkChanges);
+        });
+
+        // Close functions
+        function closeModal() {
+            overlay.classList.remove('active');
+            setTimeout(() => {
+                overlay.remove();
+            }, 300);
+        }
+
+        closeBtn.onclick = closeModal;
+        cancelBtn.onclick = closeModal;
+        overlay.onclick = (e) => {
+            if (e.target === overlay) closeModal();
+        };
+
+        // Submit form handler
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('synthesizer', form.querySelector('#modal-synthesizer').value);
+            formData.append('device', form.querySelector('#modal-device').value);
+            formData.append('speed', form.querySelector('#modal-speed').value);
+            formData.append('concurrency', form.querySelector('#modal-concurrency').value);
+            formData.append('nfe_step', form.querySelector('#modal-nfe-step').value);
+            formData.append('max_chars', form.querySelector('#modal-max-chars').value);
+            formData.append('compile', form.querySelector('#modal-compile').checked);
+
+            closeModal();
+
+            try {
+                const resp = await fetch(`/api/jobs/${jobId}/resume`, {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showToast(err.detail || 'Failed to resume', 'error');
+                } else {
+                    showToast('Resuming job...', 'success');
+                    loadJobs();
+                }
+            } catch (err) {
+                showToast('Failed to resume job.', 'error');
+            }
+        };
+
     } catch (err) {
-        showToast('Failed to resume job.', 'error');
+        showToast('Failed to retrieve job information.', 'error');
     }
 }
 

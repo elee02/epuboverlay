@@ -77,6 +77,21 @@ class Job:
     def job_dir(self) -> Path:
         return self.input_epub_path.parent
 
+    @property
+    def estimated_remaining_seconds(self) -> float | None:
+        """Calculate faithful remaining seconds based on average time per chunk."""
+        if self.status == JobStatus.COMPLETED:
+            return 0.0
+        if self.status in (JobStatus.FAILED, JobStatus.CANCELLED):
+            return None
+        if self.chunks_processed_so_far > 0 and self.total_chunks_to_synthesize > 0:
+            if self.chunks_processed_so_far >= self.total_chunks_to_synthesize:
+                return 5.0  # nominal estimate for final packaging
+            avg_time_per_chunk = self.synthesis_elapsed_seconds / self.chunks_processed_so_far
+            remaining_chunks = self.total_chunks_to_synthesize - self.chunks_processed_so_far
+            return remaining_chunks * avg_time_per_chunk
+        return None
+
     def save_to_disk(self) -> None:
         """Save job state to job.json in its directory."""
         try:
@@ -119,6 +134,7 @@ class Job:
                 "total_chunks_to_synthesize": self.total_chunks_to_synthesize,
                 "chunks_processed_so_far": self.chunks_processed_so_far,
                 "synthesis_elapsed_seconds": self.synthesis_elapsed_seconds,
+                "estimated_remaining_seconds": self.estimated_remaining_seconds,
             },
             "chapter_audios": [
                 {
@@ -201,6 +217,7 @@ class Job:
                 "total_chunks_to_synthesize": self.total_chunks_to_synthesize,
                 "chunks_processed_so_far": self.chunks_processed_so_far,
                 "synthesis_elapsed_seconds": round(self.synthesis_elapsed_seconds, 2),
+                "estimated_remaining_seconds": round(self.estimated_remaining_seconds, 2) if self.estimated_remaining_seconds is not None else None,
             },
             "chapter_audios": [
                 {"idref": ca.idref, "completed_at": ca.completed_at}
