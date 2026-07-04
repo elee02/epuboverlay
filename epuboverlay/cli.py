@@ -14,6 +14,19 @@ from epuboverlay.progress import ConsoleProgressReporter
 
 def _cmd_generate(parsed: argparse.Namespace) -> int:
     """Execute the 'generate' subcommand — EPUB Media Overlay generation."""
+    import os
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
+    try:
+        import torch
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+    except Exception:
+        pass
+
     # Expand tildes in paths
     parsed.epub = parsed.epub.expanduser()
     parsed.output_epub = parsed.output_epub.expanduser()
