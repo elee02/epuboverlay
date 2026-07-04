@@ -25,6 +25,7 @@ class ProgressEvent:
     total_characters: int = 0
     estimated_total_hours: float = 0.0
     audiobook_duration_seconds: float = 0.0
+    active_chunks_processed: int = 0
 
     @property
     def overall_percent(self) -> float:
@@ -48,7 +49,8 @@ class ProgressEvent:
         if self.chunks_processed_so_far > 0 and self.total_chunks_to_synthesize > 0:
             if self.chunks_processed_so_far >= self.total_chunks_to_synthesize:
                 return 5.0  # nominal estimate for final packaging
-            avg_time_per_chunk = self.synthesis_elapsed_seconds / self.chunks_processed_so_far
+            divisor = self.active_chunks_processed if self.active_chunks_processed > 0 else self.chunks_processed_so_far
+            avg_time_per_chunk = self.synthesis_elapsed_seconds / divisor
             remaining_chunks = self.total_chunks_to_synthesize - self.chunks_processed_so_far
             return remaining_chunks * avg_time_per_chunk
         return None
@@ -68,6 +70,7 @@ class ProgressEvent:
             "synthesis_elapsed_seconds": round(self.synthesis_elapsed_seconds, 2),
             "total_chunks_to_synthesize": self.total_chunks_to_synthesize,
             "chunks_processed_so_far": self.chunks_processed_so_far,
+            "active_chunks_processed": self.active_chunks_processed,
             "total_characters": self.total_characters,
             "estimated_total_hours": round(self.estimated_total_hours, 2),
             "audiobook_duration_seconds": round(self.audiobook_duration_seconds, 2),

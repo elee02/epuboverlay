@@ -72,6 +72,7 @@ class Job:
     total_chunks_to_synthesize: int = 0
     chunks_processed_so_far: int = 0
     synthesis_elapsed_seconds: float = 0.0
+    active_chunks_processed: int = 0
 
     @property
     def job_dir(self) -> Path:
@@ -87,7 +88,8 @@ class Job:
         if self.chunks_processed_so_far > 0 and self.total_chunks_to_synthesize > 0:
             if self.chunks_processed_so_far >= self.total_chunks_to_synthesize:
                 return 5.0  # nominal estimate for final packaging
-            avg_time_per_chunk = self.synthesis_elapsed_seconds / self.chunks_processed_so_far
+            divisor = self.active_chunks_processed if self.active_chunks_processed > 0 else self.chunks_processed_so_far
+            avg_time_per_chunk = self.synthesis_elapsed_seconds / divisor
             remaining_chunks = self.total_chunks_to_synthesize - self.chunks_processed_so_far
             return remaining_chunks * avg_time_per_chunk
         return None
@@ -133,6 +135,7 @@ class Job:
                 "overall_percent": self.overall_percent,
                 "total_chunks_to_synthesize": self.total_chunks_to_synthesize,
                 "chunks_processed_so_far": self.chunks_processed_so_far,
+                "active_chunks_processed": self.active_chunks_processed,
                 "synthesis_elapsed_seconds": self.synthesis_elapsed_seconds,
                 "estimated_remaining_seconds": self.estimated_remaining_seconds,
             },
@@ -177,6 +180,7 @@ class Job:
         job.overall_percent = progress.get("overall_percent", 0.0)
         job.total_chunks_to_synthesize = progress.get("total_chunks_to_synthesize", 0)
         job.chunks_processed_so_far = progress.get("chunks_processed_so_far", 0)
+        job.active_chunks_processed = progress.get("active_chunks_processed", 0)
         job.synthesis_elapsed_seconds = progress.get("synthesis_elapsed_seconds", 0.0)
 
         job.chapter_audios = [
@@ -216,6 +220,7 @@ class Job:
                 "overall_percent": round(self.overall_percent, 1),
                 "total_chunks_to_synthesize": self.total_chunks_to_synthesize,
                 "chunks_processed_so_far": self.chunks_processed_so_far,
+                "active_chunks_processed": self.active_chunks_processed,
                 "synthesis_elapsed_seconds": round(self.synthesis_elapsed_seconds, 2),
                 "estimated_remaining_seconds": round(self.estimated_remaining_seconds, 2) if self.estimated_remaining_seconds is not None else None,
             },
@@ -374,6 +379,7 @@ def run_job_process(
                 "overall_percent": event.overall_percent,
                 "total_chunks_to_synthesize": event.total_chunks_to_synthesize,
                 "chunks_processed_so_far": event.chunks_processed_so_far,
+                "active_chunks_processed": event.active_chunks_processed,
                 "synthesis_elapsed_seconds": event.synthesis_elapsed_seconds,
                 "total_characters": event.total_characters,
                 "estimated_total_hours": event.estimated_total_hours,
@@ -448,6 +454,7 @@ class JobManager:
             job.overall_percent = payload.get("overall_percent", 0.0)
             job.total_chunks_to_synthesize = payload.get("total_chunks_to_synthesize", 0)
             job.chunks_processed_so_far = payload.get("chunks_processed_so_far", 0)
+            job.active_chunks_processed = payload.get("active_chunks_processed", 0)
             job.synthesis_elapsed_seconds = payload.get("synthesis_elapsed_seconds", 0.0)
             
             if payload.get("total_characters", 0) > 0:

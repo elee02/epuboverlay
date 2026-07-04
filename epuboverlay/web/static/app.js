@@ -374,6 +374,7 @@ function renderActiveJob(job) {
 
     // Chunk progress
     const chunksProcessed = progress.chunks_processed_so_far || 0;
+    const activeChunksProcessed = progress.active_chunks_processed || 0;
     const totalChunksToSynthesize = progress.total_chunks_to_synthesize || 0;
     const synthesisElapsed = progress.synthesis_elapsed_seconds || 0;
 
@@ -383,8 +384,9 @@ function renderActiveJob(job) {
     }
 
     let avgTimePerChunkStr = '—';
-    if (chunksProcessed > 0) {
-        const avgTime = synthesisElapsed / chunksProcessed;
+    const divisor = activeChunksProcessed > 0 ? activeChunksProcessed : chunksProcessed;
+    if (divisor > 0) {
+        const avgTime = synthesisElapsed / divisor;
         avgTimePerChunkStr = `${avgTime.toFixed(1)}s`;
     }
 

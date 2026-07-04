@@ -703,6 +703,7 @@ def generate_media_overlay_epub(
     # Trackers for chunk progress, total chunks, characters, and synthesis timing
     total_chunks_to_synthesize = 0
     chunks_processed_so_far = 0
+    active_chunks_processed = 0
     total_characters_all = 0
     synthesis_start_time = None
     global_duration_secs = 0.0
@@ -736,6 +737,7 @@ def generate_media_overlay_epub(
             synthesis_elapsed_seconds=synthesis_elapsed,
             total_chunks_to_synthesize=total_chunks_to_synthesize,
             chunks_processed_so_far=chunks_processed_so_far,
+            active_chunks_processed=active_chunks_processed,
             total_characters=total_characters_all,
             estimated_total_hours=estimated_hours,
             audiobook_duration_seconds=global_duration_secs,
@@ -765,6 +767,7 @@ def generate_media_overlay_epub(
                     "updated_at": _time.time(),
                     "total_chunks_to_synthesize": event.total_chunks_to_synthesize,
                     "chunks_processed_so_far": event.chunks_processed_so_far,
+                    "active_chunks_processed": event.active_chunks_processed,
                     "total_characters": event.total_characters,
                     "estimated_total_hours": event.estimated_total_hours,
                     "audiobook_duration_seconds": event.audiobook_duration_seconds,
@@ -1073,7 +1076,7 @@ def generate_media_overlay_epub(
                 progress_lock = threading.Lock()
 
                 def process_chunk(idx: int, span_id: str, text: str):
-                    nonlocal completed_chunks, chunks_processed_so_far, synthesis_start_time
+                    nonlocal completed_chunks, chunks_processed_so_far, active_chunks_processed, synthesis_start_time
                     _check_cancel()
                     
                     text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:16]
@@ -1129,6 +1132,7 @@ def generate_media_overlay_epub(
                     with progress_lock:
                         completed_chunks += 1
                         chunks_processed_so_far += 1
+                        active_chunks_processed += 1
                         _emit("synthesizing", f"Finished chunk: {text[:30]}...",
                               chapter_idx=chapter_idx, chapter_total=chapter_total,
                               chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
@@ -1197,6 +1201,7 @@ def generate_media_overlay_epub(
                         del audio  # Release WAV bytes immediately
                         results[chunk_idx] = (chunk_path, frame_count)
                         chunks_processed_so_far += 1
+                        active_chunks_processed += 1
                         _emit("synthesizing", f"Finished chunk: {text[:30]}...",
                               chapter_idx=chapter_idx, chapter_total=chapter_total,
                               chapter_name=idref, chunk_idx=chunk_idx + 1, chunk_total=chunk_total)

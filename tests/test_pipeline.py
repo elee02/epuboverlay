@@ -962,6 +962,114 @@ class PipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
+    def test_active_chunks_processed_with_cached_resumption(self) -> None:
+        import hashlib
+        import io
+        import shutil
+        from epuboverlay.progress import ProgressEvent
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            input_epub = Path(tmpdir) / "input.epub"
+            output_epub = Path(tmpdir) / "output.epub"
+            cache_dir = Path(tmpdir) / "cache"
+
+            with zipfile.ZipFile(input_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Resumption Timing Test</dc:title></metadata><manifest><item id="chap1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chap1"/></spine></package>""",
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    "<html><body><p>Hello chunk one. Hello chunk two. Hello chunk three. Hello chunk four.</p></body></html>",
+                )
+
+            # Pre-populate cache directory with EPUB extraction and marker file
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(input_epub, "r") as zf:
+                zf.extractall(cache_dir)
+            from epuboverlay.pipeline import compute_file_md5
+            epub_hash = compute_file_md5(input_epub)
+            (cache_dir / ".extracted").write_text(epub_hash)
+
+            # Pre-populate chunk 0 and 1
+            chunks_dir = cache_dir / "_chunks_chap1"
+            chunks_dir.mkdir(parents=True, exist_ok=True)
+
+            out_io = io.BytesIO()
+            with wave.open(out_io, "wb") as wav_out:
+                wav_out.setnchannels(1)
+                wav_out.setsampwidth(2)
+                wav_out.setframerate(8000)
+                wav_out.writeframes(b"\x00" * 1600)
+            wav_bytes = out_io.getvalue()
+
+            hash1 = hashlib.md5(b"Hello chunk one.").hexdigest()[:16]
+            hash2 = hashlib.md5(b"Hello chunk two.").hexdigest()[:16]
+
+            (chunks_dir / f"chunk_000000_{hash1}.wav").write_bytes(wav_bytes)
+            (chunks_dir / f"chunk_000001_{hash2}.wav").write_bytes(wav_bytes)
+
+            class TrackingSynthesizer:
+                def __init__(self):
+                    self.calls = 0
+                def synthesize(self, text: str) -> tuple[bytes, int]:
+                    self.calls += 1
+                    out_io = io.BytesIO()
+                    with wave.open(out_io, "wb") as wav_out:
+                        wav_out.setnchannels(1)
+                        wav_out.setsampwidth(2)
+                        wav_out.setframerate(8000)
+                        wav_out.writeframes(b"\x00" * 1600)
+                    return out_io.getvalue(), 1600
+
+            events = []
+            def progress_cb(event: ProgressEvent):
+                if event.phase == "synthesizing":
+                    events.append(event)
+
+            synth = TrackingSynthesizer()
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub,
+                synthesizer=synth,
+                frame_rate_hz=8000.0,
+                max_chars=30,
+                concurrency=1,
+                cache_dir=cache_dir,
+                progress_callback=progress_cb,
+            )
+
+            # We should have events emitted
+            self.assertTrue(len(events) > 0)
+            
+            # The last event emitted in the synthesizing phase should have:
+            # - total_chunks_to_synthesize = 4
+            # - chunks_processed_so_far = 4
+            # - active_chunks_processed = 2 (only chunk 2 and 3 were synthesized, chunk 0 and 1 were cached)
+            last_synth_event = events[-1]
+            self.assertEqual(last_synth_event.total_chunks_to_synthesize, 4)
+            self.assertEqual(last_synth_event.chunks_processed_so_far, 4)
+            self.assertEqual(last_synth_event.active_chunks_processed, 2)
+            
+            # Check ETA calculation logic using active_chunks_processed
+            mock_event = ProgressEvent(
+                phase="synthesizing",
+                total_chunks_to_synthesize=10,
+                chunks_processed_so_far=8,
+                active_chunks_processed=2,
+                synthesis_elapsed_seconds=4.0,
+            )
+            self.assertEqual(mock_event.estimated_remaining_seconds, 4.0)
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main())
