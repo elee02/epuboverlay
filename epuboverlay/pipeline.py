@@ -91,12 +91,13 @@ class F5TTSSynthesizer:
         self.ref_text = ref_text
         self.speed = speed
         self.nfe_step = nfe_step
+        self.lock = threading.Lock()
 
         if compile:
             import torch
             try:
                 print("Compiling model (torch.compile) to optimize inference speed. The first chunk will take 1-2 minutes...")
-                self.f5.ema_model = torch.compile(self.f5.ema_model)
+                self.f5.ema_model = torch.compile(self.f5.ema_model, dynamic=True)
             except Exception as e:
                 print(f"Warning: torch.compile failed ({e}). Falling back to uncompiled model.")
 
@@ -104,14 +105,15 @@ class F5TTSSynthesizer:
         import numpy as np
         import torch
 
-        with torch.inference_mode():
-            result = self.f5.infer(
-                ref_file=self.ref_audio,
-                ref_text=self.ref_text,
-                gen_text=text,
-                speed=self.speed,
-                nfe_step=self.nfe_step,
-            )
+        with self.lock:
+            with torch.inference_mode():
+                result = self.f5.infer(
+                    ref_file=self.ref_audio,
+                    ref_text=self.ref_text,
+                    gen_text=text,
+                    speed=self.speed,
+                    nfe_step=self.nfe_step,
+                )
 
         if isinstance(result, tuple) and len(result) >= 3:
             wav, sample_rate = result[0], result[1]
