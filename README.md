@@ -1,8 +1,8 @@
 # epuboverlay
 
-Generate standard, narrated **EPUB 3 files with Media Overlays** using F5-TTS voice cloning.
+Generate standard, narrated **EPUB 3 files with Media Overlays** using F5-TTS voice cloning, and extract MP3 + LRC file pairs from narrated e-books.
 
-Instead of generating clunky, standalone `.lrc` files, `epuboverlay` modifies the EPUB container itself: it segments XHTML chapter text into individual sentences and clauses, wraps them in visual `<span id="...">` tags, synthesizes corresponding spoken audio in your own cloned voice, compresses it using `ffmpeg`, and generates standard W3C SMIL multimedia sync maps.
+Instead of generating clunky, standalone `.lrc` files, `epuboverlay` modifies the EPUB container itself: it segments XHTML chapter text into individual sentences and clauses, wraps them in visual `<span id="...">` tags, synthesizes corresponding spoken audio in your own cloned voice, compresses it using `ffmpeg`, and generates standard W3C SMIL multimedia sync maps. It also supports extraction and optional merging of existing media overlays into standard audio tracks and lyrics files.
 
 This allows modern e-book readers (such as Apple Books, Kobo, or Thorium Reader) to highlight paragraphs and sentences in real-time sync with the narrated audio, providing a premium, accessible audiobook-reading experience.
 
@@ -48,10 +48,12 @@ flowchart TD
 ## Key Features
 
 - 🚀 **AI Voice Cloning**: Leverages zero-shot voice cloning using the state-of-the-art F5-TTS model. Provide a short reference audio clip (WAV) and its text transcript to narrate the book in your own voice.
-- ⚡ **Parallel Synthesis (Concurrency)**: Utilizes a concurrent thread pool to process text segments in parallel. This saturates modern GPUs (like RTX 40-series laptop GPUs) and speeds up narration generation by up to 2x–3x compared to sequential inference.
-- 💾 **Persistent Chapter-Level Caching**: Hashes the input EPUB content (MD5) and your synthesizer settings (reference audio, text, frame rates, speeds). Processes are safe to interrupt; restarting the tool will skip already synthesized chapters and resume exactly where you left off.
-- 🖥️ **Interactive Web Dashboard**: A premium dark-mode SPA featuring drag-and-drop uploads, live system hardware metrics (CPU, RAM, Disk, GPU/VRAM utilization & temperature), chapter-by-chapter progress visualizers, active job control (cancellation), streaming audio previews of finished chapters, and a direct download link for completed books.
-- 📊 **CLI Progress Tracking**: Detailed CLI output with a progress bar, chapter/chunk indices, elapsed time, and live ETA calculations.
+- ⚡ **Parallel Synthesis & Multiprocessing**: Utilizes a multiprocessing backend to process text segments in parallel, saturating modern GPUs and speeding up narration generation by up to 2x–3x compared to sequential inference.
+- 💾 **Persistent & Scoped Cache**: Hashes input EPUB content and synthesizer configurations, caching assets in structured subdirectories. Features automated legacy cache migration to gracefully move older flat structure caches.
+- 🔄 **Job Resumption with Config Editing**: Failed or cancelled generation jobs can be resumed from the Web UI or via the REST API, with the option to update execution parameters (like device, speed, concurrency, NFE, or model compilation) without starting over.
+- 📤 **EPUB Media Overlay Extraction**: Extract high-quality MP3 tracks and matching `.lrc` sync lyric files from EPUB3 files with media overlays, with optional chapter merging into a single MP3/LRC file pair for playback on portable players (e.g. Poweramp).
+- 🖥️ **Interactive Web Dashboard**: A premium dark-mode SPA featuring drag-and-drop uploads for both generation and extraction, live system hardware metrics (CPU, RAM, Disk, GPU/VRAM), chapter-by-chapter progress visualizers, active job control (cancellation, resumption), streaming audio previews, and direct download links.
+- 📊 **CLI Progress Tracking**: Detailed CLI output with subcommands, progress bar, chapter/chunk indices, elapsed time, characters processed, and live ETA calculations.
 - 🔄 **CLI & Web Syncing**: The Web Dashboard detects and monitors background CLI execution jobs in real-time, allowing you to run jobs on headless servers and monitor them via the web interface.
 
 ---
@@ -107,7 +109,7 @@ flowchart TD
 
 ### 1. Web Dashboard (SPA)
 
-The Web Dashboard is the easiest way to manage your book generation jobs, view live statistics, preview generated audio, and download the finished product.
+The Web Dashboard is the easiest way to manage your book generation jobs, view live statistics, preview generated audio, extract MP3s/LRCs, and download the finished product.
 
 Start the dashboard using the console script:
 ```bash
@@ -116,28 +118,42 @@ epuboverlay-web --port 8765 --host 127.0.0.1
 
 Once started, navigate to `http://localhost:8765` in your browser.
 
-- **Submit Jobs**: Drag and drop your EPUB file, upload your reference audio, paste the reference transcript, configure concurrency parameters, and press **Start Generation**.
-- **Live System Metrics**: Watch real-time CPU, RAM, Disk, and GPU performance stats to tune concurrency safely.
-- **Audio Previews**: As soon as a chapter is fully synthesized, it will list on the dashboard, allowing you to play the generated MP3 file in-browser before the entire book finishes.
-- **Download**: Once the job changes to completed, download the resulting EPUB directly to your machine.
+- **Generate Overlays**: Drag and drop your EPUB file, upload your reference audio, paste the reference transcript, configure parameters (such as concurrency, Inference Steps (NFE), and model compilation), and press **Start Generation**.
+- **Extract Audio & Lyrics**: Use the **Extract MP3 + LRC** tab to upload an existing narrated EPUB, choose whether to merge chapters, and extract a ZIP package containing the audio files and corresponding `.lrc` sync maps.
+- **Job Resumption**: Interrupted, cancelled, or failed jobs can be resumed. Clicking **Resume** opens a configuration dialog where you can tweak inference settings before continuing the job.
+- **Live System Metrics**: Watch real-time CPU, RAM, Disk, and GPU performance stats to monitor execution.
+- **Audio Previews**: As soon as a chapter is fully synthesized, it will list on the dashboard for instant playing.
+- **Download**: Download completed synced EPUBs directly from the dashboard.
 
 ---
 
 ### 2. Command Line Interface (CLI)
 
-You can run the generator directly via the console script or standard python module syntax.
+The CLI uses subcommands to handle generation and extraction.
 
 ```bash
-# Option A: Using the console script
-epuboverlay --epub my_book.epub -o my_book_narrated.epub --synthesizer dummy
+# General help
+epuboverlay --help
 
-# Option B: Using Python module execution
-python -m epuboverlay --epub my_book.epub -o my_book_narrated.epub --synthesizer dummy
+# Subcommand-specific help
+epuboverlay generate --help
+epuboverlay extract --help
 ```
 
-#### Running F5-TTS Voice Cloning (GPU Recommended)
+#### A. Generating Synced EPUBs (`generate` subcommand)
+
+Run the generator via the console script or python module syntax:
 ```bash
-python -m epuboverlay \
+# Option A: Using the console script
+epuboverlay generate --epub my_book.epub -o my_book_narrated.epub --synthesizer dummy
+
+# Option B: Using Python module execution
+python -m epuboverlay generate --epub my_book.epub -o my_book_narrated.epub --synthesizer dummy
+```
+
+##### Running F5-TTS Voice Cloning (GPU Recommended)
+```bash
+python -m epuboverlay generate \
   --epub path/to/input.epub \
   -o path/to/output_synced.epub \
   --synthesizer f5-tts \
@@ -158,25 +174,38 @@ Concurrency: 2
 [Chapter 1/14] [Chunk 4/30] |████░░░░░░░░░░░░░░░░| 20.3% Elapsed: 1m14.2s ETA: ~4m51.8s (chapter_01)
 ```
 
+#### B. Extracting MP3 + LRC (`extract` subcommand)
+
+Extract MP3 tracks and `.lrc` lyric files from an EPUB that already has Media Overlays:
+```bash
+# Extract separate MP3 + LRC pairs for each chapter
+epuboverlay extract --epub my_book_narrated.epub -o output_dir/
+
+# Extract and merge all chapters into a single MP3 + LRC pair
+epuboverlay extract --epub my_book_narrated.epub -o output_dir/ --merge
+```
+
 ---
 
 ## Configuration Reference
 
-The following table lists all settings available in both the CLI options and the Web API:
+The following table lists the settings available in the generation CLI/Web API:
 
-| Option | Shortcut | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `--epub` | | **[Required]** Absolute or relative path to the input EPUB 3 file. | |
-| `--output-epub` | `-o` | **[Required]** Path where the output synced EPUB will be saved. | |
-| `--synthesizer` | `-s` | Synthesis model to use: `f5-tts` or `dummy`. | `f5-tts` |
-| `--ref-audio` | `-a` | Path to your reference voice sample (Required for `f5-tts`). | |
-| `--ref-text` | `-t` | Verbatim text transcript of your reference audio clip (Required for `f5-tts`). | |
-| `--device` | | Hardware device: `cuda`, `cpu`, or `mps`. | `None` (auto-detects) |
-| `--speed` | | Rate of generated speech (e.g., `1.2` for 20% faster). | `1.0` |
-| `--max-chars` | | Maximum character length of text sent to the synthesizer at once. | `150` |
-| `--frame-rate` | | Audio sampling rate in Hz. | `24000.0` |
-| `--concurrency` | `-c` | Number of concurrent threads processing chapter segments in parallel. | `2` |
-| `--cache-dir` | | Custom folder path for intermediate chapter audio/SMIL caching. | `~/.epuboverlay/cache/...` |
+| Option | Shortcut | Description | Default | Availability |
+| :--- | :--- | :--- | :--- | :--- |
+| `--epub` | | **[Required]** Absolute or relative path to the input EPUB 3 file. | | CLI & Web |
+| `--output-epub` | `-o` | **[Required]** Path where the output synced EPUB will be saved. | | CLI & Web |
+| `--synthesizer` | `-s` | Synthesis model to use: `f5-tts` or `dummy`. | `f5-tts` | CLI & Web |
+| `--ref-audio` | `-a` | Path to your reference voice sample (Required for `f5-tts`). | | CLI & Web |
+| `--ref-text` | `-t` | Verbatim text transcript of your reference audio clip (Required for `f5-tts`). | | CLI & Web |
+| `--device` | | Hardware device: `cuda`, `cpu`, or `mps`. | `None` (auto-detects) | CLI & Web |
+| `--speed` | | Rate of generated speech (e.g., `1.2` for 20% faster). | `1.0` | CLI & Web |
+| `--max-chars` | | Maximum character length of text sent to the synthesizer at once. | `150` | CLI & Web |
+| `--frame-rate` | | Audio sampling rate in Hz. | `24000.0` | CLI & Web |
+| `--concurrency` | `-c` | Number of concurrent processes/workers for synthesis. | `2` | CLI & Web |
+| `--cache-dir` | | Custom folder path for intermediate chapter audio/SMIL caching. | `~/.epuboverlay/cache/...` | CLI Only |
+| `nfe_step` | | Number of inference steps for F5-TTS model (min: 10, max: 64). | `32` | Web API Only |
+| `compile` | | Optimize inference speed by compiling the model via `torch.compile` (the first chunk takes 1-2 minutes). | `False` | Web API Only |
 
 ---
 
@@ -224,8 +253,9 @@ To make the tool robust against interruptions:
 1. An MD5 hash of the original EPUB binary is calculated.
 2. A configuration hash is calculated from the synthesizer class, speed, frame rate, max characters, reference audio metadata (size, path, modification time), and reference transcript text.
 3. These hashes compose a unique cache directory: `~/.epuboverlay/cache/<epub_hash>_<config_hash>/`.
-4. Inside this directory, the extracted EPUB workspace is preserved. Completed chapters have their audio written to `/audio/audio_{idref}.mp3` and sync maps to `smil_{idref}.smil`.
-5. When running, the pipeline checks for both files and queries the duration of the SMIL mapping. If present, it skips synthesis for that chapter, adds its duration to the global sum, updates the OPF manifest references, and moves on immediately.
+4. Inside this directory, the extracted EPUB workspace is preserved. Completed chapters have their audio written to `{chapter_rel_dir}/audio/audio_{idref}.mp3` and sync maps to `{chapter_rel_dir}/smil_{idref}.smil` (matching their relative chapter location within the EPUB container).
+5. On startup, the pipeline automatically detects and migrates legacy cache files (previously stored under the main OPF directory) to the new subdirectory-scoped structure.
+6. When running, the pipeline checks for both files and queries the duration of the SMIL mapping. If present, it skips synthesis for that chapter, adds its duration to the global sum, updates the OPF manifest references, and moves on immediately.
 
 ---
 
@@ -252,16 +282,18 @@ The FastAPI backend exposes the following REST endpoints:
   - `max_chars`: Integer (default `150`)
   - `frame_rate`: Float (default `24000.0`)
   - `concurrency`: Integer (default `2`)
-- **Response**: Details of the created job.
+  - `nfe_step`: Integer (default `32`)
+  - `compile`: Boolean (default `false`)
+- **Response**: Details of the created job. Includes estimated audiobook duration and total character counts.
 - **Errors**: Returns `409 Conflict` if another job is already running.
 
 #### 3. Get Job Details
 - **Route**: `GET /api/jobs/{job_id}`
-- **Response**: Status and progress dictionary for the requested job.
+- **Response**: Status, details, and progress dictionary for the requested job.
 
 #### 4. Cancel Job
 - **Route**: `POST /api/jobs/{job_id}/cancel`
-- **Behavior**: Signals a running thread to cancel. If a CLI job, sends a `SIGTERM` kill signal to the process ID.
+- **Behavior**: Signals a running process to cancel. If a CLI job, sends a `SIGTERM` kill signal to the process ID.
 
 #### 5. Download Completed EPUB
 - **Route**: `GET /api/jobs/{job_id}/download`
@@ -288,10 +320,40 @@ The FastAPI backend exposes the following REST endpoints:
       "chunk_total": 45,
       "elapsed_seconds": 45.2,
       "message": "Synthesizing chunk...",
-      "overall_percent": 21.5
+      "overall_percent": 21.5,
+      "synthesis_elapsed_seconds": 12.4,
+      "total_chunks_to_synthesize": 120,
+      "chunks_processed_so_far": 24,
+      "total_characters": 85000,
+      "estimated_total_hours": 1.57,
+      "audiobook_duration_seconds": 0.0,
+      "estimated_remaining_seconds": 182.4
     }
   }
   ```
+
+#### 8. Resume Job
+- **Route**: `POST /api/jobs/{job_id}/resume`
+- **Content-Type**: `application/x-www-form-urlencoded` or `multipart/form-data`
+- **Parameters** (all optional):
+  - `synthesizer`: String (`f5-tts` or `dummy`)
+  - `device`: String (`cuda`, `cpu`, `mps`, or empty)
+  - `speed`: Float
+  - `max_chars`: Integer
+  - `frame_rate`: Float
+  - `concurrency`: Integer
+  - `nfe_step`: Integer
+  - `compile`: Boolean
+- **Response**: Details of the updated and restarted job.
+- **Errors**: Returns `400 Bad Request` if the job is not in a failed/cancelled state, or `409 Conflict` if another job is already running.
+
+#### 9. Extract MP3 + LRC
+- **Route**: `POST /api/extract`
+- **Content-Type**: `multipart/form-data`
+- **Parameters**:
+  - `epub`: File (EPUB binary, required)
+  - `merge`: Boolean (default `false`)
+- **Response**: A ZIP archive containing extracted per-chapter or merged MP3+LRC files.
 
 ### System Resources
 
@@ -303,14 +365,14 @@ The FastAPI backend exposes the following REST endpoints:
 
 ## Testing & Verification
 
-Comprehensive test suites are included to verify individual components. Tests cover sentence boundary detection, abbreviation protection parsing, timing offset accumulation, HTML entity processing, cache persistence, and full end-to-end simulated EPUB generation.
+Comprehensive test suites are included to verify individual components. Tests cover sentence boundary detection, abbreviation protection parsing, timing offset accumulation, HTML entity processing, cache persistence, full end-to-end simulated EPUB generation, and media overlay extraction.
 
 To run the automated unit tests, run the following command in the project root:
 ```bash
 python -m unittest discover -v
 ```
 
-All test cases are defined under the [tests/test_pipeline.py](file:///home/el02/epuboverlay/tests/test_pipeline.py) module.
+All test cases are defined under the [tests/test_pipeline.py](file:///home/el02/epuboverlay/tests/test_pipeline.py) and [tests/test_extract.py](file:///home/el02/epuboverlay/tests/test_extract.py) modules.
 
 ---
 
