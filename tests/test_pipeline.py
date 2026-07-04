@@ -693,6 +693,275 @@ class PipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
+    def test_chunk_level_resumption_sequential(self) -> None:
+        from pathlib import Path
+        import tempfile
+        import shutil
+        import hashlib
+        import io
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            input_epub = Path(tmpdir) / "input.epub"
+            output_epub = Path(tmpdir) / "output.epub"
+            cache_dir = Path(tmpdir) / "cache"
+
+            with zipfile.ZipFile(input_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Resumption Test</dc:title></metadata><manifest><item id="chap1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chap1"/></spine></package>""",
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    "<html><body><p>Hello chunk one. Hello chunk two. Hello chunk three. Hello chunk four.</p></body></html>",
+                )
+
+            # Pre-populate cache directory with EPUB extraction and marker file
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(input_epub, "r") as zf:
+                zf.extractall(cache_dir)
+            from epuboverlay.pipeline import compute_file_md5
+            epub_hash = compute_file_md5(input_epub)
+            (cache_dir / ".extracted").write_text(epub_hash)
+
+            # Now pre-populate chunks 0 and 1
+            chunks_dir = cache_dir / "_chunks_chap1"
+            chunks_dir.mkdir(parents=True, exist_ok=True)
+
+            out_io = io.BytesIO()
+            with wave.open(out_io, "wb") as wav_out:
+                wav_out.setnchannels(1)
+                wav_out.setsampwidth(2)
+                wav_out.setframerate(8000)
+                wav_out.writeframes(b"\x00" * 1600)  # 1600 frames (0.2 seconds)
+            wav_bytes = out_io.getvalue()
+
+            hash1 = hashlib.md5(b"Hello chunk one.").hexdigest()[:16]
+            hash2 = hashlib.md5(b"Hello chunk two.").hexdigest()[:16]
+
+            (chunks_dir / f"chunk_000000_{hash1}.wav").write_bytes(wav_bytes)
+            (chunks_dir / f"chunk_000001_{hash2}.wav").write_bytes(wav_bytes)
+
+            class TrackingSynthesizer:
+                def __init__(self):
+                    self.synthesize_calls = []
+                def synthesize(self, text: str) -> tuple[bytes, int]:
+                    self.synthesize_calls.append(text)
+                    out_io = io.BytesIO()
+                    with wave.open(out_io, "wb") as wav_out:
+                        wav_out.setnchannels(1)
+                        wav_out.setsampwidth(2)
+                        wav_out.setframerate(8000)
+                        wav_out.writeframes(b"\x00" * 1600)
+                    return out_io.getvalue(), 1600
+
+            synth = TrackingSynthesizer()
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub,
+                synthesizer=synth,
+                frame_rate_hz=8000.0,
+                max_chars=30,
+                concurrency=1,
+                cache_dir=cache_dir,
+            )
+
+            self.assertTrue(output_epub.exists())
+            # Verify only chunk 3 and 4 were synthesized
+            self.assertEqual(len(synth.synthesize_calls), 2)
+            self.assertIn("Hello chunk three.", synth.synthesize_calls)
+            self.assertIn("Hello chunk four.", synth.synthesize_calls)
+            # Verify temp chunks dir was cleaned up
+            self.assertFalse(chunks_dir.exists())
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_chunk_level_resumption_concurrent(self) -> None:
+        from pathlib import Path
+        import tempfile
+        import shutil
+        import hashlib
+        import io
+        import threading
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            input_epub = Path(tmpdir) / "input.epub"
+            output_epub = Path(tmpdir) / "output.epub"
+            cache_dir = Path(tmpdir) / "cache"
+
+            with zipfile.ZipFile(input_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Concurrent Resumption Test</dc:title></metadata><manifest><item id="chap1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chap1"/></spine></package>""",
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    "<html><body><p>Hello chunk one. Hello chunk two. Hello chunk three. Hello chunk four.</p></body></html>",
+                )
+
+            # Pre-populate cache directory with EPUB extraction and marker file
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(input_epub, "r") as zf:
+                zf.extractall(cache_dir)
+            from epuboverlay.pipeline import compute_file_md5
+            epub_hash = compute_file_md5(input_epub)
+            (cache_dir / ".extracted").write_text(epub_hash)
+
+            # Now pre-populate chunks 0 and 1
+            chunks_dir = cache_dir / "_chunks_chap1"
+            chunks_dir.mkdir(parents=True, exist_ok=True)
+
+            out_io = io.BytesIO()
+            with wave.open(out_io, "wb") as wav_out:
+                wav_out.setnchannels(1)
+                wav_out.setsampwidth(2)
+                wav_out.setframerate(8000)
+                wav_out.writeframes(b"\x00" * 1600)
+            wav_bytes = out_io.getvalue()
+
+            hash1 = hashlib.md5(b"Hello chunk one.").hexdigest()[:16]
+            hash2 = hashlib.md5(b"Hello chunk two.").hexdigest()[:16]
+
+            (chunks_dir / f"chunk_000000_{hash1}.wav").write_bytes(wav_bytes)
+            (chunks_dir / f"chunk_000001_{hash2}.wav").write_bytes(wav_bytes)
+
+            class ThreadSafeTrackingSynthesizer:
+                def __init__(self):
+                    self.synthesize_calls = []
+                    self.lock = threading.Lock()
+                def synthesize(self, text: str) -> tuple[bytes, int]:
+                    with self.lock:
+                        self.synthesize_calls.append(text)
+                    out_io = io.BytesIO()
+                    with wave.open(out_io, "wb") as wav_out:
+                        wav_out.setnchannels(1)
+                        wav_out.setsampwidth(2)
+                        wav_out.setframerate(8000)
+                        wav_out.writeframes(b"\x00" * 1600)
+                    return out_io.getvalue(), 1600
+
+            synth = ThreadSafeTrackingSynthesizer()
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub,
+                synthesizer=synth,
+                frame_rate_hz=8000.0,
+                max_chars=30,
+                concurrency=2,
+                cache_dir=cache_dir,
+            )
+
+            self.assertTrue(output_epub.exists())
+            # Verify only chunk 3 and 4 were synthesized
+            self.assertEqual(len(synth.synthesize_calls), 2)
+            self.assertIn("Hello chunk three.", synth.synthesize_calls)
+            self.assertIn("Hello chunk four.", synth.synthesize_calls)
+            # Verify temp chunks dir was cleaned up
+            self.assertFalse(chunks_dir.exists())
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_chunk_level_resumption_corrupt(self) -> None:
+        from pathlib import Path
+        import tempfile
+        import shutil
+        import hashlib
+        import io
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            input_epub = Path(tmpdir) / "input.epub"
+            output_epub = Path(tmpdir) / "output.epub"
+            cache_dir = Path(tmpdir) / "cache"
+
+            with zipfile.ZipFile(input_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Corrupt Cache Test</dc:title></metadata><manifest><item id="chap1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chap1"/></spine></package>""",
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    "<html><body><p>Hello chunk one. Hello chunk two.</p></body></html>",
+                )
+
+            # Pre-populate cache directory with EPUB extraction and marker file
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(input_epub, "r") as zf:
+                zf.extractall(cache_dir)
+            from epuboverlay.pipeline import compute_file_md5
+            epub_hash = compute_file_md5(input_epub)
+            (cache_dir / ".extracted").write_text(epub_hash)
+
+            # Now pre-populate chunks (chunk 0 valid, chunk 1 corrupt)
+            chunks_dir = cache_dir / "_chunks_chap1"
+            chunks_dir.mkdir(parents=True, exist_ok=True)
+
+            out_io = io.BytesIO()
+            with wave.open(out_io, "wb") as wav_out:
+                wav_out.setnchannels(1)
+                wav_out.setsampwidth(2)
+                wav_out.setframerate(8000)
+                wav_out.writeframes(b"\x00" * 1600)
+            wav_bytes = out_io.getvalue()
+
+            hash1 = hashlib.md5(b"Hello chunk one.").hexdigest()[:16]
+            hash2 = hashlib.md5(b"Hello chunk two.").hexdigest()[:16]
+
+            (chunks_dir / f"chunk_000000_{hash1}.wav").write_bytes(wav_bytes)
+            # Write invalid/corrupt content
+            (chunks_dir / f"chunk_000001_{hash2}.wav").write_bytes(b"corrupted contents")
+
+            class TrackingSynthesizer:
+                def __init__(self):
+                    self.synthesize_calls = []
+                def synthesize(self, text: str) -> tuple[bytes, int]:
+                    self.synthesize_calls.append(text)
+                    out_io = io.BytesIO()
+                    with wave.open(out_io, "wb") as wav_out:
+                        wav_out.setnchannels(1)
+                        wav_out.setsampwidth(2)
+                        wav_out.setframerate(8000)
+                        wav_out.writeframes(b"\x00" * 1600)
+                    return out_io.getvalue(), 1600
+
+            synth = TrackingSynthesizer()
+            generate_media_overlay_epub(
+                input_epub=input_epub,
+                output_epub=output_epub,
+                synthesizer=synth,
+                frame_rate_hz=8000.0,
+                max_chars=30,
+                concurrency=1,
+                cache_dir=cache_dir,
+            )
+
+            self.assertTrue(output_epub.exists())
+            # Verify only chunk 1 was synthesized (chunk 0 was reused, chunk 1 was re-synthesized because it was corrupt)
+            self.assertEqual(len(synth.synthesize_calls), 1)
+            self.assertIn("Hello chunk two.", synth.synthesize_calls)
+            self.assertFalse(chunks_dir.exists())
+
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main())

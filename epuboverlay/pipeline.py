@@ -596,12 +596,15 @@ def convert_wav_file_to_mp3(wav_path: Path, output_path: Path) -> None:
         raise RuntimeError(f"ffmpeg conversion failed: {stderr}") from e
 
 
-def write_chunk_to_tempfile(audio_bytes: bytes, temp_dir: Path, idx: int) -> tuple[Path, int]:
+def write_chunk_to_tempfile(audio_bytes: bytes, temp_dir: Path, idx: int, text_hash: str | None = None) -> tuple[Path, int]:
     """Write a single WAV chunk to a numbered temp file and return (path, frame_count).
 
     This avoids keeping all WAV buffers in memory simultaneously.
     """
-    chunk_path = temp_dir / f"chunk_{idx:06d}.wav"
+    if text_hash:
+        chunk_path = temp_dir / f"chunk_{idx:06d}_{text_hash}.wav"
+    else:
+        chunk_path = temp_dir / f"chunk_{idx:06d}.wav"
     chunk_path.write_bytes(audio_bytes)
     with wave.open(io.BytesIO(audio_bytes), "rb") as wav_in:
         frame_count = wav_in.getnframes()
@@ -1069,6 +1072,40 @@ def generate_media_overlay_epub(
                 def process_chunk(idx: int, span_id: str, text: str):
                     nonlocal completed_chunks, chunks_processed_so_far, synthesis_start_time
                     _check_cancel()
+                    
+                    text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:16]
+                    chunk_path = chapter_chunks_dir / f"chunk_{idx:06d}_{text_hash}.wav"
+                    
+                    cached_valid = False
+                    frame_count = 0
+                    if chunk_path.exists():
+                        try:
+                            with wave.open(str(chunk_path), "rb") as wav_in:
+                                frame_count = wav_in.getnframes()
+                            cached_valid = True
+                        except Exception:
+                            try:
+                                chunk_path.unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                                
+                    if cached_valid:
+                        with progress_lock:
+                            completed_chunks += 1
+                            chunks_processed_so_far += 1
+                            _emit("synthesizing", f"Using cached chunk: {text[:30]}...",
+                                  chapter_idx=chapter_idx, chapter_total=chapter_total,
+                                  chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
+                        return idx, chunk_path, frame_count
+
+                    # Clean up any existing stale/corrupt chunk files for this index
+                    for p in chapter_chunks_dir.glob(f"chunk_{idx:06d}*.wav"):
+                        if p != chunk_path:
+                            try:
+                                p.unlink(missing_ok=True)
+                            except Exception:
+                                pass
+
                     with progress_lock:
                         if synthesis_start_time is None:
                             synthesis_start_time = _time.monotonic()
@@ -1082,7 +1119,7 @@ def generate_media_overlay_epub(
                     
                     # Write chunk to disk immediately, don't keep WAV bytes in RAM
                     chunk_path, frame_count = write_chunk_to_tempfile(
-                        audio, chapter_chunks_dir, idx
+                        audio, chapter_chunks_dir, idx, text_hash
                     )
                     del audio  # Release WAV bytes immediately
                     
@@ -1110,24 +1147,56 @@ def generate_media_overlay_epub(
             else:
                 for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
                     _check_cancel()
-                    if synthesis_start_time is None:
-                        synthesis_start_time = _time.monotonic()
-                    _emit("synthesizing", f"Synthesizing: {text[:60]}...",
-                          chapter_idx=chapter_idx, chapter_total=chapter_total,
-                          chapter_name=idref, chunk_idx=chunk_idx, chunk_total=chunk_total)
-                    audio, generated_frames = synthesizer.synthesize(text)
-                    if generated_frames < 0:
-                        raise ValueError("Synthesizer returned negative frame count")
-                    # Write chunk to disk immediately
-                    chunk_path, frame_count = write_chunk_to_tempfile(
-                        audio, chapter_chunks_dir, chunk_idx
-                    )
-                    del audio  # Release WAV bytes immediately
-                    results[chunk_idx] = (chunk_path, frame_count)
-                    chunks_processed_so_far += 1
-                    _emit("synthesizing", f"Finished chunk: {text[:30]}...",
-                          chapter_idx=chapter_idx, chapter_total=chapter_total,
-                          chapter_name=idref, chunk_idx=chunk_idx + 1, chunk_total=chunk_total)
+                    
+                    text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:16]
+                    chunk_path = chapter_chunks_dir / f"chunk_{chunk_idx:06d}_{text_hash}.wav"
+                    
+                    cached_valid = False
+                    frame_count = 0
+                    if chunk_path.exists():
+                        try:
+                            with wave.open(str(chunk_path), "rb") as wav_in:
+                                frame_count = wav_in.getnframes()
+                            cached_valid = True
+                        except Exception:
+                            try:
+                                chunk_path.unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                                
+                    if cached_valid:
+                        results[chunk_idx] = (chunk_path, frame_count)
+                        chunks_processed_so_far += 1
+                        _emit("synthesizing", f"Using cached chunk: {text[:30]}...",
+                              chapter_idx=chapter_idx, chapter_total=chapter_total,
+                              chapter_name=idref, chunk_idx=chunk_idx + 1, chunk_total=chunk_total)
+                    else:
+                        # Clean up any existing stale/corrupt chunk files for this index
+                        for p in chapter_chunks_dir.glob(f"chunk_{chunk_idx:06d}*.wav"):
+                            if p != chunk_path:
+                                try:
+                                    p.unlink(missing_ok=True)
+                                except Exception:
+                                    pass
+
+                        if synthesis_start_time is None:
+                            synthesis_start_time = _time.monotonic()
+                        _emit("synthesizing", f"Synthesizing: {text[:60]}...",
+                              chapter_idx=chapter_idx, chapter_total=chapter_total,
+                              chapter_name=idref, chunk_idx=chunk_idx, chunk_total=chunk_total)
+                        audio, generated_frames = synthesizer.synthesize(text)
+                        if generated_frames < 0:
+                            raise ValueError("Synthesizer returned negative frame count")
+                        # Write chunk to disk immediately
+                        chunk_path, frame_count = write_chunk_to_tempfile(
+                            audio, chapter_chunks_dir, chunk_idx, text_hash
+                        )
+                        del audio  # Release WAV bytes immediately
+                        results[chunk_idx] = (chunk_path, frame_count)
+                        chunks_processed_so_far += 1
+                        _emit("synthesizing", f"Finished chunk: {text[:30]}...",
+                              chapter_idx=chapter_idx, chapter_total=chapter_total,
+                              chapter_name=idref, chunk_idx=chunk_idx + 1, chunk_total=chunk_total)
 
             # Reconstruct timings and collect ordered chunk paths
             chunk_paths = []
