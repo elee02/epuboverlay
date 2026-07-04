@@ -973,7 +973,7 @@ def generate_media_overlay_epub(
 
             # Check if already processed (completed cache)
             chapter_duration = 0.0
-            if audio_file_path.exists() and smil_file_path.exists():
+            if os.environ.get("EPUB_BYPASS_CACHE") != "1" and audio_file_path.exists() and smil_file_path.exists():
                 chapter_duration = get_duration_from_smil(smil_file_path)
 
             if chapter_duration > 0.0 and audio_file_path.stat().st_size > 0:
