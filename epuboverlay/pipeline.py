@@ -775,6 +775,11 @@ def generate_media_overlay_epub(
             _emit("error", "Job cancelled by user.")
             raise RuntimeError("Job cancelled by user.")
 
+    executor = None
+    if concurrency > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        executor = ThreadPoolExecutor(max_workers=concurrency)
+
     # Compute content hash of the input EPUB
     epub_hash = compute_file_md5(input_epub)
 
@@ -1056,8 +1061,8 @@ def generate_media_overlay_epub(
 
             # Synthesize — results stores (chunk_path, frame_count) instead of raw bytes
             results = [None] * chunk_total
-            if concurrency > 1:
-                from concurrent.futures import ThreadPoolExecutor, as_completed
+            if concurrency > 1 and executor is not None:
+                from concurrent.futures import as_completed
                 completed_chunks = 0
                 progress_lock = threading.Lock()
 
@@ -1089,20 +1094,19 @@ def generate_media_overlay_epub(
                               chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
                     return idx, chunk_path, frame_count
 
-                with ThreadPoolExecutor(max_workers=concurrency) as executor:
-                    futures = {
-                        executor.submit(process_chunk, idx, span_id, text): idx
-                        for idx, (span_id, text) in enumerate(id_to_text_list)
-                    }
-                    try:
-                        for future in as_completed(futures):
-                            _check_cancel()
-                            idx, chunk_path, frame_count = future.result()
-                            results[idx] = (chunk_path, frame_count)
-                    except Exception as e:
-                        for f in futures:
-                            f.cancel()
-                        raise e
+                futures = {
+                    executor.submit(process_chunk, idx, span_id, text): idx
+                    for idx, (span_id, text) in enumerate(id_to_text_list)
+                }
+                try:
+                    for future in as_completed(futures):
+                        _check_cancel()
+                        idx, chunk_path, frame_count = future.result()
+                        results[idx] = (chunk_path, frame_count)
+                except Exception as e:
+                    for f in futures:
+                        f.cancel()
+                    raise e
             else:
                 for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
                     _check_cancel()
@@ -1230,13 +1234,20 @@ def generate_media_overlay_epub(
             xhtml_root = None
             results = None
             futures = None
-            executor = None
 
             gc.collect()
             if "torch" in sys.modules:
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
+
+            # Force release of freed memory back to OS (highly effective on Linux)
+            try:
+                import ctypes
+                libc = ctypes.CDLL("libc.so.6")
+                libc.malloc_trim(0)
+            except Exception:
+                pass
 
         # Add duration metadata
         _emit("packaging", "Adding duration metadata...",
@@ -1302,6 +1313,8 @@ def generate_media_overlay_epub(
         _emit("done", f"EPUB generated successfully in {elapsed:.1f}s → {output_epub}",
               chapter_idx=chapter_total, chapter_total=chapter_total)
     finally:
+        if executor is not None:
+            executor.shutdown(wait=True)
         if cache_dir_path is not None:
             progress_file = cache_dir_path / "progress.json"
             if progress_file.exists():

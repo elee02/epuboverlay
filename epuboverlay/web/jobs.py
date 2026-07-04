@@ -454,7 +454,17 @@ class JobManager:
             with self._lock:
                 job.status = JobStatus.COMPLETED
                 job.completed_at = time.time()
-                self._active_processes.pop(job_id, None)
+                proc = self._active_processes.pop(job_id, None)
+                if proc:
+                    def _join_proc(p):
+                        try:
+                            p.join(timeout=2.0)
+                            if p.is_alive():
+                                p.terminate()
+                                p.join()
+                        except Exception:
+                            pass
+                    threading.Thread(target=_join_proc, args=(proc,), daemon=True).start()
             job.save_to_disk()
             self._push_sse(job_id, job)
 
@@ -465,7 +475,17 @@ class JobManager:
                     job.status = JobStatus.FAILED
                     job.error = error_msg
                 job.completed_at = time.time()
-                self._active_processes.pop(job_id, None)
+                proc = self._active_processes.pop(job_id, None)
+                if proc:
+                    def _join_proc(p):
+                        try:
+                            p.join(timeout=2.0)
+                            if p.is_alive():
+                                p.terminate()
+                                p.join()
+                        except Exception:
+                            pass
+                    threading.Thread(target=_join_proc, args=(proc,), daemon=True).start()
             job.save_to_disk()
             self._push_sse(job_id, job)
 
