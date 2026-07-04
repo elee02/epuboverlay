@@ -12,7 +12,16 @@ from .pipeline import (
     generate_smil_content,
     concatenate_wavs,
     convert_wav_to_mp3,
+    convert_wav_file_to_mp3,
+    write_chunk_to_tempfile,
+    stream_concat_wav_to_file,
     generate_media_overlay_epub,
+)
+from .extract import (
+    ChapterOverlay,
+    parse_epub_overlays,
+    build_lrc_from_chapter,
+    epub_to_mp3_lrc,
 )
 from .progress import (
     ProgressEvent,
@@ -33,7 +42,14 @@ __all__ = [
     "generate_smil_content",
     "concatenate_wavs",
     "convert_wav_to_mp3",
+    "convert_wav_file_to_mp3",
+    "write_chunk_to_tempfile",
+    "stream_concat_wav_to_file",
     "generate_media_overlay_epub",
+    "ChapterOverlay",
+    "parse_epub_overlays",
+    "build_lrc_from_chapter",
+    "epub_to_mp3_lrc",
     "ProgressEvent",
     "ProgressReporter",
 ]

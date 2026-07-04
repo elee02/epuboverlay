@@ -575,6 +575,58 @@ def convert_wav_to_mp3(wav_bytes: bytes, output_path: Path) -> None:
         raise RuntimeError(f"ffmpeg conversion failed: {stderr}") from e
 
 
+def convert_wav_file_to_mp3(wav_path: Path, output_path: Path) -> None:
+    """Convert a WAV file on disk to compressed MP3 using ffmpeg."""
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(wav_path),
+        "-codec:a", "libmp3lame",
+        "-qscale:a", "4",
+        str(output_path)
+    ]
+    try:
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", errors="ignore")
+        raise RuntimeError(f"ffmpeg conversion failed: {stderr}") from e
+
+
+def write_chunk_to_tempfile(audio_bytes: bytes, temp_dir: Path, idx: int) -> tuple[Path, int]:
+    """Write a single WAV chunk to a numbered temp file and return (path, frame_count).
+
+    This avoids keeping all WAV buffers in memory simultaneously.
+    """
+    chunk_path = temp_dir / f"chunk_{idx:06d}.wav"
+    chunk_path.write_bytes(audio_bytes)
+    with wave.open(io.BytesIO(audio_bytes), "rb") as wav_in:
+        frame_count = wav_in.getnframes()
+    return chunk_path, frame_count
+
+
+def stream_concat_wav_to_file(chunk_paths: list[Path], output_wav_path: Path) -> None:
+    """Concatenate WAV chunk files into a single output WAV by streaming frames.
+
+    Only one chunk is loaded into memory at a time, preventing OOM on large chapters.
+    """
+    if not chunk_paths:
+        return
+
+    # Read params from first chunk
+    with wave.open(str(chunk_paths[0]), "rb") as first_wav:
+        params = first_wav.getparams()
+
+    with wave.open(str(output_wav_path), "wb") as wav_out:
+        wav_out.setparams(params)
+        for chunk_path in chunk_paths:
+            with wave.open(str(chunk_path), "rb") as wav_in:
+                wav_out.writeframes(wav_in.readframes(wav_in.getnframes()))
+
+
 def format_duration(seconds: float) -> str:
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
@@ -998,7 +1050,11 @@ def generate_media_overlay_epub(
 
             chunk_total = len(id_to_text_list)
 
-            # Synthesize
+            # Create temp directory for this chapter's chunk WAV files
+            chapter_chunks_dir = tmp_dir / f"_chunks_{idref}"
+            chapter_chunks_dir.mkdir(parents=True, exist_ok=True)
+
+            # Synthesize — results stores (chunk_path, frame_count) instead of raw bytes
             results = [None] * chunk_total
             if concurrency > 1:
                 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1019,13 +1075,19 @@ def generate_media_overlay_epub(
                     if generated_frames < 0:
                         raise ValueError("Synthesizer returned negative frame count")
                     
+                    # Write chunk to disk immediately, don't keep WAV bytes in RAM
+                    chunk_path, frame_count = write_chunk_to_tempfile(
+                        audio, chapter_chunks_dir, idx
+                    )
+                    del audio  # Release WAV bytes immediately
+                    
                     with progress_lock:
                         completed_chunks += 1
                         chunks_processed_so_far += 1
                         _emit("synthesizing", f"Finished chunk: {text[:30]}...",
                               chapter_idx=chapter_idx, chapter_total=chapter_total,
                               chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
-                    return idx, audio, generated_frames
+                    return idx, chunk_path, frame_count
 
                 with ThreadPoolExecutor(max_workers=concurrency) as executor:
                     futures = {
@@ -1035,8 +1097,8 @@ def generate_media_overlay_epub(
                     try:
                         for future in as_completed(futures):
                             _check_cancel()
-                            idx, audio, generated_frames = future.result()
-                            results[idx] = (audio, generated_frames)
+                            idx, chunk_path, frame_count = future.result()
+                            results[idx] = (chunk_path, frame_count)
                     except Exception as e:
                         for f in futures:
                             f.cancel()
@@ -1052,43 +1114,53 @@ def generate_media_overlay_epub(
                     audio, generated_frames = synthesizer.synthesize(text)
                     if generated_frames < 0:
                         raise ValueError("Synthesizer returned negative frame count")
-                    results[chunk_idx] = (audio, generated_frames)
+                    # Write chunk to disk immediately
+                    chunk_path, frame_count = write_chunk_to_tempfile(
+                        audio, chapter_chunks_dir, chunk_idx
+                    )
+                    del audio  # Release WAV bytes immediately
+                    results[chunk_idx] = (chunk_path, frame_count)
                     chunks_processed_so_far += 1
                     _emit("synthesizing", f"Finished chunk: {text[:30]}...",
                           chapter_idx=chapter_idx, chapter_total=chapter_total,
                           chapter_name=idref, chunk_idx=chunk_idx + 1, chunk_total=chunk_total)
 
-            # Reconstruct wav chunks and timings sequentially
-            wav_chunks = []
+            # Reconstruct timings and collect ordered chunk paths
+            chunk_paths = []
             current_time = 0.0
             mappings = []
             for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
-                audio, generated_frames = results[chunk_idx]
-                duration = generated_frames / frame_rate_hz
+                chunk_path, frame_count = results[chunk_idx]
+                duration = frame_count / frame_rate_hz
                 begin_time = current_time
                 end_time = current_time + duration
 
-                wav_chunks.append(audio)
+                chunk_paths.append(chunk_path)
                 mappings.append((span_id, begin_time, end_time))
                 current_time = end_time
 
-            # Merge audio
+            if not chunk_paths:
+                continue
+
+            # Stream-concatenate WAV chunks to a single file (one chunk in memory at a time)
             _emit("converting", f"Concatenating audio for chapter: {idref}",
                   chapter_idx=chapter_idx, chapter_total=chapter_total,
                   chapter_name=idref, chunk_idx=chunk_total, chunk_total=chunk_total)
 
-            chapter_wav_bytes = concatenate_wavs(wav_chunks)
-            if not chapter_wav_bytes:
-                continue
+            chapter_wav_path = chapter_chunks_dir / "chapter_merged.wav"
+            stream_concat_wav_to_file(chunk_paths, chapter_wav_path)
 
             audio_dir.mkdir(parents=True, exist_ok=True)
 
-            # Compress to MP3
+            # Compress to MP3 from disk (no in-memory WAV buffer)
             _emit("converting", f"Converting to MP3: {idref}",
                   chapter_idx=chapter_idx, chapter_total=chapter_total,
                   chapter_name=idref, chunk_idx=chunk_total, chunk_total=chunk_total)
 
-            convert_wav_to_mp3(chapter_wav_bytes, audio_file_path)
+            convert_wav_file_to_mp3(chapter_wav_path, audio_file_path)
+
+            # Clean up temp chunk files to free disk space
+            shutil.rmtree(chapter_chunks_dir, ignore_errors=True)
 
             # Notify about completed chapter audio for preview
             if chapter_audio_callback is not None:
@@ -1153,8 +1225,7 @@ def generate_media_overlay_epub(
                   chapter_name=idref, chunk_idx=0, chunk_total=0)
 
             # Explicit memory cleanup
-            wav_chunks = None
-            chapter_wav_bytes = None
+            chunk_paths = None
             id_to_text_list = None
             xhtml_root = None
             results = None

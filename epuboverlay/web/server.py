@@ -5,9 +5,11 @@ import argparse
 import asyncio
 import json
 import psutil
+import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from queue import Empty
 
@@ -354,6 +356,68 @@ async def job_events(job_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/api/extract")
+async def extract_mp3_lrc(
+    epub: UploadFile = File(...),
+    merge: bool = Form(False),
+):
+    """Extract MP3 + LRC files from an EPUB3 with Media Overlays.
+
+    Returns a ZIP archive containing per-chapter or merged MP3+LRC pairs.
+    """
+    from epuboverlay.extract import epub_to_mp3_lrc
+
+    # Save uploaded EPUB to temp file
+    tmp_epub = tempfile.NamedTemporaryFile(delete=False, suffix=".epub")
+    content = await epub.read()
+    tmp_epub.write(content)
+    tmp_epub.close()
+
+    # Create temp output directory
+    output_dir = Path(tempfile.mkdtemp(prefix="epuboverlay_extract_"))
+
+    try:
+        results = epub_to_mp3_lrc(
+            epub_path=Path(tmp_epub.name),
+            output_dir=output_dir,
+            merge=merge,
+        )
+
+        if not results:
+            raise HTTPException(
+                status_code=400,
+                detail="No audio overlays found in the EPUB.",
+            )
+
+        # Package results into a ZIP
+        zip_name = Path(epub.filename or "output").stem + "_mp3_lrc"
+        zip_path = output_dir / f"{zip_name}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zout:
+            for mp3, lrc in results:
+                zout.write(mp3, mp3.name)
+                zout.write(lrc, lrc.name)
+
+        return FileResponse(
+            path=str(zip_path),
+            filename=f"{zip_name}.zip",
+            media_type="application/zip",
+            background=None,  # Don't clean up immediately
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up temp epub
+        try:
+            Path(tmp_epub.name).unlink(missing_ok=True)
+        except Exception:
+            pass
+        # Note: output_dir cleanup is deferred — FileResponse needs the file.
+        # FastAPI/Starlette will handle response completion.
 
 
 def main():

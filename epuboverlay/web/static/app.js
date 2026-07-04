@@ -24,6 +24,23 @@ const failedContainer = document.getElementById('failed-container');
 const failedCount = document.getElementById('failed-count');
 const toastContainer = document.getElementById('toast-container');
 
+// Extract mode DOM references
+const extractForm = document.getElementById('extract-form');
+const extractSubmitBtn = document.getElementById('extract-submit-btn');
+const extractEpubFile = document.getElementById('extract-epub-file');
+const extractEpubUploadZone = document.getElementById('extract-epub-upload-zone');
+const extractEpubFileName = document.getElementById('extract-epub-file-name');
+const extractStatus = document.getElementById('extract-status');
+const extractStatusTitle = document.getElementById('extract-status-title');
+const extractStatusBadge = document.getElementById('extract-status-badge');
+const extractStatusMessage = document.getElementById('extract-status-message');
+
+// Tab references
+const tabGenerate = document.getElementById('tab-generate');
+const tabExtract = document.getElementById('tab-extract');
+const modeGenerate = document.getElementById('mode-generate');
+const modeExtract = document.getElementById('mode-extract');
+
 // ── State ──
 let activeSSE = null;
 let jobs = [];
@@ -34,8 +51,27 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFileUploads();
     setupSynthesizerToggle();
     setupForm();
+    setupTabs();
+    setupExtractForm();
     startStatsPolling();
 });
+
+// ── Tab Switching ──
+function setupTabs() {
+    tabGenerate.addEventListener('click', () => {
+        tabGenerate.classList.add('active');
+        tabExtract.classList.remove('active');
+        modeGenerate.style.display = 'block';
+        modeExtract.style.display = 'none';
+    });
+
+    tabExtract.addEventListener('click', () => {
+        tabExtract.classList.add('active');
+        tabGenerate.classList.remove('active');
+        modeExtract.style.display = 'block';
+        modeGenerate.style.display = 'none';
+    });
+}
 
 // ── Toast Notifications ──
 function showToast(message, type = 'info') {
@@ -57,6 +93,8 @@ function setupFileUploads() {
     setupDropZone(epubUploadZone, epubFile, epubFileName);
     // Ref audio file
     setupDropZone(refAudioUploadZone, refAudioFile, refAudioFileName);
+    // Extract EPUB file
+    setupDropZone(extractEpubUploadZone, extractEpubFile, extractEpubFileName);
 }
 
 function setupDropZone(zone, input, nameDisplay) {
@@ -155,6 +193,81 @@ function setupForm() {
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '🚀 Start Generation';
+        }
+    });
+}
+
+// ── Extract Form ──
+function setupExtractForm() {
+    extractForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        if (!extractEpubFile.files.length) {
+            showToast('Please select an EPUB file.', 'error');
+            return;
+        }
+
+        extractSubmitBtn.disabled = true;
+        extractSubmitBtn.innerHTML = '<span class="spinner"></span> Extracting...';
+
+        // Show status card
+        extractStatus.style.display = 'block';
+        extractStatusTitle.textContent = 'Extracting MP3 + LRC...';
+        extractStatusBadge.className = 'phase-badge synthesizing';
+        extractStatusBadge.querySelector('.phase-text').textContent = 'Processing';
+        extractStatusMessage.textContent = 'Uploading and processing EPUB file...';
+        extractStatusMessage.style.display = 'block';
+
+        const formData = new FormData();
+        formData.append('epub', extractEpubFile.files[0]);
+        formData.append('merge', document.getElementById('extract-merge-checkbox').checked);
+
+        try {
+            const resp = await fetch('/api/extract', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.detail || 'Extraction failed');
+            }
+
+            // Download the ZIP file
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const filename = extractEpubFile.files[0].name.replace('.epub', '') + '_mp3_lrc.zip';
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+
+            // Update status
+            extractStatusTitle.textContent = 'Extraction Complete!';
+            extractStatusBadge.className = 'phase-badge done';
+            extractStatusBadge.innerHTML = '<span class="phase-text">Done</span>';
+            extractStatusMessage.textContent = `✓ Downloaded ${filename}`;
+
+            showToast('MP3 + LRC extracted successfully!', 'success');
+
+            // Reset form
+            extractForm.reset();
+            extractEpubFileName.style.display = 'none';
+
+        } catch (err) {
+            extractStatusTitle.textContent = 'Extraction Failed';
+            extractStatusBadge.className = 'phase-badge error';
+            extractStatusBadge.innerHTML = '<span class="phase-text">Error</span>';
+            extractStatusMessage.textContent = `✗ ${err.message}`;
+
+            showToast(err.message, 'error');
+        } finally {
+            extractSubmitBtn.disabled = false;
+            extractSubmitBtn.innerHTML = '📤 Extract MP3 + LRC';
         }
     });
 }
@@ -660,7 +773,7 @@ async function resumeJob(jobId) {
         overlay.classList.add('active');
 
         const form = overlay.querySelector('#resume-form');
-        const submitBtn = form.querySelector('.submit-btn');
+        const submitBtnEl = form.querySelector('.submit-btn');
         const closeBtn = overlay.querySelector('.modal-close-btn');
         const cancelBtn = overlay.querySelector('.cancel-btn');
 
@@ -684,9 +797,9 @@ async function resumeJob(jobId) {
                 currentCompile !== !!originalConfig.compile;
 
             if (hasChanged) {
-                submitBtn.textContent = 'Resume Job with New Options';
+                submitBtnEl.textContent = 'Resume Job with New Options';
             } else {
-                submitBtn.textContent = 'Resume Job';
+                submitBtnEl.textContent = 'Resume Job';
             }
         }
 
