@@ -183,14 +183,20 @@ class Job:
         job.active_chunks_processed = progress.get("active_chunks_processed", 0)
         job.synthesis_elapsed_seconds = progress.get("synthesis_elapsed_seconds", 0.0)
 
-        job.chapter_audios = [
-            ChapterAudio(
-                idref=ca["idref"],
-                mp3_path=Path(ca["mp3_path"]),
-                completed_at=ca.get("completed_at", 0.0)
-            )
-            for ca in data.get("chapter_audios", [])
-        ]
+        seen_idrefs = set()
+        chapter_audios = []
+        for ca in data.get("chapter_audios", []):
+            idref = ca["idref"]
+            if idref not in seen_idrefs:
+                seen_idrefs.add(idref)
+                chapter_audios.append(
+                    ChapterAudio(
+                        idref=idref,
+                        mp3_path=Path(ca["mp3_path"]),
+                        completed_at=ca.get("completed_at", 0.0)
+                    )
+                )
+        job.chapter_audios = chapter_audios
         return job
 
     def to_dict(self) -> dict:
@@ -815,7 +821,15 @@ class JobManager:
         shutil.copy2(mp3_path, dest)
 
         ca = ChapterAudio(idref=idref, mp3_path=dest, completed_at=time.time())
-        job.chapter_audios.append(ca)
+        with self._lock:
+            exists = False
+            for i, existing in enumerate(job.chapter_audios):
+                if existing.idref == idref:
+                    job.chapter_audios[i] = ca
+                    exists = True
+                    break
+            if not exists:
+                job.chapter_audios.append(ca)
         job.save_to_disk()
         self._push_sse(job_id, job)
 

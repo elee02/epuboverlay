@@ -425,6 +425,55 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(restored.chapter_audios[0].idref, "c1")
         self.assertEqual(restored.chapter_audios[0].mp3_path, Path("/tmp/audio/c1.mp3"))
 
+    def test_job_audio_deduplication(self) -> None:
+        from epuboverlay.web.jobs import Job, JobStatus, ChapterAudio, JobManager
+        import tempfile
+        from pathlib import Path
+
+        # 1. Test deserialization deduplication
+        data = {
+            "id": "test-job-dedup",
+            "input_epub_path": "/tmp/input.epub",
+            "output_epub_path": "/tmp/output.epub",
+            "original_filename": "book.epub",
+            "status": "running",
+            "chapter_audios": [
+                {"idref": "c1", "mp3_path": "/tmp/c1.mp3", "completed_at": 100.0},
+                {"idref": "c1", "mp3_path": "/tmp/c1_new.mp3", "completed_at": 200.0},
+                {"idref": "c2", "mp3_path": "/tmp/c2.mp3", "completed_at": 150.0},
+            ]
+        }
+        restored = Job.from_dict(data)
+        self.assertEqual(len(restored.chapter_audios), 2)
+        self.assertEqual(restored.chapter_audios[0].idref, "c1")
+        self.assertEqual(restored.chapter_audios[0].mp3_path, Path("/tmp/c1.mp3"))
+        self.assertEqual(restored.chapter_audios[1].idref, "c2")
+
+        # 2. Test JobManager.add_chapter_audio deduplication
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir) / "jobs"
+            jm = JobManager(data_dir=data_dir)
+            
+            # Write a mock input EPUB to bypass has_running_job check / initialize job
+            input_epub = Path(tmpdir) / "dummy.epub"
+            with open(input_epub, "wb") as f:
+                f.write(b"PKmockepub")
+                
+            job = jm.create_job(input_epub, "dummy.epub", {"synthesizer": "dummy", "frame_rate": 22050})
+            
+            # Create a mock mp3 file
+            mock_mp3 = Path(tmpdir) / "mock.mp3"
+            mock_mp3.touch()
+            
+            # Add chapter audio first time
+            jm.add_chapter_audio(job.id, "c1", mock_mp3)
+            self.assertEqual(len(job.chapter_audios), 1)
+            self.assertEqual(job.chapter_audios[0].idref, "c1")
+            
+            # Add chapter audio second time (simulate resume/replay of cache)
+            jm.add_chapter_audio(job.id, "c1", mock_mp3)
+            self.assertEqual(len(job.chapter_audios), 1)
+
     def test_job_manager_persistence(self) -> None:
         from epuboverlay.web.jobs import JobManager, JobStatus
 
