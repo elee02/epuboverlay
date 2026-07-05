@@ -623,7 +623,7 @@ class JobManager:
                 job.cancel_event,
                 self._mp_queue,
             ),
-            daemon=True
+            daemon=False  # Must be non-daemon to allow chapter subprocess spawning
         )
         with self._lock:
             self._active_processes[job_id] = proc

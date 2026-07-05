@@ -1218,7 +1218,6 @@ def generate_media_overlay_epub(
                         str(chapter_chunks_dir),
                         _sp_queue,
                     ),
-                    daemon=True,
                 )
                 _sp_proc.start()
 
