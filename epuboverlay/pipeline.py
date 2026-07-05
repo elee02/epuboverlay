@@ -67,13 +67,7 @@ class DummySynthesizer:
 
 
 class F5TTSSynthesizer:
-    """A synthesizer that uses F5-TTS for generation.
-
-    The model is loaded lazily on the first ``synthesize()`` call.  When used
-    with ``generate_media_overlay_epub``, each chapter's synthesis runs in a
-    dedicated child process (via ``get_init_config``).  The OS reclaims all
-    memory when the child exits, preventing unbounded memory growth.
-    """
+    """A synthesizer that uses F5-TTS for generation."""
 
     def __init__(
         self,
@@ -86,41 +80,20 @@ class F5TTSSynthesizer:
         compile: bool = False,
     ) -> None:
         try:
-            from f5_tts.api import F5TTS  # noqa: F401 – validate availability
+            from f5_tts.api import F5TTS
         except ImportError as e:
             raise ImportError(
                 "f5-tts is not installed. Please install it using 'pip install f5-tts' "
                 "to use the F5TTSSynthesizer."
             ) from e
 
-        # Store configuration for lazy (re-)initialization
-        self._model_name = model_name
-        self._device = device
-        self._compile = compile
-
+        self.f5 = F5TTS(model=model_name, device=device)
         self.ref_audio = str(ref_audio)
         self.ref_text = ref_text
         self.speed = speed
         self.nfe_step = nfe_step
 
-        # Model is loaded lazily on the first synthesize() call, so the
-        # parent process in subprocess-per-chapter mode never loads it.
-        self.f5 = None  # type: ignore[assignment]
-
-    # ------------------------------------------------------------------
-    # Lazy loading helpers
-    # ------------------------------------------------------------------
-
-    def _ensure_loaded(self) -> None:
-        """Load the F5-TTS model if it is not already loaded."""
-        if self.f5 is not None:
-            return
-
-        from f5_tts.api import F5TTS
-
-        self.f5 = F5TTS(model=self._model_name, device=self._device)
-
-        if self._compile:
+        if compile:
             import torch
             try:
                 print("Compiling model (torch.compile) to optimize inference speed. The first chunk will take 1-2 minutes...")
@@ -128,25 +101,9 @@ class F5TTSSynthesizer:
             except Exception as e:
                 print(f"Warning: torch.compile failed ({e}). Falling back to uncompiled model.")
 
-
-    def get_init_config(self) -> dict:
-        """Return a serialisable dict that can reconstruct this synthesizer
-        in a child process (for subprocess-based memory isolation)."""
-        return {
-            "ref_audio": self.ref_audio,
-            "ref_text": self.ref_text,
-            "model_name": self._model_name,
-            "device": self._device,
-            "speed": self.speed,
-            "nfe_step": self.nfe_step,
-            "compile": self._compile,
-        }
-
     def synthesize(self, text: str) -> tuple[bytes, int]:
         import numpy as np
         import torch
-
-        self._ensure_loaded()
 
         with torch.inference_mode():
             result = self.f5.infer(
@@ -706,88 +663,6 @@ def get_duration_from_smil(smil_file_path: Path) -> float:
         return 0.0
 
 
-def _chapter_synth_worker(
-    synth_config: dict,
-    chunk_list: list[tuple[int, str]],
-    chapter_chunks_dir_str: str,
-    result_queue: "multiprocessing.Queue",
-) -> None:
-    """Subprocess target: load the model, synthesise chunks, and exit.
-
-    When this process terminates the OS reclaims **all** its memory (CPU and
-    GPU), completely eliminating memory growth between chapters.
-    """
-    import os
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["OPENBLAS_NUM_THREADS"] = "1"
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-    os.environ["NUMEXPR_NUM_THREADS"] = "1"
-    try:
-        import torch
-        torch.set_num_threads(1)
-        torch.set_num_interop_threads(1)
-    except Exception:
-        pass
-
-    try:
-        chapter_chunks_dir = Path(chapter_chunks_dir_str)
-        chapter_chunks_dir.mkdir(parents=True, exist_ok=True)
-
-        synth = F5TTSSynthesizer(
-            ref_audio=synth_config["ref_audio"],
-            ref_text=synth_config["ref_text"],
-            model_name=synth_config.get("model_name", "F5TTS_Base"),
-            device=synth_config.get("device"),
-            speed=synth_config.get("speed", 1.0),
-            nfe_step=synth_config.get("nfe_step", 32),
-            compile=synth_config.get("compile", False),
-        )
-
-        for idx, text in chunk_list:
-            text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:16]
-            chunk_path = chapter_chunks_dir / f"chunk_{idx:06d}_{text_hash}.wav"
-
-            # Skip if a valid cached WAV already exists
-            if chunk_path.exists():
-                try:
-                    with wave.open(str(chunk_path), "rb") as wav_in:
-                        frame_count = wav_in.getnframes()
-                    result_queue.put(("cached", idx, str(chunk_path), frame_count, text))
-                    continue
-                except Exception:
-                    try:
-                        chunk_path.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-
-            # Clean stale chunk files for this index
-            for p in chapter_chunks_dir.glob(f"chunk_{idx:06d}*.wav"):
-                if p != chunk_path:
-                    try:
-                        p.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-
-            result_queue.put(("synthesizing", idx, text))
-
-            audio, generated_frames = synth.synthesize(text)
-            if generated_frames < 0:
-                raise ValueError("Synthesizer returned negative frame count")
-
-            chunk_path, frame_count = write_chunk_to_tempfile(
-                audio, chapter_chunks_dir, idx, text_hash
-            )
-            del audio
-            result_queue.put(("done", idx, str(chunk_path), frame_count, text))
-
-        result_queue.put(("complete",))
-    except Exception as exc:
-        import traceback
-        traceback.print_exc()
-        result_queue.put(("error", str(exc)))
-
-
 def generate_media_overlay_epub(
     input_epub: str | Path,
     output_epub: str | Path,
@@ -1193,70 +1068,7 @@ def generate_media_overlay_epub(
 
             # Synthesize — results stores (chunk_path, frame_count) instead of raw bytes
             results = [None] * chunk_total
-
-            # ---- Subprocess-isolated synthesis (Solution B) ----
-            # If the synthesizer supports get_init_config(), we spawn a
-            # dedicated child process that loads the model, synthesises all
-            # chunks, writes WAV files to cache, and exits.  The OS fully
-            # reclaims its memory on termination — no leaks possible.
-            _use_subprocess = hasattr(synthesizer, "get_init_config")
-
-            if _use_subprocess:
-                import multiprocessing as _mp
-
-                _sp_ctx = _mp.get_context("spawn")
-                _sp_queue: _mp.Queue = _sp_ctx.Queue()
-
-                # Build ordered list of (idx, text) for the worker
-                _chunk_list = [(idx, text) for idx, (_sid, text) in enumerate(id_to_text_list)]
-
-                _sp_proc = _sp_ctx.Process(
-                    target=_chapter_synth_worker,
-                    args=(
-                        synthesizer.get_init_config(),
-                        _chunk_list,
-                        str(chapter_chunks_dir),
-                        _sp_queue,
-                    ),
-                )
-                _sp_proc.start()
-
-                # Drain results from the subprocess queue
-                while True:
-                    msg = _sp_queue.get()
-                    tag = msg[0]
-
-                    if tag == "complete":
-                        break
-                    elif tag == "error":
-                        _sp_proc.join()
-                        raise RuntimeError(f"Chapter synthesis subprocess failed: {msg[1]}")
-                    elif tag == "cached":
-                        _, idx, path_str, frame_count, text = msg
-                        results[idx] = (Path(path_str), frame_count)
-                        chunks_processed_so_far += 1
-                        _emit("synthesizing", f"Using cached chunk: {text[:30]}...",
-                              chapter_idx=chapter_idx, chapter_total=chapter_total,
-                              chapter_name=idref, chunk_idx=idx + 1, chunk_total=chunk_total)
-                    elif tag == "synthesizing":
-                        _, idx, text = msg
-                        if synthesis_start_time is None:
-                            synthesis_start_time = _time.monotonic()
-                        _emit("synthesizing", f"Synthesizing: {text[:60]}...",
-                              chapter_idx=chapter_idx, chapter_total=chapter_total,
-                              chapter_name=idref, chunk_idx=idx, chunk_total=chunk_total)
-                    elif tag == "done":
-                        _, idx, path_str, frame_count, text = msg
-                        results[idx] = (Path(path_str), frame_count)
-                        chunks_processed_so_far += 1
-                        active_chunks_processed += 1
-                        _emit("synthesizing", f"Finished chunk: {text[:30]}...",
-                              chapter_idx=chapter_idx, chapter_total=chapter_total,
-                              chapter_name=idref, chunk_idx=idx + 1, chunk_total=chunk_total)
-
-                _sp_proc.join()
-
-            elif concurrency > 1 and executor is not None:
+            if concurrency > 1 and executor is not None:
                 from concurrent.futures import as_completed
                 completed_chunks = 0
                 progress_lock = threading.Lock()
@@ -1499,6 +1311,18 @@ def generate_media_overlay_epub(
             futures = None
 
             gc.collect()
+            if "torch" in sys.modules:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+            # Force release of freed memory back to OS (highly effective on Linux)
+            try:
+                import ctypes
+                libc = ctypes.CDLL("libc.so.6")
+                libc.malloc_trim(0)
+            except Exception:
+                pass
 
         # Add duration metadata
         _emit("packaging", "Adding duration metadata...",
