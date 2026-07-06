@@ -304,7 +304,7 @@ def epub_to_mp3_lrc(
     except Exception:
         pass
 
-    # Extract per-chapter MP3 + LRC
+    # Extract per-chapter audio + LRC
     chapter_outputs: list[tuple[Path, Path]] = []
     with zipfile.ZipFile(epub_path, "r") as zf:
         for idx, chapter in enumerate(chapters):
@@ -313,11 +313,14 @@ def epub_to_mp3_lrc(
             # Generate safe filename
             chapter_name = _sanitize_filename(f"{idx + 1:02d}_{chapter.idref}")
 
-            # Extract MP3
-            mp3_out = output_dir / f"{chapter_name}.mp3"
+            # Detect audio format from the source href extension
+            audio_ext = Path(chapter.audio_href).suffix or ".mp3"
+
+            # Extract audio
+            audio_out = output_dir / f"{chapter_name}{audio_ext}"
             try:
                 audio_data = zf.read(chapter.audio_href)
-                mp3_out.write_bytes(audio_data)
+                audio_out.write_bytes(audio_data)
             except KeyError:
                 _log(f"  Warning: audio file not found in EPUB: {chapter.audio_href}")
                 continue
@@ -327,8 +330,8 @@ def epub_to_mp3_lrc(
             lrc_out = output_dir / f"{chapter_name}.lrc"
             lrc_out.write_text(lrc_content, encoding="utf-8")
 
-            chapter_outputs.append((mp3_out, lrc_out))
-            _log(f"  ✓ {mp3_out.name} + {lrc_out.name}")
+            chapter_outputs.append((audio_out, lrc_out))
+            _log(f"  ✓ {audio_out.name} + {lrc_out.name}")
 
     if not chapter_outputs:
         raise ValueError("No audio files could be extracted from the EPUB.")
@@ -337,16 +340,19 @@ def epub_to_mp3_lrc(
         _log(f"Done! Extracted {len(chapter_outputs)} chapter(s) to {output_dir}")
         return chapter_outputs
 
-    # Merge all chapters into a single MP3 + LRC
-    _log("Merging all chapters into a single MP3+LRC pair...")
+    # Merge all chapters into a single audio + LRC
+    _log("Merging all chapters into a single audio+LRC pair...")
+
+    # Detect audio format from the first chapter's source
+    audio_ext = Path(chapters[0].audio_href).suffix or ".mp3"
 
     merged_name = _sanitize_filename(book_title)
-    merged_mp3 = output_dir / f"{merged_name}.mp3"
+    merged_audio = output_dir / f"{merged_name}{audio_ext}"
     merged_lrc = output_dir / f"{merged_name}.lrc"
 
-    # Concatenate MP3s using ffmpeg
-    mp3_paths = [mp3 for mp3, _lrc in chapter_outputs]
-    _merge_mp3_files(mp3_paths, merged_mp3)
+    # Concatenate audio files using ffmpeg
+    audio_paths = [audio for audio, _lrc in chapter_outputs]
+    _merge_audio_files(audio_paths, merged_audio)
 
     # Build merged LRC with adjusted timestamps
     merged_lrc_lines: list[str] = []
@@ -382,29 +388,29 @@ def epub_to_mp3_lrc(
     merged_lrc.write_text("\n".join(merged_lrc_lines), encoding="utf-8")
 
     # Clean up per-chapter files
-    for mp3, lrc in chapter_outputs:
-        mp3.unlink(missing_ok=True)
+    for audio, lrc in chapter_outputs:
+        audio.unlink(missing_ok=True)
         lrc.unlink(missing_ok=True)
 
-    _log(f"Done! Merged output: {merged_mp3.name} + {merged_lrc.name}")
-    return [(merged_mp3, merged_lrc)]
+    _log(f"Done! Merged output: {merged_audio.name} + {merged_lrc.name}")
+    return [(merged_audio, merged_lrc)]
 
 
-def _merge_mp3_files(mp3_paths: list[Path], output_path: Path) -> None:
-    """Concatenate multiple MP3 files using ffmpeg's concat demuxer."""
-    if not mp3_paths:
+def _merge_audio_files(audio_paths: list[Path], output_path: Path) -> None:
+    """Concatenate multiple audio files using ffmpeg's concat demuxer."""
+    if not audio_paths:
         return
-    if len(mp3_paths) == 1:
-        shutil.copy2(mp3_paths[0], output_path)
+    if len(audio_paths) == 1:
+        shutil.copy2(audio_paths[0], output_path)
         return
 
     # Create a concat list file for ffmpeg
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".txt", delete=False, encoding="utf-8"
     ) as list_file:
-        for mp3 in mp3_paths:
+        for audio in audio_paths:
             # Escape single quotes in paths for ffmpeg
-            escaped = str(mp3.resolve()).replace("'", "'\\''")
+            escaped = str(audio.resolve()).replace("'", "'\\''")
             list_file.write(f"file '{escaped}'\n")
         list_file_path = list_file.name
 

@@ -597,6 +597,32 @@ def convert_wav_file_to_mp3(wav_path: Path, output_path: Path) -> None:
         raise RuntimeError(f"ffmpeg conversion failed: {stderr}") from e
 
 
+def convert_wav_file_to_m4a(wav_path: Path, output_path: Path) -> None:
+    """Convert a WAV file on disk to M4A (AAC-LC) using ffmpeg.
+
+    Uses CBR 64kbps AAC with the faststart flag for sample-accurate
+    seeking via the MP4 container's seek table.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(wav_path),
+        "-codec:a", "aac",
+        "-b:a", "64k",
+        "-movflags", "+faststart",
+        str(output_path)
+    ]
+    try:
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", errors="ignore")
+        raise RuntimeError(f"ffmpeg conversion failed: {stderr}") from e
+
+
 def write_chunk_to_tempfile(audio_bytes: bytes, temp_dir: Path, idx: int, text_hash: str | None = None) -> tuple[Path, int]:
     """Write a single WAV chunk to a numbered temp file and return (path, frame_count).
 
@@ -910,7 +936,7 @@ def generate_media_overlay_epub(
         for pr_idx, (pr_itemref, pr_idref, pr_item, pr_href, pr_xhtml_file_path) in enumerate(processable_itemrefs):
             # Check cached status using the same conditions as below
             pr_rel_dir = Path(pr_href).parent
-            pr_audio_filename = f"audio_{pr_idref}.mp3"
+            pr_audio_filename = f"audio_{pr_idref}.m4a"
             pr_audio_file_path = opf_dir / pr_rel_dir / "audio" / pr_audio_filename
             pr_smil_filename = f"smil_{pr_idref}.smil"
             pr_smil_file_path = opf_dir / pr_rel_dir / pr_smil_filename
@@ -960,7 +986,7 @@ def generate_media_overlay_epub(
             # Cache paths setup
             rel_dir = Path(href).parent
             audio_dir = opf_dir / rel_dir / "audio"
-            audio_filename = f"audio_{idref}.mp3"
+            audio_filename = f"audio_{idref}.m4a"
             audio_file_path = audio_dir / audio_filename
 
             smil_filename = f"smil_{idref}.smil"
@@ -1023,7 +1049,7 @@ def generate_media_overlay_epub(
                         attrib={
                             "id": audio_id,
                             "href": audio_href,
-                            "media-type": "audio/mpeg",
+                            "media-type": "audio/mp4",
                         },
                     )
                     manifest_node.append(audio_item)
@@ -1231,12 +1257,12 @@ def generate_media_overlay_epub(
 
             audio_dir.mkdir(parents=True, exist_ok=True)
 
-            # Compress to MP3 from disk (no in-memory WAV buffer)
-            _emit("converting", f"Converting to MP3: {idref}",
+            # Compress to M4A/AAC from disk (no in-memory WAV buffer)
+            _emit("converting", f"Converting to M4A: {idref}",
                   chapter_idx=chapter_idx, chapter_total=chapter_total,
                   chapter_name=idref, chunk_idx=chunk_total, chunk_total=chunk_total)
 
-            convert_wav_file_to_mp3(chapter_wav_path, audio_file_path)
+            convert_wav_file_to_m4a(chapter_wav_path, audio_file_path)
 
             # Clean up temp chunk files to free disk space
             shutil.rmtree(chapter_chunks_dir, ignore_errors=True)
@@ -1288,7 +1314,7 @@ def generate_media_overlay_epub(
                 attrib={
                     "id": audio_id,
                     "href": audio_href,
-                    "media-type": "audio/mpeg",
+                    "media-type": "audio/mp4",
                 },
             )
             manifest_node.append(audio_item)

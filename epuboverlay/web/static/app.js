@@ -54,6 +54,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTabs();
     setupExtractForm();
     startStatsPolling();
+    
+    const purgeBtn = document.getElementById('purge-cache-btn');
+    if (purgeBtn) {
+        purgeBtn.addEventListener('click', purgeAllCache);
+    }
 });
 
 // ── Tab Switching ──
@@ -634,6 +639,9 @@ function renderCompletedJobs(completedJobs) {
                     <a class="btn btn-download btn-sm" href="/api/jobs/${job.id}/download">
                         ⬇ Download EPUB
                     </a>
+                    <button class="btn btn-danger btn-sm" onclick="deleteJob('${job.id}')">
+                        🗑️ Delete
+                    </button>
                 </div>
             </div>
         `;
@@ -675,6 +683,9 @@ function renderFailedJobs(failedJobs) {
             <div class="job-actions">
                 <button class="btn btn-primary btn-sm" onclick="resumeJob('${job.id}')">
                     ↻ Resume
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="deleteJob('${job.id}')">
+                    🗑️ Delete
                 </button>
             </div>
         </div>
@@ -920,3 +931,138 @@ async function updateStats() {
         console.error('Failed to fetch resource stats:', err);
     }
 }
+
+// ── Custom Confirmation Modal Helper ──
+function showConfirmModal(title, message, confirmText = 'Confirm', confirmClass = 'btn-primary') {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal-content" style="max-width: 400px;">
+                <div class="modal-header">
+                    <h3>${title}</h3>
+                    <button class="modal-close-btn">&times;</button>
+                </div>
+                <div style="margin-bottom: 1.5rem; font-size: 0.95rem; line-height: 1.5; color: var(--text-secondary);">
+                    ${message}
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                    <button class="btn btn-ghost modal-cancel-btn">Cancel</button>
+                    <button class="btn ${confirmClass} modal-confirm-btn">${confirmText}</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        
+        // Force reflow and activate transition
+        overlay.offsetHeight;
+        overlay.classList.add('active');
+
+        const cleanUp = () => {
+            overlay.classList.remove('active');
+            setTimeout(() => {
+                overlay.remove();
+            }, 300);
+        };
+
+        overlay.querySelector('.modal-close-btn').addEventListener('click', () => {
+            cleanUp();
+            resolve(false);
+        });
+
+        overlay.querySelector('.modal-cancel-btn').addEventListener('click', () => {
+            cleanUp();
+            resolve(false);
+        });
+
+        overlay.querySelector('.modal-confirm-btn').addEventListener('click', () => {
+            cleanUp();
+            resolve(true);
+        });
+
+        // Close on clicking outside modal content
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                cleanUp();
+                resolve(false);
+            }
+        });
+    });
+}
+
+// ── Delete Job (with confirmation) ──
+async function deleteJob(jobId) {
+    const confirmed1 = await showConfirmModal(
+        "Delete Job",
+        "Are you sure you want to delete this job? This will delete the database entry and its audio files.",
+        "Delete",
+        "btn-danger"
+    );
+    if (!confirmed1) return;
+
+    const confirmed2 = await showConfirmModal(
+        "Confirm Deletion",
+        "This action cannot be undone and will permanently purge this job and its synthesis cache. Confirm deletion?",
+        "Yes, Delete Permanently",
+        "btn-danger"
+    );
+    if (!confirmed2) return;
+
+    try {
+        const resp = await fetch(`/api/jobs/${jobId}`, { method: 'DELETE' });
+        if (resp.ok) {
+            showToast('Job deleted successfully.', 'success');
+            loadJobs(); // Refresh jobs
+        } else {
+            const err = await resp.json();
+            showToast(err.detail || 'Failed to delete job.', 'error');
+        }
+    } catch (err) {
+        showToast('Failed to delete job.', 'error');
+    }
+}
+
+// ── Purge All Cache (with confirmation) ──
+async function purgeAllCache() {
+    let sizeStr = "";
+    try {
+        const sizeResp = await fetch('/api/cache/size');
+        if (sizeResp.ok) {
+            const sizeData = await sizeResp.json();
+            const sizeMb = (sizeData.size_bytes / (1024 * 1024)).toFixed(2);
+            sizeStr = ` (estimated cache size: ${sizeMb} MB)`;
+        }
+    } catch (err) {
+        console.error('Failed to get cache size:', err);
+    }
+
+    const confirmed1 = await showConfirmModal(
+        "Purge All Cache",
+        `Are you sure you want to clear all pipeline cache and jobs?${sizeStr}`,
+        "Purge All",
+        "btn-danger"
+    );
+    if (!confirmed1) return;
+
+    const confirmed2 = await showConfirmModal(
+        "Confirm Purge",
+        "This will permanently delete all cached chapter audio/SMIL data and all non-running jobs. Are you absolutely sure?",
+        "Yes, Purge Everything",
+        "btn-danger"
+    );
+    if (!confirmed2) return;
+
+    try {
+        const resp = await fetch('/api/cache', { method: 'DELETE' });
+        if (resp.ok) {
+            showToast('All caches and non-running jobs purged.', 'success');
+            loadJobs(); // Refresh jobs
+        } else {
+            const err = await resp.json();
+            showToast(err.detail || 'Failed to purge cache.', 'error');
+        }
+    } catch (err) {
+        showToast('Failed to purge cache.', 'error');
+    }
+}
+

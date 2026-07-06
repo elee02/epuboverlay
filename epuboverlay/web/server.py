@@ -293,15 +293,47 @@ async def download_job(job_id: str):
 
 @app.get("/api/jobs/{job_id}/audio/{chapter_idref}")
 async def stream_chapter_audio(job_id: str, chapter_idref: str):
-    """Stream per-chapter MP3 for in-browser playback."""
-    mp3_path = job_manager.get_chapter_audio_path(job_id, chapter_idref)
-    if mp3_path is None:
+    """Stream per-chapter audio for in-browser playback."""
+    audio_path = job_manager.get_chapter_audio_path(job_id, chapter_idref)
+    if audio_path is None:
         raise HTTPException(status_code=404, detail="Chapter audio not found.")
+    ext = audio_path.suffix or ".m4a"
+    media_type = "audio/mp4" if ext == ".m4a" else "audio/mpeg"
     return FileResponse(
-        path=str(mp3_path),
-        media_type="audio/mpeg",
-        filename=f"{chapter_idref}.mp3",
+        path=str(audio_path),
+        media_type=media_type,
+        filename=f"{chapter_idref}{ext}",
     )
+
+
+@app.delete("/api/jobs/{job_id}")
+async def delete_job(job_id: str):
+    """Delete a job and its cache/storage."""
+    if not job_manager.delete_job(job_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Job not found or is currently running.",
+        )
+    return {"status": "deleted"}
+
+
+@app.delete("/api/cache")
+async def purge_cache():
+    """Purge all caches and non-running jobs."""
+    if job_manager.has_running_job():
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot purge cache while a job is running.",
+        )
+    job_manager.purge_all_cache()
+    return {"status": "purged"}
+
+
+@app.get("/api/cache/size")
+async def get_cache_size():
+    """Get total cache size in bytes."""
+    size = job_manager.get_cache_size()
+    return {"size_bytes": size}
 
 
 @app.get("/api/jobs/{job_id}/events")

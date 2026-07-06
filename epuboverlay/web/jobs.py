@@ -33,7 +33,7 @@ class JobStatus(str, Enum):
 class ChapterAudio:
     """Represents a completed chapter's audio file available for preview."""
     idref: str
-    mp3_path: Path
+    audio_path: Path
     completed_at: float = 0.0
 
 
@@ -142,7 +142,7 @@ class Job:
             "chapter_audios": [
                 {
                     "idref": ca.idref,
-                    "mp3_path": str(ca.mp3_path),
+                    "audio_path": str(ca.audio_path),
                     "completed_at": ca.completed_at
                 }
                 for ca in self.chapter_audios
@@ -189,10 +189,11 @@ class Job:
             idref = ca["idref"]
             if idref not in seen_idrefs:
                 seen_idrefs.add(idref)
+                path_val = ca.get("audio_path") or ca.get("mp3_path")
                 chapter_audios.append(
                     ChapterAudio(
                         idref=idref,
-                        mp3_path=Path(ca["mp3_path"]),
+                        audio_path=Path(path_val),
                         completed_at=ca.get("completed_at", 0.0)
                     )
                 )
@@ -782,13 +783,13 @@ class JobManager:
         return cli_jobs + jobs
 
     def get_chapter_audio_path(self, job_id: str, chapter_idref: str) -> Path | None:
-        """Get the MP3 file path for a completed chapter."""
+        """Get the audio file path for a completed chapter."""
         job = self.get_job(job_id)
         if job is None:
             return None
         for ca in job.chapter_audios:
-            if ca.idref == chapter_idref and ca.mp3_path.exists():
-                return ca.mp3_path
+            if ca.idref == chapter_idref and ca.audio_path.exists():
+                return ca.audio_path
         return None
 
     def update_job_progress(self, job_id: str, event: Any) -> None:
@@ -809,18 +810,19 @@ class JobManager:
 
         self._push_sse(job_id, job)
 
-    def add_chapter_audio(self, job_id: str, idref: str, mp3_path: Path) -> None:
+    def add_chapter_audio(self, job_id: str, idref: str, audio_path: Path) -> None:
         """Record a completed chapter audio and copy to the job's audio dir."""
         job = self.get_job(job_id)
         if job is None:
             return
 
-        # Copy MP3 to permanent job audio directory
-        dest = self._data_dir / job_id / "audio" / f"{idref}.mp3"
+        # Copy audio file dynamically keeping its extension (.m4a, .mp3, etc.)
+        audio_ext = audio_path.suffix or ".m4a"
+        dest = self._data_dir / job_id / "audio" / f"{idref}{audio_ext}"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(mp3_path, dest)
+        shutil.copy2(audio_path, dest)
 
-        ca = ChapterAudio(idref=idref, mp3_path=dest, completed_at=time.time())
+        ca = ChapterAudio(idref=idref, audio_path=dest, completed_at=time.time())
         with self._lock:
             exists = False
             for i, existing in enumerate(job.chapter_audios):
@@ -832,6 +834,74 @@ class JobManager:
                 job.chapter_audios.append(ca)
         job.save_to_disk()
         self._push_sse(job_id, job)
+
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a job and its cache/storage. Returns False if job is running."""
+        job = self.get_job(job_id)
+        if job is None:
+            return False
+        if job.status == JobStatus.RUNNING:
+            return False
+
+        # 1. Remove pipeline cache matching input EPUB hash if input file exists
+        if job.input_epub_path.exists():
+            try:
+                from epuboverlay.pipeline import compute_file_md5
+                epub_hash = compute_file_md5(job.input_epub_path)
+                cache_dir = Path.home() / ".epuboverlay" / "cache"
+                if cache_dir.exists():
+                    for item in cache_dir.iterdir():
+                        if item.is_dir() and item.name.startswith(f"{epub_hash}_"):
+                            shutil.rmtree(item, ignore_errors=True)
+            except Exception as e:
+                print(f"Error removing pipeline cache for job {job_id}: {e}")
+
+        # 2. Remove job data directory
+        job_dir = self._data_dir / job_id
+        if job_dir.exists():
+            shutil.rmtree(job_dir, ignore_errors=True)
+
+        # 3. Remove from in-memory dict
+        with self._lock:
+            self._jobs.pop(job_id, None)
+
+        return True
+
+    def purge_all_cache(self) -> None:
+        """Purge all pipeline caches and all non-running jobs."""
+        # 1. Purge cache folder
+        cache_dir = Path.home() / ".epuboverlay" / "cache"
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # 2. Purge non-running jobs
+        to_delete = []
+        with self._lock:
+            for job_id, job in list(self._jobs.items()):
+                if job.status != JobStatus.RUNNING:
+                    to_delete.append(job_id)
+
+        for job_id in to_delete:
+            job_dir = self._data_dir / job_id
+            if job_dir.exists():
+                shutil.rmtree(job_dir, ignore_errors=True)
+            with self._lock:
+                self._jobs.pop(job_id, None)
+
+    def get_cache_size(self) -> int:
+        """Get total bytes used under ~/.epuboverlay."""
+        base_dir = Path.home() / ".epuboverlay"
+        total = 0
+        if not base_dir.exists():
+            return 0
+        for entry in base_dir.rglob("*"):
+            try:
+                if entry.is_file() and not entry.is_symlink():
+                    total += entry.stat().st_size
+            except Exception:
+                pass
+        return total
 
     # --- SSE (Server-Sent Events) support ---
 

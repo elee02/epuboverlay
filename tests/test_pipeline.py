@@ -128,9 +128,9 @@ class PipelineTests(unittest.TestCase):
             ("s1", 0.0, 1.5),
             ("s2", 1.5, 3.75)
         ]
-        smil = generate_smil_content("chapter1.xhtml", mappings, "audio/chapter1.mp3")
+        smil = generate_smil_content("chapter1.xhtml", mappings, "audio/chapter1.m4a")
         self.assertIn('<text src="chapter1.xhtml#s1"/>', smil)
-        self.assertIn('<audio src="audio/chapter1.mp3" clipBegin="1.500s" clipEnd="3.750s"/>', smil)
+        self.assertIn('<audio src="audio/chapter1.m4a" clipBegin="1.500s" clipEnd="3.750s"/>', smil)
 
     def test_concatenate_wavs(self) -> None:
         out1 = io.BytesIO()
@@ -212,7 +212,7 @@ class PipelineTests(unittest.TestCase):
                 files = zf.namelist()
                 self.assertIn("OEBPS/chapter1.xhtml", files)
                 self.assertIn("OEBPS/smil_c1.smil", files)
-                self.assertIn("OEBPS/audio/audio_c1.mp3", files)
+                self.assertIn("OEBPS/audio/audio_c1.m4a", files)
 
                 opf_data = zf.read("OEBPS/content.opf")
                 opf_root = ET.fromstring(opf_data)
@@ -406,7 +406,7 @@ class PipelineTests(unittest.TestCase):
         job.overall_percent = 25.5
 
         job.chapter_audios = [
-            ChapterAudio(idref="c1", mp3_path=Path("/tmp/audio/c1.mp3"), completed_at=time.time())
+            ChapterAudio(idref="c1", audio_path=Path("/tmp/audio/c1.m4a"), completed_at=time.time())
         ]
 
         data = job.to_serialize_dict()
@@ -423,7 +423,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(restored.overall_percent, 25.5)
         self.assertEqual(len(restored.chapter_audios), 1)
         self.assertEqual(restored.chapter_audios[0].idref, "c1")
-        self.assertEqual(restored.chapter_audios[0].mp3_path, Path("/tmp/audio/c1.mp3"))
+        self.assertEqual(restored.chapter_audios[0].audio_path, Path("/tmp/audio/c1.m4a"))
 
     def test_job_audio_deduplication(self) -> None:
         from epuboverlay.web.jobs import Job, JobStatus, ChapterAudio, JobManager
@@ -438,15 +438,15 @@ class PipelineTests(unittest.TestCase):
             "original_filename": "book.epub",
             "status": "running",
             "chapter_audios": [
-                {"idref": "c1", "mp3_path": "/tmp/c1.mp3", "completed_at": 100.0},
-                {"idref": "c1", "mp3_path": "/tmp/c1_new.mp3", "completed_at": 200.0},
-                {"idref": "c2", "mp3_path": "/tmp/c2.mp3", "completed_at": 150.0},
+                {"idref": "c1", "audio_path": "/tmp/c1.m4a", "completed_at": 100.0},
+                {"idref": "c1", "audio_path": "/tmp/c1_new.m4a", "completed_at": 200.0},
+                {"idref": "c2", "audio_path": "/tmp/c2.m4a", "completed_at": 150.0},
             ]
         }
         restored = Job.from_dict(data)
         self.assertEqual(len(restored.chapter_audios), 2)
         self.assertEqual(restored.chapter_audios[0].idref, "c1")
-        self.assertEqual(restored.chapter_audios[0].mp3_path, Path("/tmp/c1.mp3"))
+        self.assertEqual(restored.chapter_audios[0].audio_path, Path("/tmp/c1.m4a"))
         self.assertEqual(restored.chapter_audios[1].idref, "c2")
 
         # 2. Test JobManager.add_chapter_audio deduplication
@@ -461,17 +461,17 @@ class PipelineTests(unittest.TestCase):
                 
             job = jm.create_job(input_epub, "dummy.epub", {"synthesizer": "dummy", "frame_rate": 22050})
             
-            # Create a mock mp3 file
-            mock_mp3 = Path(tmpdir) / "mock.mp3"
-            mock_mp3.touch()
+            # Create a mock audio file
+            mock_audio = Path(tmpdir) / "mock.m4a"
+            mock_audio.touch()
             
             # Add chapter audio first time
-            jm.add_chapter_audio(job.id, "c1", mock_mp3)
+            jm.add_chapter_audio(job.id, "c1", mock_audio)
             self.assertEqual(len(job.chapter_audios), 1)
             self.assertEqual(job.chapter_audios[0].idref, "c1")
             
             # Add chapter audio second time (simulate resume/replay of cache)
-            jm.add_chapter_audio(job.id, "c1", mock_mp3)
+            jm.add_chapter_audio(job.id, "c1", mock_audio)
             self.assertEqual(len(job.chapter_audios), 1)
 
     def test_job_manager_persistence(self) -> None:
@@ -582,6 +582,27 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(len(jobs_list), 1)
             self.assertEqual(jobs_list[0]["id"], job_id)
             self.assertEqual(jobs_list[0]["book_title"], "Test Web Persist")
+
+            # Test cache size API
+            response = client.get("/api/cache/size")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("size_bytes", response.json())
+            self.assertGreater(response.json()["size_bytes"], 0)
+
+            # Test job deletion API
+            response = client.delete(f"/api/jobs/{job_id}")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"status": "deleted"})
+
+            # Verify job is no longer listed
+            response = client.get("/api/jobs")
+            jobs_list = [j for j in response.json() if not j["id"].startswith("cli-")]
+            self.assertEqual(jobs_list, [])
+
+            # Test purge cache API
+            response = client.delete("/api/cache")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), {"status": "purged"})
 
         finally:
             server_mod.job_manager = original_jm
