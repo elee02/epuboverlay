@@ -623,50 +623,55 @@ class PipelineTests(unittest.TestCase):
         ])
         pid = process.pid
 
-        cache_dir = Path.home() / ".epuboverlay" / "cache" / f"test_cli_{pid}"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        progress_json = cache_dir / "progress.json"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            temp_jobs_dir = Path(tmpdir) / "jobs"
+            cache_dir = Path(tmpdir) / "cache" / f"test_cli_{pid}"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            progress_json = cache_dir / "progress.json"
 
-        try:
-            progress_data = {
-                "pid": pid,
-                "input_epub_path": "/tmp/mock_book.epub",
-                "output_epub_path": "/tmp/mock_book_synced.epub",
-                "book_title": "CLI Test Book Title",
-                "phase": "synthesizing",
-                "chapter_index": 3,
-                "chapter_total": 8,
-                "overall_percent": 37.5,
-                "updated_at": time.time(),
-            }
-            with open(progress_json, "w", encoding="utf-8") as f:
-                json.dump(progress_data, f, indent=2)
+            try:
+                progress_data = {
+                    "pid": pid,
+                    "input_epub_path": "/tmp/mock_book.epub",
+                    "output_epub_path": "/tmp/mock_book_synced.epub",
+                    "book_title": "CLI Test Book Title",
+                    "phase": "synthesizing",
+                    "chapter_index": 3,
+                    "chapter_total": 8,
+                    "overall_percent": 37.5,
+                    "updated_at": time.time(),
+                }
+                with open(progress_json, "w", encoding="utf-8") as f:
+                    json.dump(progress_data, f, indent=2)
 
-            jm = JobManager()
-            cli_jobs = jm._scan_cli_jobs()
+                jm = JobManager(data_dir=temp_jobs_dir)
+                cli_jobs = jm._scan_cli_jobs()
 
-            discovered_jobs = [j for j in cli_jobs if j.id == f"cli-{pid}"]
-            self.assertEqual(len(discovered_jobs), 1)
-            discovered_job = discovered_jobs[0]
-            self.assertEqual(discovered_job.book_title, "CLI Test Book Title")
-            self.assertEqual(discovered_job.status, JobStatus.RUNNING)
-            self.assertEqual(discovered_job.current_phase, "synthesizing")
-            self.assertEqual(discovered_job.overall_percent, 37.5)
+                discovered_jobs = [j for j in cli_jobs if j.id == f"cli-{pid}"]
+                self.assertEqual(len(discovered_jobs), 1)
+                discovered_job = discovered_jobs[0]
+                self.assertEqual(discovered_job.book_title, "CLI Test Book Title")
+                self.assertEqual(discovered_job.status, JobStatus.RUNNING)
+                self.assertEqual(discovered_job.current_phase, "synthesizing")
+                self.assertEqual(discovered_job.overall_percent, 37.5)
 
-            result = jm.cancel_job(f"cli-{pid}")
-            self.assertTrue(result)
+                result = jm.cancel_job(f"cli-{pid}")
+                self.assertTrue(result)
 
-            process.wait(timeout=2.0)
-            self.assertIsNotNone(process.returncode)
+                process.wait(timeout=2.0)
+                self.assertIsNotNone(process.returncode)
 
-        finally:
-            if process.poll() is None:
-                process.terminate()
-                process.wait()
-            if progress_json.exists():
-                progress_json.unlink()
-            if cache_dir.exists():
-                cache_dir.rmdir()
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait()
+                if progress_json.exists():
+                    progress_json.unlink()
+                if cache_dir.exists():
+                    try:
+                        shutil.rmtree(cache_dir.parent)
+                    except Exception:
+                        pass
 
     def test_web_api_system_stats(self) -> None:
         from fastapi.testclient import TestClient

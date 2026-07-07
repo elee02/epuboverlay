@@ -15,6 +15,7 @@
     --bg-input-focus: rgba(255, 255, 255, 0.1);
 
     --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-card: rgba(255, 255, 255, 0.08);
     --border-focus: rgba(139, 92, 246, 0.5);
 
     --text-primary: #f0f0f5;
@@ -361,6 +362,11 @@ body::before {
 .btn-sm {
     padding: 0.4rem 0.8rem;
     font-size: 0.78rem;
+}
+
+.btn-xs {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.72rem;
 }
 
 /* ── Progress Bar ── */

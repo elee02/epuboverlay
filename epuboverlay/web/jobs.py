@@ -421,6 +421,7 @@ class JobManager:
     def __init__(self, data_dir: Path | None = None) -> None:
         self._data_dir = data_dir or Path.home() / ".epuboverlay" / "jobs"
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._base_dir = self._data_dir.parent
         self._jobs: dict[str, Job] = {}
         self._lock = threading.Lock()
         self._active_processes: dict[str, multiprocessing.Process] = {}
@@ -639,7 +640,7 @@ class JobManager:
     def _scan_cli_jobs(self) -> list[Job]:
         """Scan the cache directory for progress.json files and verify active CLI processes."""
         cli_jobs = []
-        cache_root = Path.home() / ".epuboverlay" / "cache"
+        cache_root = self._base_dir / "cache"
         if not cache_root.exists():
             return cli_jobs
 
@@ -848,7 +849,7 @@ class JobManager:
             try:
                 from epuboverlay.pipeline import compute_file_md5
                 epub_hash = compute_file_md5(job.input_epub_path)
-                cache_dir = Path.home() / ".epuboverlay" / "cache"
+                cache_dir = self._base_dir / "cache"
                 if cache_dir.exists():
                     for item in cache_dir.iterdir():
                         if item.is_dir() and item.name.startswith(f"{epub_hash}_"):
@@ -870,7 +871,7 @@ class JobManager:
     def purge_all_cache(self) -> None:
         """Purge all pipeline caches and all non-running jobs."""
         # 1. Purge cache folder
-        cache_dir = Path.home() / ".epuboverlay" / "cache"
+        cache_dir = self._base_dir / "cache"
         if cache_dir.exists():
             shutil.rmtree(cache_dir, ignore_errors=True)
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -890,8 +891,8 @@ class JobManager:
                 self._jobs.pop(job_id, None)
 
     def get_cache_size(self) -> int:
-        """Get total bytes used under ~/.epuboverlay."""
-        base_dir = Path.home() / ".epuboverlay"
+        """Get total bytes used under base directory."""
+        base_dir = self._base_dir
         total = 0
         if not base_dir.exists():
             return 0

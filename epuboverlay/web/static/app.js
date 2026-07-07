@@ -217,7 +217,7 @@ function setupExtractForm() {
 
         // Show status card
         extractStatus.style.display = 'block';
-        extractStatusTitle.textContent = 'Extracting MP3 + LRC...';
+        extractStatusTitle.textContent = 'Extracting Audio + LRC...';
         extractStatusBadge.className = 'phase-badge synthesizing';
         extractStatusBadge.querySelector('.phase-text').textContent = 'Processing';
         extractStatusMessage.textContent = 'Uploading and processing EPUB file...';
@@ -241,7 +241,7 @@ function setupExtractForm() {
             // Download the ZIP file
             const blob = await resp.blob();
             const url = URL.createObjectURL(blob);
-            const filename = extractEpubFile.files[0].name.replace('.epub', '') + '_mp3_lrc.zip';
+            const filename = extractEpubFile.files[0].name.replace('.epub', '') + '_audio_lrc.zip';
 
             const a = document.createElement('a');
             a.href = url;
@@ -257,7 +257,7 @@ function setupExtractForm() {
             extractStatusBadge.innerHTML = '<span class="phase-text">Done</span>';
             extractStatusMessage.textContent = `✓ Downloaded ${filename}`;
 
-            showToast('MP3 + LRC extracted successfully!', 'success');
+            showToast('Audio + LRC extracted successfully!', 'success');
 
             // Reset form
             extractForm.reset();
@@ -272,7 +272,7 @@ function setupExtractForm() {
             showToast(err.message, 'error');
         } finally {
             extractSubmitBtn.disabled = false;
-            extractSubmitBtn.innerHTML = '📤 Extract MP3 + LRC';
+            extractSubmitBtn.innerHTML = '📤 Extract Audio + LRC';
         }
     });
 }
@@ -772,7 +772,7 @@ async function resumeJob(jobId) {
                     </div>
 
                     <div class="modal-footer" style="margin-top: 0.5rem;">
-                        <button type="button" class="btn btn-secondary btn-sm cancel-btn">Cancel</button>
+                        <button type="button" class="btn btn-ghost btn-sm cancel-btn">Cancel</button>
                         <button type="submit" class="btn btn-primary btn-sm submit-btn">Resume Job</button>
                     </div>
                 </form>
@@ -926,6 +926,18 @@ async function updateStats() {
             document.getElementById('fill-gpu').style.width = `${data.gpu.utilization}%`;
         } else {
             gpuBadge.style.display = 'none';
+        }
+
+        // Cache Size
+        try {
+            const cacheResp = await fetch('/api/cache/size');
+            if (cacheResp.ok) {
+                const cacheData = await cacheResp.json();
+                const sizeMb = (cacheData.size_bytes / (1024 * 1024)).toFixed(2);
+                document.getElementById('stat-cache').textContent = `${sizeMb} MB`;
+            }
+        } catch (cacheErr) {
+            console.error('Failed to fetch cache size:', cacheErr);
         }
     } catch (err) {
         console.error('Failed to fetch resource stats:', err);

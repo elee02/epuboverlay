@@ -13,9 +13,6 @@
         <header class="app-header">
             <h1>🎧 epuboverlay</h1>
             <p class="subtitle">EPUB 3 Media Overlay Generator with AI Voice Cloning</p>
-            <div style="margin-top: 1rem; display: flex; justify-content: center; gap: 0.5rem;">
-                <button class="btn btn-danger btn-sm" id="purge-cache-btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">🗑️ Purge All Cache</button>
-            </div>
         </header>
 
         <!-- System Resources Metrics -->
@@ -71,6 +68,19 @@
                     <div class="stat-progress-fill" id="fill-gpu" style="width: 0%;"></div>
                 </div>
             </div>
+
+            <div class="stat-badge" id="cache-stat-badge">
+                <div class="stat-info-row">
+                    <span class="stat-icon">🗄️</span>
+                    <div class="stat-info">
+                        <span class="stat-label">Cache Size</span>
+                        <span class="stat-value" id="stat-cache">0.00 MB</span>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; margin-top: auto; padding-top: 0.2rem;">
+                    <button type="button" class="btn btn-danger btn-xs" id="purge-cache-btn" style="flex: 1; line-height: 1;">🗑️ Purge Cache</button>
+                </div>
+            </div>
         </div>
 
         <!-- Mode Tabs -->
@@ -79,7 +89,7 @@
                 🎙️ Generate Overlays
             </button>
             <button class="mode-tab" data-mode="extract" id="tab-extract">
-                📤 Extract MP3 + LRC
+                📤 Extract Audio + LRC
             </button>
         </div>
 
@@ -218,11 +228,11 @@
                 <div class="card-header">
                     <div class="card-title">
                         <span class="icon">📤</span>
-                        Extract MP3 + LRC from EPUB
+                        Extract Audio + LRC from EPUB
                     </div>
                 </div>
                 <p class="card-description">
-                    Upload an EPUB3 file with media overlays (audio narration) and extract MP3 + LRC file pairs —
+                    Upload an EPUB3 file with media overlays (audio narration) and extract Audio + LRC file pairs (supports M4A, MP3, etc.) —
                     ready for playback on music players like <strong>Poweramp</strong>.
                 </p>
 
@@ -242,13 +252,13 @@
                     <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
                         <input type="checkbox" id="extract-merge-checkbox" name="merge" style="width: auto; margin: 0; cursor: pointer;">
                         <label for="extract-merge-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">
-                            Merge all chapters into a single MP3 + LRC pair
+                            Merge all chapters into a single Audio + LRC pair
                         </label>
                     </div>
-
+ 
                     <div style="display: flex; justify-content: flex-end;">
                         <button type="submit" class="btn btn-primary" id="extract-submit-btn">
-                            📤 Extract MP3 + LRC
+                            📤 Extract Audio + LRC
                         </button>
                     </div>
                 </form>

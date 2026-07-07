@@ -391,13 +391,13 @@ async def job_events(job_id: str):
 
 
 @app.post("/api/extract")
-async def extract_mp3_lrc(
+async def extract_audio_lrc(
     epub: UploadFile = File(...),
     merge: bool = Form(False),
 ):
-    """Extract MP3 + LRC files from an EPUB3 with Media Overlays.
+    """Extract Audio + LRC files from an EPUB3 with Media Overlays.
 
-    Returns a ZIP archive containing per-chapter or merged MP3+LRC pairs.
+    Returns a ZIP archive containing per-chapter or merged audio+LRC pairs.
     """
     from epuboverlay.extract import epub_to_mp3_lrc
 
@@ -424,11 +424,11 @@ async def extract_mp3_lrc(
             )
 
         # Package results into a ZIP
-        zip_name = Path(epub.filename or "output").stem + "_mp3_lrc"
+        zip_name = Path(epub.filename or "output").stem + "_audio_lrc"
         zip_path = output_dir / f"{zip_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zout:
-            for mp3, lrc in results:
-                zout.write(mp3, mp3.name)
+            for audio, lrc in results:
+                zout.write(audio, audio.name)
                 zout.write(lrc, lrc.name)
 
         return FileResponse(
