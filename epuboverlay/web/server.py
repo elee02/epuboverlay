@@ -480,6 +480,60 @@ async def delete_job(job_id: str):
     return {"status": "deleted"}
 
 
+@app.post("/api/jobs/{job_id}/convert-audio")
+async def convert_job_to_audio(
+    job_id: str,
+    merge: bool = Form(False),
+):
+    """Convert a completed job's output EPUB to Audio + LRC (ZIP download).
+
+    Works directly from the job's stored output EPUB — no re-upload needed.
+    """
+    from epuboverlay.extract import epub_to_mp3_lrc
+
+    job = job_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Job is not completed yet.")
+    if not job.output_epub_path.exists():
+        raise HTTPException(status_code=404, detail="Output EPUB file not found.")
+
+    output_dir = Path(tempfile.mkdtemp(prefix="epuboverlay_convert_"))
+
+    try:
+        results = epub_to_mp3_lrc(
+            epub_path=job.output_epub_path,
+            output_dir=output_dir,
+            merge=merge,
+        )
+
+        if not results:
+            raise HTTPException(
+                status_code=400,
+                detail="No audio overlays found in the output EPUB.",
+            )
+
+        stem = Path(job.original_filename or "output").stem
+        zip_name = f"{stem}_audio_lrc"
+        zip_path = output_dir / f"{zip_name}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zout:
+            for audio, lrc in results:
+                zout.write(audio, audio.name)
+                zout.write(lrc, lrc.name)
+
+        return FileResponse(
+            path=str(zip_path),
+            filename=f"{zip_name}.zip",
+            media_type="application/zip",
+        )
+
+    except (ValueError, HTTPException):
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.delete("/api/cache")
 async def purge_cache():
     """Purge all caches and non-running jobs."""

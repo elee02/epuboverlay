@@ -139,3 +139,21 @@ export async function deleteProfile(name) {
     }
     return await resp.json();
 }
+
+export async function convertJobToAudio(jobId, merge) {
+    const formData = new FormData();
+    formData.append('merge', merge ? 'true' : 'false');
+    const resp = await fetch(`/api/jobs/${jobId}/convert-audio`, {
+        method: 'POST',
+        body: formData
+    });
+    if (!resp.ok) {
+        let detail = 'Failed to convert to audio';
+        try {
+            const err = await resp.json();
+            detail = err.detail || detail;
+        } catch (_) {}
+        throw new Error(detail);
+    }
+    return resp.blob();
+}

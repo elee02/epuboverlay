@@ -1,4 +1,4 @@
-import { cancelJob, deleteJob as deleteJobApi, resumeJob as resumeJobApi, fetchJobDetails, loadJobs } from './api.js';
+import { cancelJob, deleteJob as deleteJobApi, resumeJob as resumeJobApi, fetchJobDetails, loadJobs, convertJobToAudio } from './api.js';
 import { showToast, formatTime, escapeHtml } from './utils.js';
 import { showConfirmModal } from './modal.js';
 import { setupKokoroMixer, updateFilteredVoices, getVoiceMetadata, setVoiceMode, renderBlendMixer } from './kokoro.js';
@@ -361,10 +361,19 @@ export function renderCompletedJobs(completedJobs) {
                 `).join('')}
             </div>
 
+            <div class="job-actions-row">
+                <label class="merge-checkbox-label" for="merge-cb-${job.id}">
+                    <input type="checkbox" id="merge-cb-${job.id}" class="merge-chapters-cb">
+                    <span>Merge all chapters</span>
+                </label>
+            </div>
             <div class="job-actions">
                 <a class="btn btn-download btn-sm" href="/api/jobs/${job.id}/download">
                     ⬇ Download EPUB
                 </a>
+                <button class="btn btn-audio btn-sm convert-audio-btn">
+                    🎵 Convert to Audio with Synced Lyrics
+                </button>
                 <button class="btn btn-danger btn-sm delete-job-btn">
                     🗑️ Delete
                 </button>
@@ -372,6 +381,34 @@ export function renderCompletedJobs(completedJobs) {
         `;
 
         card.querySelector('.delete-job-btn').addEventListener('click', () => deleteJob(job.id, () => refreshJobsList(() => {})));
+
+        // Convert to Audio handler
+        card.querySelector('.convert-audio-btn').addEventListener('click', async () => {
+            const btn = card.querySelector('.convert-audio-btn');
+            const merge = card.querySelector('.merge-chapters-cb').checked;
+            btn.disabled = true;
+            btn.textContent = '⏳ Converting…';
+            try {
+                const blob = await convertJobToAudio(job.id, merge);
+                const stem = (job.book_title || job.original_filename || 'output').replace(/\.epub$/i, '');
+                const zipName = `${stem}_audio_lrc.zip`;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = zipName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showToast('🎵 Audio + LRC exported successfully!', 'success');
+            } catch (err) {
+                showToast('Conversion failed: ' + err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🎵 Convert to Audio with Synced Lyrics';
+            }
+        });
+
         completedContainer.appendChild(card);
     });
 }
