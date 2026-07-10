@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "epuboverlay"
-version = "0.1.0"
-description = "Generate standard narrated EPUB 3 files with Media Overlays using F5-TTS."
+version = "0.10.0"
+description = "Generate standard narrated EPUB 3 files with Media Overlays using F5-TTS, Kokoro-82M, and Pocket-TTS."
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
@@ -15,6 +15,12 @@ classifiers = [
 dependencies = [
     "fastapi>=0.100",
     "uvicorn>=0.20",
+    "psutil>=5.9.0",
+    "python-multipart>=0.0.6",
+    "scipy>=1.10.0",
+    "f5-tts>=1.1.0",
+    "kokoro>=0.7.16",
+    "pocket-tts>=0.1.0",
 ]
 
 [project.scripts]
