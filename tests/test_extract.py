@@ -300,7 +300,8 @@ class ExtractTests(unittest.TestCase):
 
     def test_round_trip_generate_then_extract(self) -> None:
         """Test round-trip: generate EPUB with overlays, then extract MP3+LRC."""
-        from epuboverlay.pipeline import DummySynthesizer, generate_media_overlay_epub
+        from epuboverlay.pipeline import generate_media_overlay_epub
+        from epuboverlay.synthesizers import DummySynthesizer
         from epuboverlay.extract import epub_to_mp3_lrc
 
         with tempfile.TemporaryDirectory() as tmpdir:

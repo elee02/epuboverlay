@@ -102,6 +102,9 @@
             <button class="mode-tab" data-mode="extract" id="tab-extract">
                 📤 Extract Audio + LRC
             </button>
+            <button class="mode-tab" data-mode="settings" id="tab-settings">
+                ⚙️ Settings &amp; Profiles
+            </button>
         </div>
 
         <!-- ═══════════════════════════════════════════ -->
@@ -412,11 +415,174 @@
                 <div class="synth-preview" id="extract-status-message" style="display: block;">Processing...</div>
             </div>
         </div>
+
+        <!-- ═══════════════════════════════════════════ -->
+        <!-- SETTINGS & PROFILES MODE -->
+        <!-- ═══════════════════════════════════════════ -->
+        <div id="mode-settings" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <span class="icon">⚙️</span>
+                        Global Settings &amp; Profiles
+                    </div>
+                </div>
+                <p class="card-description">
+                    Manage defaults for text normalization, synthesizers, and save/load configuration profiles.
+                </p>
+
+                <!-- Profile Management -->
+                <div class="settings-section" style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle);">
+                    <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">👤 Profiles</h3>
+                    <div class="form-grid" style="grid-template-columns: 1fr auto auto; align-items: flex-end; gap: 0.75rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="profile-select">Saved Profiles</label>
+                            <select id="profile-select">
+                                <option value="">-- Load a Profile --</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn" id="load-profile-btn" style="height: 38px;">Load</button>
+                        <button type="button" class="btn btn-danger" id="delete-profile-btn" style="height: 38px;">Delete</button>
+                    </div>
+                    <div class="form-grid" style="grid-template-columns: 1fr auto; align-items: flex-end; gap: 0.75rem; margin-top: 1rem;">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="new-profile-name">Save Current Configuration as Profile</label>
+                            <input type="text" id="new-profile-name" placeholder="Profile name (e.g. US Male Narrator)...">
+                        </div>
+                        <button type="button" class="btn btn-primary" id="save-profile-btn" style="height: 38px;">Save Profile</button>
+                    </div>
+                </div>
+
+                <!-- Text Normalization Settings -->
+                <div class="settings-section" style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle);">
+                    <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">📖 Text Normalization (Pronunciation Tweaks)</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                        These rules run on CPU before synthesis, adjusting pronunciation without changing the final EPUB text or LRC files.
+                    </p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                            <input type="checkbox" id="setting-expand-numerals" style="width: auto; margin: 0; cursor: pointer;">
+                            <label for="setting-expand-numerals" style="margin: 0; cursor: pointer; user-select: none;">
+                                <strong>Numeral Expansion</strong> (e.g. 2026 ➔ twenty twenty-six)
+                            </label>
+                        </div>
+                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                            <input type="checkbox" id="setting-resolve-contractions" style="width: auto; margin: 0; cursor: pointer;">
+                            <label for="setting-resolve-contractions" style="margin: 0; cursor: pointer; user-select: none;">
+                                <strong>Contraction Expansion</strong> (e.g. won't ➔ will not)
+                            </label>
+                        </div>
+                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                            <input type="checkbox" id="setting-resolve-heteronyms" style="width: auto; margin: 0; cursor: pointer;">
+                            <label for="setting-resolve-heteronyms" style="margin: 0; cursor: pointer; user-select: none;">
+                                <strong>Heteronym Resolution</strong> (e.g. read ➔ reed/red, live ➔ liv/lyve)
+                            </label>
+                        </div>
+                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                            <input type="checkbox" id="setting-harmonize-punctuation" style="width: auto; margin: 0; cursor: pointer;">
+                            <label for="setting-harmonize-punctuation" style="margin: 0; cursor: pointer; user-select: none;">
+                                <strong>Punctuation Harmonization</strong> (smart quotes, dashes, ellipses)
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Custom Lexicon -->
+                    <div class="form-group">
+                        <label style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Custom Lexicon (Word Substitutions)</label>
+                        <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                            Define phonetic spelling overrides for acronyms, jargon, or non-English words. Match is case-insensitive.
+                        </p>
+                        
+                        <div id="lexicon-table-container" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-secondary); margin-bottom: 0.75rem;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;" id="lexicon-table">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid var(--border-subtle); background: var(--bg-primary);">
+                                        <th style="padding: 0.6rem 0.8rem; font-weight: 600;">Original Word / Pattern</th>
+                                        <th style="padding: 0.6rem 0.8rem; font-weight: 600;">Replacement Pronunciation</th>
+                                        <th style="padding: 0.6rem 0.8rem; font-weight: 600; width: 60px; text-align: center;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Add Word Row -->
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr auto; align-items: flex-end; gap: 0.75rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <input type="text" id="lexicon-add-word" placeholder="e.g. LLaMA">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <input type="text" id="lexicon-add-replacement" placeholder="e.g. lama">
+                            </div>
+                            <button type="button" class="btn" id="lexicon-add-btn" style="height: 38px;">➕ Add Word</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Default Synthesizer Options -->
+                <div class="settings-section" style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle);">
+                    <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">🎙️ Default Generator Settings</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                        These values will auto-populate the "New Job" form when launching dashboard overlays.
+                    </p>
+                    <form id="settings-default-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="default-synthesizer">Synthesizer</label>
+                                <select id="default-synthesizer">
+                                    <option value="f5-tts">F5-TTS (Voice Cloning)</option>
+                                    <option value="kokoro">Kokoro-82M (Built-in Voices / Formulas)</option>
+                                    <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning)</option>
+                                    <option value="dummy">Dummy (Silent / Testing)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="default-device">Device</label>
+                                <select id="default-device">
+                                    <option value="">Auto</option>
+                                    <option value="cuda">CUDA (GPU)</option>
+                                    <option value="cpu">CPU</option>
+                                    <option value="mps">MPS (Apple Silicon)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="default-speed">Speed</label>
+                                <input type="number" id="default-speed" value="1.0" min="0.1" max="3.0" step="0.1">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="default-max-chars">Max Chars/Chunk</label>
+                                <input type="number" id="default-max-chars" value="150" min="50" max="500" step="10">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="default-concurrency">Concurrency</label>
+                                <input type="number" id="default-concurrency" value="2" min="1" max="16" step="1">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="default-frame-rate">Frame Rate (Hz)</label>
+                                <input type="number" id="default-frame-rate" value="24000.0" min="8000" max="48000" step="1000">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                    <button type="button" class="btn btn-ghost" id="settings-reset-btn">Reset to Defaults</button>
+                    <button type="button" class="btn btn-primary" id="settings-save-btn">💾 Save All Settings</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/static/app.js?v=2"></script>
+    <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

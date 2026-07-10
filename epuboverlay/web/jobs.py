@@ -399,6 +399,13 @@ def run_job_process(
             chapter_audio_callback=chapter_audio_cb,
             concurrency=config.get("concurrency", 2),
             selected_chapters=config.get("selected_chapters"),
+            normalization_settings={
+                "expand_numerals": config.get("expand_numerals", True),
+                "resolve_contractions": config.get("resolve_contractions", True),
+                "resolve_heteronyms": config.get("resolve_heteronyms", True),
+                "harmonize_punctuation": config.get("harmonize_punctuation", True),
+                "custom_lexicon": config.get("custom_lexicon", []),
+            },
         )
         progress_queue.put(("completed", job_id, None))
     except Exception as e:

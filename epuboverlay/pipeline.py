@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import gc
 import hashlib
+from epuboverlay.normalization import normalize_text
 from html.parser import HTMLParser
 import html.entities
 import io
@@ -193,6 +194,7 @@ def synthesize_with_internal_timestamps(
     chunks: Iterable[TextChunk],
     synthesizer: FrameTimedSynthesizer,
     frame_rate_hz: float,
+    normalization_settings: dict | None = None,
 ) -> tuple[list[bytes], list[TimestampedLine]]:
     """Generate chunk audio and derive timestamps directly from generated frame counts."""
     if frame_rate_hz <= 0:
@@ -203,7 +205,8 @@ def synthesize_with_internal_timestamps(
     timestamped_lines: list[TimestampedLine] = []
 
     for chunk in chunks:
-        audio, generated_frames = synthesizer.synthesize(chunk.text)
+        normalized_text = normalize_text(chunk.text, normalization_settings)
+        audio, generated_frames = synthesizer.synthesize(normalized_text)
         if generated_frames < 0:
             raise ValueError("generated frame count cannot be negative")
 
@@ -697,6 +700,7 @@ def generate_media_overlay_epub(
     cache_dir: str | Path | None = None,
     concurrency: int = 2,
     selected_chapters: list[str] | None = None,
+    normalization_settings: dict | None = None,
 ) -> None:
     """Orchestrate EPUB extraction, synthesis, SMIL creation, OPF updates, and repackaging.
 
@@ -836,6 +840,8 @@ def generate_media_overlay_epub(
         config_parts.append(f"chars_per_sec:{synthesizer.chars_per_sec}")
     if hasattr(synthesizer, "sample_rate"):
         config_parts.append(f"sample_rate:{synthesizer.sample_rate}")
+    if normalization_settings:
+        config_parts.append(f"normalization_settings:{json.dumps(normalization_settings, sort_keys=True)}")
 
     config_str = ",".join(config_parts)
     config_hash = hashlib.md5(config_str.encode("utf-8")).hexdigest()
@@ -1102,7 +1108,8 @@ def generate_media_overlay_epub(
                     nonlocal completed_chunks, chunks_processed_so_far, active_chunks_processed, synthesis_start_time
                     _check_cancel()
                     
-                    text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:16]
+                    normalized_text = normalize_text(text, normalization_settings)
+                    text_hash = hashlib.md5(normalized_text.encode("utf-8")).hexdigest()[:16]
                     chunk_path = chapter_chunks_dir / f"chunk_{idx:06d}_{text_hash}.wav"
                     
                     cached_valid = False
@@ -1142,7 +1149,7 @@ def generate_media_overlay_epub(
                               chapter_idx=chapter_idx, chapter_total=chapter_total,
                               chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
                     
-                    audio, generated_frames = synthesizer.synthesize(text)
+                    audio, generated_frames = synthesizer.synthesize(normalized_text)
                     if generated_frames < 0:
                         raise ValueError("Synthesizer returned negative frame count")
                     
@@ -1178,7 +1185,8 @@ def generate_media_overlay_epub(
                 for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
                     _check_cancel()
                     
-                    text_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:16]
+                    normalized_text = normalize_text(text, normalization_settings)
+                    text_hash = hashlib.md5(normalized_text.encode("utf-8")).hexdigest()[:16]
                     chunk_path = chapter_chunks_dir / f"chunk_{chunk_idx:06d}_{text_hash}.wav"
                     
                     cached_valid = False
@@ -1214,7 +1222,7 @@ def generate_media_overlay_epub(
                         _emit("synthesizing", f"Synthesizing: {text[:60]}...",
                               chapter_idx=chapter_idx, chapter_total=chapter_total,
                               chapter_name=idref, chunk_idx=chunk_idx, chunk_total=chunk_total)
-                        audio, generated_frames = synthesizer.synthesize(text)
+                        audio, generated_frames = synthesizer.synthesize(normalized_text)
                         if generated_frames < 0:
                             raise ValueError("Synthesizer returned negative frame count")
                         # Write chunk to disk immediately

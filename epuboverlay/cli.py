@@ -69,6 +69,27 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
 
     reporter = ConsoleProgressReporter()
 
+    # Load normalization settings from settings.json
+    import json
+    settings_path = Path.home() / ".epuboverlay" / "settings.json"
+    norm_settings = {
+        "expand_numerals": True,
+        "resolve_contractions": True,
+        "resolve_heteronyms": True,
+        "harmonize_punctuation": True,
+        "custom_lexicon": [],
+    }
+    if settings_path.exists():
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                current = saved.get("current_settings", {})
+                for k in norm_settings:
+                    if k in current:
+                        norm_settings[k] = current[k]
+        except Exception:
+            pass
+
     try:
         generate_media_overlay_epub(
             input_epub=parsed.epub,
@@ -79,6 +100,7 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
             progress_callback=reporter.report,
             cache_dir=parsed.cache_dir,
             concurrency=parsed.concurrency,
+            normalization_settings=norm_settings,
         )
         print("\nSuccess! Synced EPUB generated successfully.")
         return 0

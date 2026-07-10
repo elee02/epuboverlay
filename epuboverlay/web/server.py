@@ -89,26 +89,122 @@ async def get_stats():
     return get_system_stats()
 
 
+SETTINGS_FILE = Path.home() / ".epuboverlay" / "settings.json"
+
+DEFAULT_SETTINGS = {
+    "synthesizer": "f5-tts",
+    "speed": 1.0,
+    "max_chars": 150,
+    "frame_rate": 24000.0,
+    "concurrency": 2,
+    "nfe_step": 32,
+    "compile": False,
+    "voice": "af_heart",
+    "voice_formula": "",
+    "lang_code": "a",
+    "device": "",
+    "expand_numerals": True,
+    "resolve_contractions": True,
+    "resolve_heteronyms": True,
+    "harmonize_punctuation": True,
+    "custom_lexicon": []
+}
+
+def load_settings_data() -> dict:
+    if not SETTINGS_FILE.exists():
+        return {"current_settings": DEFAULT_SETTINGS.copy(), "profiles": {}}
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if "current_settings" not in data:
+                data["current_settings"] = DEFAULT_SETTINGS.copy()
+            else:
+                for k, v in DEFAULT_SETTINGS.items():
+                    if k not in data["current_settings"]:
+                        data["current_settings"][k] = v
+            if "profiles" not in data:
+                data["profiles"] = {}
+            return data
+    except Exception:
+        return {"current_settings": DEFAULT_SETTINGS.copy(), "profiles": {}}
+
+def save_settings_data(data: dict) -> None:
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
 @app.get("/api/config")
 async def get_config():
     """Return available synthesizers and defaults."""
     from epuboverlay.synthesizers import KOKORO_VOICES
+    data = load_settings_data()
+    current = data.get("current_settings", {})
+    
+    defaults = {
+        "synthesizer": current.get("synthesizer", "f5-tts"),
+        "speed": current.get("speed", 1.0),
+        "max_chars": current.get("max_chars", 150),
+        "frame_rate": current.get("frame_rate", 24000.0),
+        "concurrency": current.get("concurrency", 2),
+        "nfe_step": current.get("nfe_step", 32),
+        "compile": current.get("compile", False),
+        "voice": current.get("voice", "af_heart"),
+        "voice_formula": current.get("voice_formula", ""),
+        "lang_code": current.get("lang_code", "a"),
+        "device": current.get("device", ""),
+    }
+    
     return {
         "synthesizers": ["f5-tts", "kokoro", "pocket-tts", "dummy"],
         "kokoro_voices": KOKORO_VOICES,
-        "defaults": {
-            "synthesizer": "f5-tts",
-            "speed": 1.0,
-            "max_chars": 150,
-            "frame_rate": 24000.0,
-            "concurrency": 2,
-            "nfe_step": 32,
-            "compile": False,
-            "voice": "af_heart",
-            "voice_formula": "",
-            "lang_code": "a",
-        },
+        "defaults": defaults,
     }
+
+
+@app.get("/api/settings")
+async def get_settings():
+    """Get the current settings and profiles."""
+    return load_settings_data()
+
+
+from fastapi import Body
+
+@app.post("/api/settings")
+async def save_settings(settings: dict = Body(...)):
+    """Save current settings."""
+    data = load_settings_data()
+    data["current_settings"] = settings
+    save_settings_data(data)
+    return {"status": "saved", "settings": data["current_settings"]}
+
+
+@app.post("/api/profiles")
+async def save_profile(profile_data: dict = Body(...)):
+    """Save a settings profile."""
+    name = profile_data.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Profile name is required.")
+    
+    settings = profile_data.get("settings", {})
+    if not settings:
+        raise HTTPException(status_code=400, detail="Profile settings are required.")
+        
+    data = load_settings_data()
+    data["profiles"][name] = settings
+    save_settings_data(data)
+    return {"status": "saved", "profiles": data["profiles"]}
+
+
+@app.delete("/api/profiles/{name}")
+async def delete_profile(name: str):
+    """Delete a profile."""
+    data = load_settings_data()
+    if name in data["profiles"]:
+        del data["profiles"][name]
+        save_settings_data(data)
+        return {"status": "deleted", "profiles": data["profiles"]}
+    raise HTTPException(status_code=404, detail=f"Profile '{name}' not found.")
 
 
 
@@ -181,6 +277,8 @@ async def create_job(
     tmp_epub.write(content)
     tmp_epub.close()
 
+    norm_settings = load_settings_data().get("current_settings", {})
+
     config = {
         "synthesizer": synthesizer,
         "ref_text": ref_text,
@@ -195,6 +293,11 @@ async def create_job(
         "voice_formula": voice_formula,
         "lang_code": lang_code,
         "selected_chapters": parsed_chapters,
+        "expand_numerals": norm_settings.get("expand_numerals", True),
+        "resolve_contractions": norm_settings.get("resolve_contractions", True),
+        "resolve_heteronyms": norm_settings.get("resolve_heteronyms", True),
+        "harmonize_punctuation": norm_settings.get("harmonize_punctuation", True),
+        "custom_lexicon": norm_settings.get("custom_lexicon", []),
     }
 
     # Save ref audio if provided (only for models that require voice cloning)
