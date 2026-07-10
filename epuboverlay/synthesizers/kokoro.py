@@ -71,6 +71,9 @@ def _parse_voice_formula(pipeline: Any, formula: str) -> Any:
     return weighted_sum.to("cpu")
 
 
+import threading
+
+
 class KokoroSynthesizer(BaseSynthesizer):
     """Kokoro-82M synthesizer — lightweight, fast, with built-in voices and
     voice formula blending support.
@@ -86,6 +89,7 @@ class KokoroSynthesizer(BaseSynthesizer):
     """
 
     _SAMPLE_RATE = 24000
+    _lock = threading.Lock()
 
     def __init__(
         self,
@@ -143,7 +147,10 @@ class KokoroSynthesizer(BaseSynthesizer):
         import numpy as np  # type: ignore[import-untyped]
 
         audio_parts: list[np.ndarray] = []
-        for segment in self._pipeline(text, voice=self._voice, speed=self._speed):
+        with self._lock:
+            segments = list(self._pipeline(text, voice=self._voice, speed=self._speed))
+
+        for segment in segments:
             audio = segment.audio
             if hasattr(audio, "numpy"):
                 audio = audio.numpy()
