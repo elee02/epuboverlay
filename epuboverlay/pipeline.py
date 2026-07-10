@@ -688,6 +688,507 @@ def get_duration_from_smil(smil_file_path: Path) -> float:
         return 0.0
 
 
+# ── Private pipeline helpers ─────────────────────────────────────────────────
+
+
+def _compute_config_hash(
+    synthesizer: FrameTimedSynthesizer,
+    frame_rate_hz: float,
+    max_chars: int,
+    normalization_settings: "dict | None",
+) -> str:
+    """Return a deterministic MD5 of the synthesis configuration.
+
+    Used together with the EPUB content hash to partition the on-disk cache.
+    """
+    config_parts = [
+        f"frame_rate_hz:{frame_rate_hz}",
+        f"max_chars:{max_chars}",
+        f"synth_type:{synthesizer.__class__.__name__}",
+    ]
+    if hasattr(synthesizer, "speed"):
+        config_parts.append(f"speed:{synthesizer.speed}")
+    if hasattr(synthesizer, "nfe_step"):
+        config_parts.append(f"nfe_step:{synthesizer.nfe_step}")
+    if hasattr(synthesizer, "ref_text"):
+        config_parts.append(f"ref_text:{synthesizer.ref_text}")
+    if hasattr(synthesizer, "ref_audio"):
+        ref_audio_path = Path(synthesizer.ref_audio)
+        if ref_audio_path.exists():
+            stat = ref_audio_path.stat()
+            config_parts.append(
+                f"ref_audio:{ref_audio_path.resolve()}:{stat.st_size}:{stat.st_mtime}"
+            )
+        else:
+            config_parts.append(f"ref_audio:{synthesizer.ref_audio}")
+    if hasattr(synthesizer, "chars_per_sec"):
+        config_parts.append(f"chars_per_sec:{synthesizer.chars_per_sec}")
+    if hasattr(synthesizer, "sample_rate"):
+        config_parts.append(f"sample_rate:{synthesizer.sample_rate}")
+    if normalization_settings:
+        config_parts.append(
+            f"normalization_settings:{json.dumps(normalization_settings, sort_keys=True)}"
+        )
+    return hashlib.md5(",".join(config_parts).encode("utf-8")).hexdigest()
+
+
+def _prepare_workspace(
+    input_epub: Path,
+    epub_hash: str,
+    cache_dir_path: Path,
+    emit_fn,
+) -> Path:
+    """Extract the EPUB into the cache workspace, reusing any existing extraction.
+
+    Returns the workspace (tmp) directory path.
+    """
+    tmp_dir = cache_dir_path
+    marker_file = tmp_dir / ".extracted"
+
+    if not marker_file.exists() or marker_file.read_text().strip() != epub_hash:
+        emit_fn("parsing", "Extracting EPUB contents to cache...")
+        if tmp_dir.exists():
+            for item in tmp_dir.iterdir():
+                if item.is_file():
+                    item.unlink()
+                elif item.is_dir():
+                    shutil.rmtree(item)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(input_epub, "r") as zf:
+            zf.extractall(tmp_dir)
+        marker_file.write_text(epub_hash)
+    else:
+        emit_fn("parsing", "Using existing extracted cache...")
+
+    return tmp_dir
+
+
+def _parse_opf(
+    tmp_dir: Path,
+) -> "tuple[Path, Path, ET.Element, ET.Element, ET.Element, dict, str]":
+    """Parse META-INF/container.xml and the OPF package document.
+
+    Returns:
+        (opf_path, opf_dir, opf_root, manifest_node, spine_node,
+         manifest_items, book_title)
+    """
+    container_path = tmp_dir / "META-INF/container.xml"
+    if not container_path.exists():
+        raise FileNotFoundError("META-INF/container.xml not found in EPUB")
+
+    container_tree = ET.parse(container_path)
+    rootfile = container_tree.find(".//{*}rootfile")
+    if rootfile is None:
+        raise ValueError("EPUB container is missing a rootfile entry")
+
+    opf_rel_path = rootfile.attrib.get("full-path")
+    if not opf_rel_path:
+        raise ValueError("EPUB rootfile entry is missing full-path")
+
+    opf_path = tmp_dir / opf_rel_path
+    opf_dir = opf_path.parent
+    opf_root = ET.parse(opf_path).getroot()
+
+    book_title = tmp_dir.stem  # fallback; overwritten if OPF has a <title>
+    title_el = opf_root.find(".//{*}title")
+    if title_el is not None and title_el.text:
+        book_title = title_el.text.strip()
+
+    manifest_node = opf_root.find(".//{*}manifest")
+    spine_node = opf_root.find(".//{*}spine")
+    if manifest_node is None or spine_node is None:
+        raise ValueError("OPF document is missing manifest or spine element")
+
+    manifest_items: dict[str, ET.Element] = {}
+    for item in manifest_node.findall(".//{*}item"):
+        item_id = item.attrib.get("id")
+        if item_id:
+            manifest_items[item_id] = item
+
+    return opf_path, opf_dir, opf_root, manifest_node, spine_node, manifest_items, book_title
+
+
+def _precount_chapters(
+    processable_itemrefs: list,
+    opf_dir: Path,
+    max_chars: int,
+) -> "tuple[int, int]":
+    """Pre-pass over every chapter to count pending synthesis chunks and characters.
+
+    Returns:
+        (total_chunks_to_synthesize, total_characters_all)
+    """
+    total_chunks = 0
+    total_chars = 0
+
+    for _itemref, pr_idref, _item, pr_href, pr_xhtml_file_path in processable_itemrefs:
+        pr_rel_dir = Path(pr_href).parent
+        pr_audio_filename = f"audio_{pr_idref}.m4a"
+        pr_smil_filename = f"smil_{pr_idref}.smil"
+
+        pr_audio_file_path = opf_dir / pr_rel_dir / "audio" / pr_audio_filename
+        pr_smil_file_path = opf_dir / pr_rel_dir / pr_smil_filename
+        pr_legacy_audio_path = opf_dir / "audio" / pr_audio_filename
+        pr_legacy_smil_path = opf_dir / pr_smil_filename
+
+        pr_is_cached = (
+            (pr_audio_file_path.exists() or pr_legacy_audio_path.exists())
+            and (pr_smil_file_path.exists() or pr_legacy_smil_path.exists())
+        )
+
+        try:
+            pr_xhtml_str = pr_xhtml_file_path.read_bytes().decode("utf-8", errors="ignore")
+            pr_xhtml_root = ET.fromstring(
+                replace_html_entities(pr_xhtml_str).encode("utf-8")
+            )
+            pr_full_text = " ".join("".join(pr_xhtml_root.itertext()).strip().split())
+            total_chars += len(pr_full_text)
+
+            if not pr_is_cached:
+                pr_id_to_text_list: list = []
+                process_element(pr_xhtml_root, lambda: "dummy", pr_id_to_text_list, max_chars)
+                total_chunks += len(pr_id_to_text_list)
+        except Exception:
+            pass
+
+    return total_chunks, total_chars
+
+
+def _synthesize_chapter_chunks(
+    id_to_text_list: list,
+    chapter_chunks_dir: Path,
+    synthesizer: FrameTimedSynthesizer,
+    normalization_settings: "dict | None",
+    concurrency: int,
+    executor,
+    emit_fn,
+    check_cancel_fn,
+    state,
+    chapter_idx: int,
+    chapter_total: int,
+    idref: str,
+) -> list:
+    """Synthesize all text chunks for one chapter, using the on-disk cache where possible.
+
+    Handles both the concurrent (ThreadPoolExecutor) and sequential code paths.
+
+    Returns:
+        results: list of (chunk_path: Path, frame_count: int) in chunk order.
+    """
+    import time as _time
+
+    chunk_total = len(id_to_text_list)
+    results: list = [None] * chunk_total
+
+    if concurrency > 1 and executor is not None:
+        import threading as _threading
+        from concurrent.futures import as_completed
+
+        completed_chunks = 0
+        progress_lock = _threading.Lock()
+
+        def process_chunk(idx: int, _span_id: str, text: str):
+            nonlocal completed_chunks
+            check_cancel_fn()
+
+            normalized_text = normalize_text(text, normalization_settings)
+            text_hash = hashlib.md5(normalized_text.encode("utf-8")).hexdigest()[:16]
+            chunk_path = chapter_chunks_dir / f"chunk_{idx:06d}_{text_hash}.wav"
+
+            # Attempt to reuse existing chunk from cache
+            cached_valid = False
+            frame_count = 0
+            if chunk_path.exists():
+                try:
+                    with wave.open(str(chunk_path), "rb") as wav_in:
+                        frame_count = wav_in.getnframes()
+                    cached_valid = True
+                except Exception:
+                    try:
+                        chunk_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+            if cached_valid:
+                with progress_lock:
+                    completed_chunks += 1
+                    state.chunks_processed_so_far += 1
+                    emit_fn(
+                        "synthesizing",
+                        f"Using cached chunk: {text[:30]}...",
+                        chapter_idx=chapter_idx,
+                        chapter_total=chapter_total,
+                        chapter_name=idref,
+                        chunk_idx=completed_chunks,
+                        chunk_total=chunk_total,
+                    )
+                return idx, chunk_path, frame_count
+
+            # Remove stale chunk files for this index slot
+            for p in chapter_chunks_dir.glob(f"chunk_{idx:06d}*.wav"):
+                if p != chunk_path:
+                    try:
+                        p.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+            with progress_lock:
+                if state.synthesis_start_time is None:
+                    state.synthesis_start_time = _time.monotonic()
+                emit_fn(
+                    "synthesizing",
+                    f"Synthesizing: {text[:60]}...",
+                    chapter_idx=chapter_idx,
+                    chapter_total=chapter_total,
+                    chapter_name=idref,
+                    chunk_idx=completed_chunks,
+                    chunk_total=chunk_total,
+                )
+
+            audio, generated_frames = synthesizer.synthesize(normalized_text)
+            if generated_frames < 0:
+                raise ValueError("Synthesizer returned negative frame count")
+
+            chunk_path, frame_count = write_chunk_to_tempfile(
+                audio, chapter_chunks_dir, idx, text_hash
+            )
+            del audio  # release WAV bytes immediately
+
+            with progress_lock:
+                completed_chunks += 1
+                state.chunks_processed_so_far += 1
+                state.active_chunks_processed += 1
+                emit_fn(
+                    "synthesizing",
+                    f"Finished chunk: {text[:30]}...",
+                    chapter_idx=chapter_idx,
+                    chapter_total=chapter_total,
+                    chapter_name=idref,
+                    chunk_idx=completed_chunks,
+                    chunk_total=chunk_total,
+                )
+            return idx, chunk_path, frame_count
+
+        futures = {
+            executor.submit(process_chunk, idx, span_id, text): idx
+            for idx, (span_id, text) in enumerate(id_to_text_list)
+        }
+        try:
+            for future in as_completed(futures):
+                check_cancel_fn()
+                idx, chunk_path, frame_count = future.result()
+                results[idx] = (chunk_path, frame_count)
+        except Exception as exc:
+            for f in futures:
+                f.cancel()
+            raise exc
+
+    else:
+        # Sequential synthesis
+        for chunk_idx, (_span_id, text) in enumerate(id_to_text_list):
+            check_cancel_fn()
+
+            normalized_text = normalize_text(text, normalization_settings)
+            text_hash = hashlib.md5(normalized_text.encode("utf-8")).hexdigest()[:16]
+            chunk_path = chapter_chunks_dir / f"chunk_{chunk_idx:06d}_{text_hash}.wav"
+
+            cached_valid = False
+            frame_count = 0
+            if chunk_path.exists():
+                try:
+                    with wave.open(str(chunk_path), "rb") as wav_in:
+                        frame_count = wav_in.getnframes()
+                    cached_valid = True
+                except Exception:
+                    try:
+                        chunk_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+            if cached_valid:
+                results[chunk_idx] = (chunk_path, frame_count)
+                state.chunks_processed_so_far += 1
+                emit_fn(
+                    "synthesizing",
+                    f"Using cached chunk: {text[:30]}...",
+                    chapter_idx=chapter_idx,
+                    chapter_total=chapter_total,
+                    chapter_name=idref,
+                    chunk_idx=chunk_idx + 1,
+                    chunk_total=chunk_total,
+                )
+            else:
+                # Remove stale chunk files for this index slot
+                for p in chapter_chunks_dir.glob(f"chunk_{chunk_idx:06d}*.wav"):
+                    if p != chunk_path:
+                        try:
+                            p.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+
+                if state.synthesis_start_time is None:
+                    state.synthesis_start_time = _time.monotonic()
+                emit_fn(
+                    "synthesizing",
+                    f"Synthesizing: {text[:60]}...",
+                    chapter_idx=chapter_idx,
+                    chapter_total=chapter_total,
+                    chapter_name=idref,
+                    chunk_idx=chunk_idx,
+                    chunk_total=chunk_total,
+                )
+                audio, generated_frames = synthesizer.synthesize(normalized_text)
+                if generated_frames < 0:
+                    raise ValueError("Synthesizer returned negative frame count")
+                chunk_path, frame_count = write_chunk_to_tempfile(
+                    audio, chapter_chunks_dir, chunk_idx, text_hash
+                )
+                del audio  # release WAV bytes immediately
+                results[chunk_idx] = (chunk_path, frame_count)
+                state.chunks_processed_so_far += 1
+                state.active_chunks_processed += 1
+                emit_fn(
+                    "synthesizing",
+                    f"Finished chunk: {text[:30]}...",
+                    chapter_idx=chapter_idx,
+                    chapter_total=chapter_total,
+                    chapter_name=idref,
+                    chunk_idx=chunk_idx + 1,
+                    chunk_total=chunk_total,
+                )
+
+    return results
+
+
+def _register_chapter_in_opf(
+    manifest_node: ET.Element,
+    spine_item: ET.Element,
+    idref: str,
+    href: str,
+    smil_filename: str,
+    audio_filename: str,
+) -> str:
+    """Insert SMIL and audio <item> elements into the OPF manifest (if absent).
+
+    Sets ``media-overlay`` on the spine item and returns the SMIL manifest ID.
+    Safe to call for both freshly synthesised and already-cached chapters.
+    """
+    rel_dir = Path(href).parent
+    smil_href = str((rel_dir / smil_filename).as_posix())
+    audio_href = str((rel_dir / "audio" / audio_filename).as_posix())
+
+    # Strip leading "./" that Path produces for same-directory hrefs
+    if smil_href.startswith("./"):
+        smil_href = smil_href[2:]
+    if audio_href.startswith("./"):
+        audio_href = audio_href[2:]
+
+    smil_id = f"smil_{idref}"
+    audio_id = f"audio_{idref}"
+
+    existing_ids = {el.attrib.get("id") for el in manifest_node.findall(".//{*}item")}
+
+    if smil_id not in existing_ids:
+        manifest_node.append(
+            ET.Element(
+                "{http://www.idpf.org/2007/opf}item",
+                attrib={
+                    "id": smil_id,
+                    "href": smil_href,
+                    "media-type": "application/smil+xml",
+                },
+            )
+        )
+
+    if audio_id not in existing_ids:
+        manifest_node.append(
+            ET.Element(
+                "{http://www.idpf.org/2007/opf}item",
+                attrib={
+                    "id": audio_id,
+                    "href": audio_href,
+                    "media-type": "audio/mp4",
+                },
+            )
+        )
+
+    spine_item.attrib["media-overlay"] = smil_id
+    return smil_id
+
+
+def _finalize_epub(
+    opf_root: ET.Element,
+    opf_path: Path,
+    tmp_dir: Path,
+    output_epub: Path,
+    global_duration_secs: float,
+    smil_durations: dict,
+    emit_fn,
+    chapter_total: int,
+) -> None:
+    """Write duration metadata to OPF, serialize it, then repackage the EPUB ZIP."""
+    emit_fn(
+        "packaging",
+        "Adding duration metadata...",
+        chapter_idx=chapter_total,
+        chapter_total=chapter_total,
+    )
+
+    metadata_node = opf_root.find(".//{*}metadata")
+    if metadata_node is not None:
+        total_meta = ET.Element(
+            "{http://www.idpf.org/2007/opf}meta",
+            attrib={"property": "media:duration"},
+        )
+        total_meta.text = format_duration(global_duration_secs)
+        metadata_node.append(total_meta)
+
+        for smil_id, duration in smil_durations.items():
+            chapter_meta = ET.Element(
+                "{http://www.idpf.org/2007/opf}meta",
+                attrib={"property": "media:duration", "refines": f"#{smil_id}"},
+            )
+            chapter_meta.text = format_duration(duration)
+            metadata_node.append(chapter_meta)
+
+    # Declare media overlay namespace prefix in OPF root
+    prefix_val = opf_root.attrib.get("prefix", "")
+    if "media:" not in prefix_val:
+        opf_root.attrib["prefix"] = (
+            (prefix_val.strip() + " media: http://www.idpf.org/2007/ops#").lstrip()
+        )
+
+    with open(opf_path, "wb") as f:
+        f.write(serialize_opf(opf_root))
+
+    emit_fn(
+        "packaging",
+        "Repackaging EPUB...",
+        chapter_idx=chapter_total,
+        chapter_total=chapter_total,
+    )
+
+    with zipfile.ZipFile(output_epub, "w") as zout:
+        mimetype_path = tmp_dir / "mimetype"
+        if mimetype_path.exists():
+            zout.write(mimetype_path, "mimetype", compress_type=zipfile.ZIP_STORED)
+        else:
+            zout.writestr(
+                "mimetype", b"application/epub+zip", compress_type=zipfile.ZIP_STORED
+            )
+        for file_path in tmp_dir.rglob("*"):
+            if file_path.is_file() and file_path.name != "mimetype":
+                rel_path = file_path.relative_to(tmp_dir)
+                zout.write(
+                    file_path,
+                    str(rel_path.as_posix()),
+                    compress_type=zipfile.ZIP_DEFLATED,
+                )
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+
 def generate_media_overlay_epub(
     input_epub: str | Path,
     output_epub: str | Path,
@@ -712,43 +1213,69 @@ def generate_media_overlay_epub(
         max_chars: Maximum characters per chunk of synthesis.
         progress_callback: Optional callback receiving ProgressEvent updates.
         cancel_event: Optional threading.Event; if set, the pipeline will abort.
-        chapter_audio_callback: Optional callback(idref, mp3_path) called after each
-            chapter's MP3 is written — enables per-chapter audio preview.
-        cache_dir: Custom directory to cache intermediate files and skip already processed chapters.
-        concurrency: Number of concurrent threads for parallel synthesis.
+        chapter_audio_callback: Optional callback(idref, audio_path) called after each
+            chapter's audio is written — enables per-chapter audio preview.
+        cache_dir: Custom directory to cache intermediate files and skip already
+            processed chapters.
+        concurrency: Number of concurrent synthesis threads.
     """
     import threading
     import time as _time
+    from types import SimpleNamespace
     from epuboverlay.progress import ProgressEvent
 
     input_epub = Path(input_epub)
     output_epub = Path(output_epub)
     start_time = _time.monotonic()
 
-    # Trackers for chunk progress, total chunks, characters, and synthesis timing
-    total_chunks_to_synthesize = 0
-    chunks_processed_so_far = 0
-    active_chunks_processed = 0
-    total_characters_all = 0
-    synthesis_start_time = None
-    global_duration_secs = 0.0
+    # All mutable progress counters in one place so both _emit and helpers can
+    # read/write them without a tangle of nonlocal declarations.
+    state = SimpleNamespace(
+        total_chunks_to_synthesize=0,
+        chunks_processed_so_far=0,
+        active_chunks_processed=0,
+        total_characters_all=0,
+        synthesis_start_time=None,
+        global_duration_secs=0.0,
+        book_title=input_epub.stem,
+    )
 
-    book_title = Path(input_epub).stem
-    cache_dir_path = None
+    # Resolve cache directory from content + config hashes
+    epub_hash = compute_file_md5(input_epub)
+    config_hash = _compute_config_hash(
+        synthesizer, frame_rate_hz, max_chars, normalization_settings
+    )
+    if cache_dir is None:
+        cache_dir_path: Path = (
+            Path.home() / ".epuboverlay" / "cache" / f"{epub_hash}_{config_hash}"
+        )
+    else:
+        cache_dir_path = Path(cache_dir)
 
-    def _emit(phase: str, message: str, chapter_idx: int = 0, chapter_total: int = 0,
-              chapter_name: str = "", chunk_idx: int = 0, chunk_total: int = 0) -> None:
+    # ── Progress emission closure ────────────────────────────────────────────
+    def _emit(
+        phase: str,
+        message: str,
+        chapter_idx: int = 0,
+        chapter_total: int = 0,
+        chapter_name: str = "",
+        chunk_idx: int = 0,
+        chunk_total: int = 0,
+    ) -> None:
         elapsed = _time.monotonic() - start_time
-        
         synthesis_elapsed = 0.0
-        if synthesis_start_time is not None:
-            synthesis_elapsed = _time.monotonic() - synthesis_start_time
+        if state.synthesis_start_time is not None:
+            synthesis_elapsed = _time.monotonic() - state.synthesis_start_time
 
         synth_speed = 1.0
         if hasattr(synthesizer, "speed") and synthesizer.speed > 0:
             synth_speed = synthesizer.speed
 
-        estimated_hours = total_characters_all / (15.0 * synth_speed * 3600.0) if total_characters_all > 0 else 0.0
+        estimated_hours = (
+            state.total_characters_all / (15.0 * synth_speed * 3600.0)
+            if state.total_characters_all > 0
+            else 0.0
+        )
 
         event = ProgressEvent(
             phase=phase,
@@ -760,26 +1287,23 @@ def generate_media_overlay_epub(
             elapsed_seconds=elapsed,
             message=message,
             synthesis_elapsed_seconds=synthesis_elapsed,
-            total_chunks_to_synthesize=total_chunks_to_synthesize,
-            chunks_processed_so_far=chunks_processed_so_far,
-            active_chunks_processed=active_chunks_processed,
-            total_characters=total_characters_all,
+            total_chunks_to_synthesize=state.total_chunks_to_synthesize,
+            chunks_processed_so_far=state.chunks_processed_so_far,
+            active_chunks_processed=state.active_chunks_processed,
+            total_characters=state.total_characters_all,
             estimated_total_hours=estimated_hours,
-            audiobook_duration_seconds=global_duration_secs,
+            audiobook_duration_seconds=state.global_duration_secs,
         )
         if progress_callback is not None:
             progress_callback(event)
 
-        nonlocal cache_dir_path
         if cache_dir_path is not None:
             try:
-                progress_file = cache_dir_path / "progress.json"
-                overall_percent = event.overall_percent
                 data = {
                     "pid": os.getpid(),
-                    "input_epub_path": str(Path(input_epub).resolve()),
-                    "output_epub_path": str(Path(output_epub).resolve()),
-                    "book_title": str(book_title),
+                    "input_epub_path": str(input_epub.resolve()),
+                    "output_epub_path": str(output_epub.resolve()),
+                    "book_title": str(state.book_title),
                     "phase": phase,
                     "chapter_index": chapter_idx,
                     "chapter_total": chapter_total,
@@ -788,7 +1312,7 @@ def generate_media_overlay_epub(
                     "chunk_total": chunk_total,
                     "elapsed_seconds": elapsed,
                     "message": message,
-                    "overall_percent": overall_percent,
+                    "overall_percent": event.overall_percent,
                     "updated_at": _time.time(),
                     "total_chunks_to_synthesize": event.total_chunks_to_synthesize,
                     "chunks_processed_so_far": event.chunks_processed_so_far,
@@ -797,6 +1321,7 @@ def generate_media_overlay_epub(
                     "estimated_total_hours": event.estimated_total_hours,
                     "audiobook_duration_seconds": event.audiobook_duration_seconds,
                 }
+                progress_file = cache_dir_path / "progress.json"
                 temp_file = progress_file.with_suffix(".tmp")
                 with open(temp_file, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2)
@@ -814,117 +1339,22 @@ def generate_media_overlay_epub(
         from concurrent.futures import ThreadPoolExecutor
         executor = ThreadPoolExecutor(max_workers=concurrency)
 
-    # Compute content hash of the input EPUB
-    epub_hash = compute_file_md5(input_epub)
-
-    # Compute a hash of the synthesizer configuration to partition the cache
-    config_parts = [
-        f"frame_rate_hz:{frame_rate_hz}",
-        f"max_chars:{max_chars}",
-        f"synth_type:{synthesizer.__class__.__name__}"
-    ]
-    if hasattr(synthesizer, "speed"):
-        config_parts.append(f"speed:{synthesizer.speed}")
-    if hasattr(synthesizer, "nfe_step"):
-        config_parts.append(f"nfe_step:{synthesizer.nfe_step}")
-    if hasattr(synthesizer, "ref_text"):
-        config_parts.append(f"ref_text:{synthesizer.ref_text}")
-    if hasattr(synthesizer, "ref_audio"):
-        ref_audio_path = Path(synthesizer.ref_audio)
-        if ref_audio_path.exists():
-            stat = ref_audio_path.stat()
-            config_parts.append(f"ref_audio:{ref_audio_path.resolve()}:{stat.st_size}:{stat.st_mtime}")
-        else:
-            config_parts.append(f"ref_audio:{synthesizer.ref_audio}")
-    if hasattr(synthesizer, "chars_per_sec"):
-        config_parts.append(f"chars_per_sec:{synthesizer.chars_per_sec}")
-    if hasattr(synthesizer, "sample_rate"):
-        config_parts.append(f"sample_rate:{synthesizer.sample_rate}")
-    if normalization_settings:
-        config_parts.append(f"normalization_settings:{json.dumps(normalization_settings, sort_keys=True)}")
-
-    config_str = ",".join(config_parts)
-    config_hash = hashlib.md5(config_str.encode("utf-8")).hexdigest()
-
-    if cache_dir is None:
-        cache_dir_path = Path.home() / ".epuboverlay" / "cache" / f"{epub_hash}_{config_hash}"
-    else:
-        cache_dir_path = Path(cache_dir)
-
-    class _DummyContext:
-        def __init__(self, path: Path):
-            self.path = path
-        def __enter__(self):
-            return self.path
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            pass
-
     try:
-        with _DummyContext(cache_dir_path) as tmp_dir:
-            marker_file = tmp_dir / ".extracted"
-        if not marker_file.exists() or marker_file.read_text().strip() != epub_hash:
-            _emit("parsing", "Extracting EPUB contents to cache...")
-            if tmp_dir.exists():
-                for item in tmp_dir.iterdir():
-                    if item.is_file():
-                        item.unlink()
-                    elif item.is_dir():
-                        shutil.rmtree(item)
-            tmp_dir.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(input_epub, "r") as zf:
-                zf.extractall(tmp_dir)
-            marker_file.write_text(epub_hash)
-        else:
-            _emit("parsing", "Using existing extracted cache...")
+        # ── Phase 1: workspace ───────────────────────────────────────────────
+        tmp_dir = _prepare_workspace(input_epub, epub_hash, cache_dir_path, _emit)
 
-        # Locate OPF
-        container_path = tmp_dir / "META-INF/container.xml"
-        if not container_path.exists():
-            raise FileNotFoundError("META-INF/container.xml not found in EPUB")
+        # ── Phase 2: OPF parsing ─────────────────────────────────────────────
+        opf_path, opf_dir, opf_root, manifest_node, spine_node, manifest_items, book_title = (
+            _parse_opf(tmp_dir)
+        )
+        state.book_title = book_title
 
-        container_tree = ET.parse(container_path)
-        rootfile = container_tree.find(".//{*}rootfile")
-        if rootfile is None:
-            raise ValueError("EPUB container is missing a rootfile entry")
-
-        opf_rel_path = rootfile.attrib.get("full-path")
-        if not opf_rel_path:
-            raise ValueError("EPUB rootfile entry is missing full-path")
-
-        opf_path = tmp_dir / opf_rel_path
-        opf_dir = opf_path.parent
-
-        # Parse OPF
-        opf_tree = ET.parse(opf_path)
-        opf_root = opf_tree.getroot()
-
-        title_el = opf_root.find(".//{*}title")
-        if title_el is not None and title_el.text:
-            book_title = title_el.text.strip()
-
-        manifest_node = opf_root.find(".//{*}manifest")
-        spine_node = opf_root.find(".//{*}spine")
-        if manifest_node is None or spine_node is None:
-            raise ValueError("OPF document is missing manifest or spine element")
-
-        # Map manifest items by ID
-        manifest_items = {}
-        for item in manifest_node.findall(".//{*}item"):
-            item_id = item.attrib.get("id")
-            if item_id:
-                manifest_items[item_id] = item
-
-        spine_itemrefs = spine_node.findall(".//{*}itemref")
-
-        # Pre-filter to only processable XHTML spine items for accurate chapter count
+        # ── Build processable chapter list ───────────────────────────────────
         processable_itemrefs = []
-        for itemref in spine_itemrefs:
+        for itemref in spine_node.findall(".//{*}itemref"):
             idref = itemref.attrib.get("idref")
             item = manifest_items.get(idref or "")
-            if item is None:
-                continue
-            media_type = item.attrib.get("media-type")
-            if media_type != "application/xhtml+xml":
+            if item is None or item.attrib.get("media-type") != "application/xhtml+xml":
                 continue
             href = item.attrib.get("href")
             xhtml_file_path = opf_dir / href
@@ -934,50 +1364,15 @@ def generate_media_overlay_epub(
                 continue
             processable_itemrefs.append((itemref, idref, item, href, xhtml_file_path))
 
-        # Pre-pass: calculate chunk totals for non-cached chapters and total characters
-        total_chunks_to_synthesize = 0
-        total_characters_all = 0
-
-        for pr_idx, (pr_itemref, pr_idref, pr_item, pr_href, pr_xhtml_file_path) in enumerate(processable_itemrefs):
-            # Check cached status using the same conditions as below
-            pr_rel_dir = Path(pr_href).parent
-            pr_audio_filename = f"audio_{pr_idref}.m4a"
-            pr_audio_file_path = opf_dir / pr_rel_dir / "audio" / pr_audio_filename
-            pr_smil_filename = f"smil_{pr_idref}.smil"
-            pr_smil_file_path = opf_dir / pr_rel_dir / pr_smil_filename
-
-            pr_legacy_audio_path = opf_dir / "audio" / pr_audio_filename
-            pr_legacy_smil_path = opf_dir / pr_smil_filename
-
-            pr_is_cached = (
-                (pr_audio_file_path.exists() or pr_legacy_audio_path.exists()) and
-                (pr_smil_file_path.exists() or pr_legacy_smil_path.exists())
-            )
-
-            try:
-                with open(pr_xhtml_file_path, "rb") as f:
-                    pr_xhtml_bytes = f.read()
-                pr_xhtml_str = pr_xhtml_bytes.decode("utf-8", errors="ignore")
-                pr_processed_xhtml_str = replace_html_entities(pr_xhtml_str)
-                pr_xhtml_root = ET.fromstring(pr_processed_xhtml_str.encode("utf-8"))
-
-                # Count characters
-                pr_full_text = "".join(pr_xhtml_root.itertext()).strip()
-                pr_full_text = " ".join(pr_full_text.split())
-                total_characters_all += len(pr_full_text)
-
-                if not pr_is_cached:
-                    pr_id_to_text_list = []
-                    process_element(pr_xhtml_root, lambda: "dummy", pr_id_to_text_list, max_chars)
-                    total_chunks_to_synthesize += len(pr_id_to_text_list)
-            except Exception:
-                pass
-
+        # ── Phase 3: pre-count chunks / characters ───────────────────────────
+        state.total_chunks_to_synthesize, state.total_characters_all = _precount_chapters(
+            processable_itemrefs, opf_dir, max_chars
+        )
         chapter_total = len(processable_itemrefs)
-        _emit("parsing", f"Found {chapter_total} chapters to process.", chapter_total=chapter_total)
+        _emit("parsing", f"Found {chapter_total} chapters to process.",
+              chapter_total=chapter_total)
 
-        smil_durations = {}
-
+        smil_durations: dict[str, float] = {}
         span_id_counter = 0
 
         def next_span_id() -> str:
@@ -985,268 +1380,103 @@ def generate_media_overlay_epub(
             span_id_counter += 1
             return f"epuboverlay-s-{span_id_counter}"
 
-        for chapter_idx, (itemref, idref, item, href, xhtml_file_path) in enumerate(processable_itemrefs):
+        # ── Phase 4: per-chapter synthesis loop ──────────────────────────────
+        for chapter_idx, (itemref, idref, item, href, xhtml_file_path) in enumerate(
+            processable_itemrefs
+        ):
             _check_cancel()
 
-            # Cache paths setup
+            audio_filename = f"audio_{idref}.m4a"
+            smil_filename = f"smil_{idref}.smil"
             rel_dir = Path(href).parent
             audio_dir = opf_dir / rel_dir / "audio"
-            audio_filename = f"audio_{idref}.m4a"
             audio_file_path = audio_dir / audio_filename
-
-            smil_filename = f"smil_{idref}.smil"
             smil_file_path = opf_dir / rel_dir / smil_filename
 
-            # Automatically migrate legacy cache files if they exist in the parent/opf_dir instead of rel_dir
+            # Migrate legacy cache files (old layout had no rel_dir subfolder)
             legacy_audio_path = opf_dir / "audio" / audio_filename
             legacy_smil_path = opf_dir / smil_filename
-
             if legacy_audio_path.exists() and not audio_file_path.exists():
                 audio_dir.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(legacy_audio_path), str(audio_file_path))
-
             if legacy_smil_path.exists() and not smil_file_path.exists():
                 (opf_dir / rel_dir).mkdir(parents=True, exist_ok=True)
                 shutil.move(str(legacy_smil_path), str(smil_file_path))
 
-            # Check if already processed (completed cache)
+            # Check if this chapter is already fully cached
             chapter_duration = 0.0
-            if os.environ.get("EPUB_BYPASS_CACHE") != "1" and audio_file_path.exists() and smil_file_path.exists():
+            if (
+                os.environ.get("EPUB_BYPASS_CACHE") != "1"
+                and audio_file_path.exists()
+                and smil_file_path.exists()
+            ):
                 chapter_duration = get_duration_from_smil(smil_file_path)
 
             if chapter_duration > 0.0 and audio_file_path.stat().st_size > 0:
                 _emit("parsing", f"Using cached audio/SMIL for chapter: {idref}",
-                      chapter_idx=chapter_idx, chapter_total=chapter_total, chapter_name=idref)
-
-                global_duration_secs += chapter_duration
-                smil_id = f"smil_{idref}"
+                      chapter_idx=chapter_idx, chapter_total=chapter_total,
+                      chapter_name=idref)
+                state.global_duration_secs += chapter_duration
+                smil_id = _register_chapter_in_opf(
+                    manifest_node, item, idref, href, smil_filename, audio_filename
+                )
                 smil_durations[smil_id] = chapter_duration
-
-                # Ensure manifest entries exist in OPF
-                rel_dir = Path(href).parent
-                smil_href = str((rel_dir / smil_filename).as_posix())
-                audio_href = str((rel_dir / "audio" / audio_filename).as_posix())
-
-                if smil_href.startswith("./"):
-                    smil_href = smil_href[2:]
-                if audio_href.startswith("./"):
-                    audio_href = audio_href[2:]
-
-                smil_id = f"smil_{idref}"
-                audio_id = f"audio_{idref}"
-
-                existing_ids = {el.attrib.get("id") for el in manifest_node.findall(".//{*}item")}
-
-                if smil_id not in existing_ids:
-                    smil_item = ET.Element(
-                        "{http://www.idpf.org/2007/opf}item",
-                        attrib={
-                            "id": smil_id,
-                            "href": smil_href,
-                            "media-type": "application/smil+xml",
-                        },
-                    )
-                    manifest_node.append(smil_item)
-
-                if audio_id not in existing_ids:
-                    audio_item = ET.Element(
-                        "{http://www.idpf.org/2007/opf}item",
-                        attrib={
-                            "id": audio_id,
-                            "href": audio_href,
-                            "media-type": "audio/mp4",
-                        },
-                    )
-                    manifest_node.append(audio_item)
-
-                item.attrib["media-overlay"] = smil_id
-
                 if chapter_audio_callback is not None:
                     chapter_audio_callback(idref, audio_file_path)
-
                 _emit("converting", f"Chapter {chapter_idx + 1}/{chapter_total} cached: {idref}",
                       chapter_idx=chapter_idx + 1, chapter_total=chapter_total,
-                      chapter_name=idref, chunk_idx=0, chunk_total=0)
+                      chapter_name=idref)
                 continue
 
+            # ── Parse XHTML ──────────────────────────────────────────────────
             _emit("parsing", f"Parsing chapter: {idref}",
-                  chapter_idx=chapter_idx, chapter_total=chapter_total, chapter_name=idref)
-
-            with open(xhtml_file_path, "rb") as f:
-                xhtml_bytes = f.read()
-
-            # Preprocess entities
-            xhtml_str = xhtml_bytes.decode("utf-8", errors="ignore")
-            processed_xhtml_str = replace_html_entities(xhtml_str)
-
+                  chapter_idx=chapter_idx, chapter_total=chapter_total,
+                  chapter_name=idref)
+            xhtml_bytes = xhtml_file_path.read_bytes()
             try:
-                xhtml_root = ET.fromstring(processed_xhtml_str.encode("utf-8"))
+                xhtml_root = ET.fromstring(
+                    replace_html_entities(
+                        xhtml_bytes.decode("utf-8", errors="ignore")
+                    ).encode("utf-8")
+                )
             except ET.ParseError as e:
                 raise ValueError(f"Failed to parse XHTML file {href}: {e}") from e
 
-            # Segment elements
-            id_to_text_list = []
+            id_to_text_list: list = []
             process_element(xhtml_root, next_span_id, id_to_text_list, max_chars)
-
             if not id_to_text_list:
                 continue
 
             chunk_total = len(id_to_text_list)
 
-            # Create temp directory for this chapter's chunk WAV files
+            # ── Phase 4a: synthesize chunks ──────────────────────────────────
             chapter_chunks_dir = tmp_dir / f"_chunks_{idref}"
             chapter_chunks_dir.mkdir(parents=True, exist_ok=True)
 
-            # Synthesize — results stores (chunk_path, frame_count) instead of raw bytes
-            results = [None] * chunk_total
-            if concurrency > 1 and executor is not None:
-                from concurrent.futures import as_completed
-                completed_chunks = 0
-                progress_lock = threading.Lock()
+            results = _synthesize_chapter_chunks(
+                id_to_text_list=id_to_text_list,
+                chapter_chunks_dir=chapter_chunks_dir,
+                synthesizer=synthesizer,
+                normalization_settings=normalization_settings,
+                concurrency=concurrency,
+                executor=executor,
+                emit_fn=_emit,
+                check_cancel_fn=_check_cancel,
+                state=state,
+                chapter_idx=chapter_idx,
+                chapter_total=chapter_total,
+                idref=idref,
+            )
 
-                def process_chunk(idx: int, span_id: str, text: str):
-                    nonlocal completed_chunks, chunks_processed_so_far, active_chunks_processed, synthesis_start_time
-                    _check_cancel()
-                    
-                    normalized_text = normalize_text(text, normalization_settings)
-                    text_hash = hashlib.md5(normalized_text.encode("utf-8")).hexdigest()[:16]
-                    chunk_path = chapter_chunks_dir / f"chunk_{idx:06d}_{text_hash}.wav"
-                    
-                    cached_valid = False
-                    frame_count = 0
-                    if chunk_path.exists():
-                        try:
-                            with wave.open(str(chunk_path), "rb") as wav_in:
-                                frame_count = wav_in.getnframes()
-                            cached_valid = True
-                        except Exception:
-                            try:
-                                chunk_path.unlink(missing_ok=True)
-                            except Exception:
-                                pass
-                                
-                    if cached_valid:
-                        with progress_lock:
-                            completed_chunks += 1
-                            chunks_processed_so_far += 1
-                            _emit("synthesizing", f"Using cached chunk: {text[:30]}...",
-                                  chapter_idx=chapter_idx, chapter_total=chapter_total,
-                                  chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
-                        return idx, chunk_path, frame_count
-
-                    # Clean up any existing stale/corrupt chunk files for this index
-                    for p in chapter_chunks_dir.glob(f"chunk_{idx:06d}*.wav"):
-                        if p != chunk_path:
-                            try:
-                                p.unlink(missing_ok=True)
-                            except Exception:
-                                pass
-
-                    with progress_lock:
-                        if synthesis_start_time is None:
-                            synthesis_start_time = _time.monotonic()
-                        _emit("synthesizing", f"Synthesizing: {text[:60]}...",
-                              chapter_idx=chapter_idx, chapter_total=chapter_total,
-                              chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
-                    
-                    audio, generated_frames = synthesizer.synthesize(normalized_text)
-                    if generated_frames < 0:
-                        raise ValueError("Synthesizer returned negative frame count")
-                    
-                    # Write chunk to disk immediately, don't keep WAV bytes in RAM
-                    chunk_path, frame_count = write_chunk_to_tempfile(
-                        audio, chapter_chunks_dir, idx, text_hash
-                    )
-                    del audio  # Release WAV bytes immediately
-                    
-                    with progress_lock:
-                        completed_chunks += 1
-                        chunks_processed_so_far += 1
-                        active_chunks_processed += 1
-                        _emit("synthesizing", f"Finished chunk: {text[:30]}...",
-                              chapter_idx=chapter_idx, chapter_total=chapter_total,
-                              chapter_name=idref, chunk_idx=completed_chunks, chunk_total=chunk_total)
-                    return idx, chunk_path, frame_count
-
-                futures = {
-                    executor.submit(process_chunk, idx, span_id, text): idx
-                    for idx, (span_id, text) in enumerate(id_to_text_list)
-                }
-                try:
-                    for future in as_completed(futures):
-                        _check_cancel()
-                        idx, chunk_path, frame_count = future.result()
-                        results[idx] = (chunk_path, frame_count)
-                except Exception as e:
-                    for f in futures:
-                        f.cancel()
-                    raise e
-            else:
-                for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
-                    _check_cancel()
-                    
-                    normalized_text = normalize_text(text, normalization_settings)
-                    text_hash = hashlib.md5(normalized_text.encode("utf-8")).hexdigest()[:16]
-                    chunk_path = chapter_chunks_dir / f"chunk_{chunk_idx:06d}_{text_hash}.wav"
-                    
-                    cached_valid = False
-                    frame_count = 0
-                    if chunk_path.exists():
-                        try:
-                            with wave.open(str(chunk_path), "rb") as wav_in:
-                                frame_count = wav_in.getnframes()
-                            cached_valid = True
-                        except Exception:
-                            try:
-                                chunk_path.unlink(missing_ok=True)
-                            except Exception:
-                                pass
-                                
-                    if cached_valid:
-                        results[chunk_idx] = (chunk_path, frame_count)
-                        chunks_processed_so_far += 1
-                        _emit("synthesizing", f"Using cached chunk: {text[:30]}...",
-                              chapter_idx=chapter_idx, chapter_total=chapter_total,
-                              chapter_name=idref, chunk_idx=chunk_idx + 1, chunk_total=chunk_total)
-                    else:
-                        # Clean up any existing stale/corrupt chunk files for this index
-                        for p in chapter_chunks_dir.glob(f"chunk_{chunk_idx:06d}*.wav"):
-                            if p != chunk_path:
-                                try:
-                                    p.unlink(missing_ok=True)
-                                except Exception:
-                                    pass
-
-                        if synthesis_start_time is None:
-                            synthesis_start_time = _time.monotonic()
-                        _emit("synthesizing", f"Synthesizing: {text[:60]}...",
-                              chapter_idx=chapter_idx, chapter_total=chapter_total,
-                              chapter_name=idref, chunk_idx=chunk_idx, chunk_total=chunk_total)
-                        audio, generated_frames = synthesizer.synthesize(normalized_text)
-                        if generated_frames < 0:
-                            raise ValueError("Synthesizer returned negative frame count")
-                        # Write chunk to disk immediately
-                        chunk_path, frame_count = write_chunk_to_tempfile(
-                            audio, chapter_chunks_dir, chunk_idx, text_hash
-                        )
-                        del audio  # Release WAV bytes immediately
-                        results[chunk_idx] = (chunk_path, frame_count)
-                        chunks_processed_so_far += 1
-                        active_chunks_processed += 1
-                        _emit("synthesizing", f"Finished chunk: {text[:30]}...",
-                              chapter_idx=chapter_idx, chapter_total=chapter_total,
-                              chapter_name=idref, chunk_idx=chunk_idx + 1, chunk_total=chunk_total)
-
-            # Reconstruct timings and collect ordered chunk paths
+            # ── Reconstruct per-chunk timings ────────────────────────────────
             chunk_paths = []
             current_time = 0.0
             mappings = []
-            for chunk_idx, (span_id, text) in enumerate(id_to_text_list):
+            for chunk_idx, (span_id, _text) in enumerate(id_to_text_list):
                 chunk_path, frame_count = results[chunk_idx]
                 duration = frame_count / frame_rate_hz
                 begin_time = current_time
                 end_time = current_time + duration
-
                 chunk_paths.append(chunk_path)
                 mappings.append((span_id, begin_time, end_time))
                 current_time = end_time
@@ -1254,102 +1484,56 @@ def generate_media_overlay_epub(
             if not chunk_paths:
                 continue
 
-            # Stream-concatenate WAV chunks to a single file (one chunk in memory at a time)
+            # ── Concatenate WAVs + encode M4A ────────────────────────────────
             _emit("converting", f"Concatenating audio for chapter: {idref}",
                   chapter_idx=chapter_idx, chapter_total=chapter_total,
                   chapter_name=idref, chunk_idx=chunk_total, chunk_total=chunk_total)
-
             chapter_wav_path = chapter_chunks_dir / "chapter_merged.wav"
             stream_concat_wav_to_file(chunk_paths, chapter_wav_path)
 
             audio_dir.mkdir(parents=True, exist_ok=True)
-
-            # Compress to M4A/AAC from disk (no in-memory WAV buffer)
             _emit("converting", f"Converting to M4A: {idref}",
                   chapter_idx=chapter_idx, chapter_total=chapter_total,
                   chapter_name=idref, chunk_idx=chunk_total, chunk_total=chunk_total)
-
             convert_wav_file_to_m4a(chapter_wav_path, audio_file_path)
-
-            # Clean up temp chunk files to free disk space
             shutil.rmtree(chapter_chunks_dir, ignore_errors=True)
 
-            # Notify about completed chapter audio for preview
             if chapter_audio_callback is not None:
                 chapter_audio_callback(idref, audio_file_path)
 
-            # Write back XHTML
-            modified_xhtml_bytes = serialize_xhtml(xhtml_root, xhtml_bytes)
-            with open(xhtml_file_path, "wb") as f:
-                f.write(modified_xhtml_bytes)
-
-            audio_href_in_smil = f"audio/{audio_filename}"
-            xhtml_href_in_smil = Path(href).name
-
-            smil_content = generate_smil_content(
-                xhtml_href_in_smil, mappings, audio_href_in_smil
+            # ── Write XHTML + SMIL ───────────────────────────────────────────
+            xhtml_file_path.write_bytes(serialize_xhtml(xhtml_root, xhtml_bytes))
+            smil_file_path.write_text(
+                generate_smil_content(
+                    Path(href).name,
+                    mappings,
+                    f"audio/{audio_filename}",
+                ),
+                encoding="utf-8",
             )
-            with open(smil_file_path, "w", encoding="utf-8") as f:
-                f.write(smil_content)
 
-            # Update manifest entry paths (relative to OPF)
-            rel_dir = Path(href).parent
-            smil_href = str((rel_dir / smil_filename).as_posix())
-            audio_href = str((rel_dir / "audio" / audio_filename).as_posix())
-
-            # Cleanup lead dot-slashes
-            if smil_href.startswith("./"):
-                smil_href = smil_href[2:]
-            if audio_href.startswith("./"):
-                audio_href = audio_href[2:]
-
-            # Add to OPF
-            smil_id = f"smil_{idref}"
-            smil_item = ET.Element(
-                "{http://www.idpf.org/2007/opf}item",
-                attrib={
-                    "id": smil_id,
-                    "href": smil_href,
-                    "media-type": "application/smil+xml",
-                },
+            # ── Register in OPF manifest ─────────────────────────────────────
+            smil_id = _register_chapter_in_opf(
+                manifest_node, item, idref, href, smil_filename, audio_filename
             )
-            manifest_node.append(smil_item)
-
-            audio_id = f"audio_{idref}"
-            audio_item = ET.Element(
-                "{http://www.idpf.org/2007/opf}item",
-                attrib={
-                    "id": audio_id,
-                    "href": audio_href,
-                    "media-type": "audio/mp4",
-                },
-            )
-            manifest_node.append(audio_item)
-
-            item.attrib["media-overlay"] = smil_id
-
             chapter_duration = current_time
-            global_duration_secs += chapter_duration
+            state.global_duration_secs += chapter_duration
             smil_durations[smil_id] = chapter_duration
 
             _emit("converting", f"Chapter {chapter_idx + 1}/{chapter_total} complete: {idref}",
                   chapter_idx=chapter_idx + 1, chapter_total=chapter_total,
-                  chapter_name=idref, chunk_idx=0, chunk_total=0)
+                  chapter_name=idref)
 
-            # Explicit memory cleanup
+            # ── Explicit memory release ──────────────────────────────────────
             chunk_paths = None
             id_to_text_list = None
             xhtml_root = None
             results = None
-            futures = None
-
             gc.collect()
             if "torch" in sys.modules:
                 import torch
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-
-            # Force release of freed memory back to OS (highly effective on Linux)
             try:
                 import ctypes
                 libc = ctypes.CDLL("libc.so.6")
@@ -1357,69 +1541,22 @@ def generate_media_overlay_epub(
             except Exception:
                 pass
 
-        # Add duration metadata
-        _emit("packaging", "Adding duration metadata...",
-              chapter_idx=chapter_total, chapter_total=chapter_total)
-
-        metadata_node = opf_root.find(".//{*}metadata")
-        if metadata_node is not None:
-            total_duration_str = format_duration(global_duration_secs)
-            total_meta = ET.Element(
-                "{http://www.idpf.org/2007/opf}meta",
-                attrib={"property": "media:duration"},
-            )
-            total_meta.text = total_duration_str
-            metadata_node.append(total_meta)
-
-            for smil_id, duration in smil_durations.items():
-                dur_str = format_duration(duration)
-                chapter_meta = ET.Element(
-                    "{http://www.idpf.org/2007/opf}meta",
-                    attrib={"property": "media:duration", "refines": f"#{smil_id}"},
-                )
-                chapter_meta.text = dur_str
-                metadata_node.append(chapter_meta)
-
-        # Declare media overlay namespace prefix in OPF root
-        prefix_val = opf_root.attrib.get("prefix", "")
-        if "media:" not in prefix_val:
-            if prefix_val:
-                opf_root.attrib["prefix"] = (
-                    prefix_val.strip() + " media: http://www.idpf.org/2007/ops#"
-                )
-            else:
-                opf_root.attrib["prefix"] = "media: http://www.idpf.org/2007/ops#"
-
-        # Write content.opf back using serialize_opf helper
-        modified_opf_bytes = serialize_opf(opf_root)
-        with open(opf_path, "wb") as f:
-            f.write(modified_opf_bytes)
-
-        # Repackage EPUB
-        _emit("packaging", "Repackaging EPUB...",
-              chapter_idx=chapter_total, chapter_total=chapter_total)
-
-        with zipfile.ZipFile(output_epub, "w") as zout:
-            mimetype_path = tmp_dir / "mimetype"
-            if mimetype_path.exists():
-                zout.write(mimetype_path, "mimetype", compress_type=zipfile.ZIP_STORED)
-            else:
-                zout.writestr(
-                    "mimetype", b"application/epub+zip", compress_type=zipfile.ZIP_STORED
-                )
-
-            for file_path in tmp_dir.rglob("*"):
-                if file_path.is_file() and file_path.name != "mimetype":
-                    rel_path = file_path.relative_to(tmp_dir)
-                    zout.write(
-                        file_path,
-                        str(rel_path.as_posix()),
-                        compress_type=zipfile.ZIP_DEFLATED,
-                    )
+        # ── Phase 5: finalize ────────────────────────────────────────────────
+        _finalize_epub(
+            opf_root=opf_root,
+            opf_path=opf_path,
+            tmp_dir=tmp_dir,
+            output_epub=output_epub,
+            global_duration_secs=state.global_duration_secs,
+            smil_durations=smil_durations,
+            emit_fn=_emit,
+            chapter_total=chapter_total,
+        )
 
         elapsed = _time.monotonic() - start_time
         _emit("done", f"EPUB generated successfully in {elapsed:.1f}s → {output_epub}",
               chapter_idx=chapter_total, chapter_total=chapter_total)
+
     finally:
         if executor is not None:
             executor.shutdown(wait=True)
@@ -1430,3 +1567,4 @@ def generate_media_overlay_epub(
                     progress_file.unlink()
                 except Exception:
                     pass
+
