@@ -4,11 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from epuboverlay.pipeline import (
-    DummySynthesizer,
-    F5TTSSynthesizer,
-    generate_media_overlay_epub,
-)
+from epuboverlay.synthesizers import create_synthesizer
+from epuboverlay.pipeline import generate_media_overlay_epub
 from epuboverlay.progress import ConsoleProgressReporter
 
 
@@ -35,24 +32,33 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
     if parsed.cache_dir:
         parsed.cache_dir = parsed.cache_dir.expanduser()
 
+    # Validate synthesizer parameters
     if parsed.synthesizer == "f5-tts":
         if not parsed.ref_audio or not parsed.ref_text:
             print("Error: --ref-audio and --ref-text are required when using the f5-tts synthesizer.",
                   file=sys.stderr)
             return 1
-
-        try:
-            synthesizer = F5TTSSynthesizer(
-                ref_audio=parsed.ref_audio,
-                ref_text=parsed.ref_text,
-                device=parsed.device,
-                speed=parsed.speed,
-            )
-        except Exception as e:
-            print(f"Error initializing F5-TTS synthesizer: {e}", file=sys.stderr)
+    elif parsed.synthesizer == "pocket-tts":
+        if not parsed.ref_audio:
+            print("Error: --ref-audio is required when using the pocket-tts synthesizer.",
+                  file=sys.stderr)
             return 1
-    else:
-        synthesizer = DummySynthesizer(sample_rate=int(parsed.frame_rate))
+    elif parsed.synthesizer == "kokoro":
+        if not parsed.voice and not parsed.voice_formula:
+            print("Error: Either --voice or --voice-formula must be specified when using the kokoro synthesizer.",
+                  file=sys.stderr)
+            return 1
+
+    try:
+        synth_config = vars(parsed)
+        # Match expected dict keys for create_synthesizer factory
+        synth_config["ref_audio_path"] = parsed.ref_audio
+        synthesizer = create_synthesizer(parsed.synthesizer, **synth_config)
+    except Exception as e:
+        print(f"Error initializing synthesizer: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
 
     print("Orchestrating EPUB Media Overlay generation...")
     print(f"Input EPUB: {parsed.epub}")
@@ -145,24 +151,48 @@ def main(args: list[str] | None = None) -> int:
     )
     gen_parser.add_argument(
         "-s", "--synthesizer",
-        choices=["f5-tts", "dummy"],
+        choices=["f5-tts", "kokoro", "pocket-tts", "dummy"],
         default="f5-tts",
         help="Synthesizer implementation to use (default: f5-tts)."
     )
     gen_parser.add_argument(
         "-a", "--ref-audio",
         type=Path,
-        help="Path to the reference audio clip (required if using f5-tts)."
+        help="Path to the reference audio clip (required for f5-tts and pocket-tts)."
     )
     gen_parser.add_argument(
         "-t", "--ref-text",
         type=str,
-        help="Transcript text of the reference audio clip (required if using f5-tts)."
+        help="Transcript text of the reference audio clip (required for f5-tts)."
+    )
+    gen_parser.add_argument(
+        "--voice",
+        type=str,
+        default="",
+        help="Name of Kokoro voice to use (e.g. af_heart)."
+    )
+    gen_parser.add_argument(
+        "--voice-formula",
+        type=str,
+        default="",
+        help="Custom voice mix formula for Kokoro (e.g. af_heart*0.6+af_sky*0.4)."
+    )
+    gen_parser.add_argument(
+        "--lang-code",
+        type=str,
+        default="a",
+        help="Language code for Kokoro synthesizer (default: 'a')."
+    )
+    gen_parser.add_argument(
+        "--compile",
+        action="store_true",
+        default=False,
+        help="Compile model (torch.compile) to optimize inference speed (f5-tts only)."
     )
     gen_parser.add_argument(
         "--device",
         type=str,
-        help="Compute device for F5-TTS inference (e.g. cuda, cpu, mps)."
+        help="Compute device for inference (e.g. cuda, cpu, mps)."
     )
     gen_parser.add_argument(
         "--speed",

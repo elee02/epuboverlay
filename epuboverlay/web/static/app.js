@@ -46,10 +46,12 @@ let activeSSE = null;
 let jobs = [];
 
 // ── Initialize ──
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    await fetchConfig();
     loadJobs();
     setupFileUploads();
     setupSynthesizerToggle();
+    setupChapterSelection();
     setupForm();
     setupTabs();
     setupExtractForm();
@@ -122,6 +124,7 @@ function setupDropZone(zone, input, nameDisplay) {
         if (files.length > 0) {
             input.files = files;
             showFileName(nameDisplay, files[0].name);
+            input.dispatchEvent(new Event('change'));
         }
     });
 
@@ -139,10 +142,33 @@ function showFileName(el, name) {
 
 // ── Synthesizer Toggle ──
 function setupSynthesizerToggle() {
-    synthSelect.addEventListener('change', () => {
-        const isF5 = synthSelect.value === 'f5-tts';
-        refAudioFields.classList.toggle('hidden', !isF5);
-    });
+    const cloningOptions = document.getElementById('cloning-options');
+    const f5TtsOptions = document.getElementById('f5-tts-options');
+    const kokoroOptions = document.getElementById('kokoro-options');
+
+    function toggleFields() {
+        const val = synthSelect.value;
+        if (val === 'f5-tts') {
+            cloningOptions.style.display = 'block';
+            f5TtsOptions.style.display = 'block';
+            kokoroOptions.style.display = 'none';
+        } else if (val === 'pocket-tts') {
+            cloningOptions.style.display = 'block';
+            f5TtsOptions.style.display = 'none';
+            kokoroOptions.style.display = 'none';
+        } else if (val === 'kokoro') {
+            cloningOptions.style.display = 'none';
+            f5TtsOptions.style.display = 'none';
+            kokoroOptions.style.display = 'block';
+        } else {
+            cloningOptions.style.display = 'none';
+            f5TtsOptions.style.display = 'none';
+            kokoroOptions.style.display = 'none';
+        }
+    }
+
+    synthSelect.addEventListener('change', toggleFields);
+    toggleFields();
 }
 
 // ── Form Submission ──
@@ -158,7 +184,8 @@ function setupForm() {
             return;
         }
 
-        if (synthSelect.value === 'f5-tts') {
+        const selectedSynth = synthSelect.value;
+        if (selectedSynth === 'f5-tts') {
             if (!refAudioFile.files.length) {
                 showToast('Reference audio is required for F5-TTS.', 'error');
                 return;
@@ -167,7 +194,24 @@ function setupForm() {
                 showToast('Reference text is required for F5-TTS.', 'error');
                 return;
             }
+        } else if (selectedSynth === 'pocket-tts') {
+            if (!refAudioFile.files.length) {
+                showToast('Reference audio is required for PocketTTS.', 'error');
+                return;
+            }
+        } else if (selectedSynth === 'kokoro') {
+            if (!formData.get('voice') && !formData.get('voice_formula')?.trim()) {
+                showToast('Either voice or voice formula must be specified for Kokoro.', 'error');
+                return;
+            }
         }
+
+        // Add selected chapters as a JSON array
+        const selected = [];
+        document.querySelectorAll('.chapter-checkbox:checked').forEach(cb => {
+            selected.push(cb.getAttribute('data-idref'));
+        });
+        formData.append('selected_chapters', JSON.stringify(selected));
 
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner"></span> Submitting...';
@@ -188,6 +232,18 @@ function setupForm() {
             jobForm.reset();
             epubFileName.style.display = 'none';
             refAudioFileName.style.display = 'none';
+            
+            // Hide chapter selection panel
+            document.getElementById('chapter-selection-panel').style.display = 'none';
+            document.getElementById('chapters-list-wrapper').innerHTML = '';
+
+            // Reset dynamic fields
+            const cloningOptions = document.getElementById('cloning-options');
+            const f5TtsOptions = document.getElementById('f5-tts-options');
+            const kokoroOptions = document.getElementById('kokoro-options');
+            cloningOptions.style.display = 'block';
+            f5TtsOptions.style.display = 'block';
+            kokoroOptions.style.display = 'none';
 
             // Show active job and start SSE
             renderActiveJob(job);
@@ -1076,5 +1132,123 @@ async function purgeAllCache() {
     } catch (err) {
         showToast('Failed to purge cache.', 'error');
     }
+}
+
+// ── Multi-model and Chapter Selection Helpers ──
+
+let kokoroVoices = [];
+
+async function fetchConfig() {
+    try {
+        const resp = await fetch('/api/config');
+        if (resp.ok) {
+            const data = await resp.json();
+            kokoroVoices = data.kokoro_voices || [];
+            populateKokoroVoices();
+        }
+    } catch (err) {
+        console.error('Failed to fetch config:', err);
+    }
+}
+
+function populateKokoroVoices() {
+    const select = document.getElementById('voice-select');
+    if (!select) return;
+    select.innerHTML = '';
+    kokoroVoices.forEach(voice => {
+        const opt = document.createElement('option');
+        opt.value = voice;
+        opt.textContent = voice;
+        if (voice === 'af_heart') {
+            opt.selected = true;
+        }
+        select.appendChild(opt);
+    });
+}
+
+function setupChapterSelection() {
+    epubFile.addEventListener('change', async () => {
+        if (!epubFile.files.length) {
+            document.getElementById('chapter-selection-panel').style.display = 'none';
+            return;
+        }
+        const file = epubFile.files[0];
+        const selectionPanel = document.getElementById('chapter-selection-panel');
+        const wrapper = document.getElementById('chapters-list-wrapper');
+
+        selectionPanel.style.display = 'block';
+        wrapper.innerHTML = '<div class="loading-chapters" style="padding: 1rem; text-align: center; color: var(--text-secondary);"><span class="spinner" style="display:inline-block; width:1rem; height:1rem; border:2px solid var(--text-secondary); border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin-right:0.5rem; vertical-align:middle;"></span> Extracting chapters...</div>';
+
+        const formData = new FormData();
+        formData.append('epub', file);
+
+        try {
+            const resp = await fetch('/api/chapters', {
+                method: 'POST',
+                body: formData
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.detail || 'Failed to load chapters');
+            }
+            const chapters = await resp.json();
+            renderChaptersList(chapters);
+        } catch (err) {
+            showToast(err.message, 'error');
+            wrapper.innerHTML = `<div class="error-chapters" style="padding: 1rem; color: var(--danger); text-align: center;">✗ Error loading chapters: ${err.message}</div>`;
+        }
+    });
+
+    document.getElementById('select-all-chapters-btn').addEventListener('click', () => {
+        document.querySelectorAll('.chapter-checkbox').forEach(cb => cb.checked = true);
+    });
+
+    document.getElementById('deselect-all-chapters-btn').addEventListener('click', () => {
+        document.querySelectorAll('.chapter-checkbox').forEach(cb => cb.checked = false);
+    });
+
+    const wrapper = document.getElementById('chapters-list-wrapper');
+    wrapper.addEventListener('click', (e) => {
+        if (e.target.classList.contains('toggle-preview-btn')) {
+            const btn = e.target;
+            const row = btn.closest('.chapter-item-row');
+            const container = row.querySelector('.chapter-preview-container');
+            const isHidden = container.classList.toggle('hidden');
+            btn.textContent = isHidden ? 'Show Preview' : 'Hide Preview';
+        }
+    });
+}
+
+function renderChaptersList(chapters) {
+    const wrapper = document.getElementById('chapters-list-wrapper');
+    wrapper.innerHTML = '';
+    if (!chapters || chapters.length === 0) {
+        wrapper.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No processable chapters found.</div>';
+        return;
+    }
+
+    chapters.forEach(ch => {
+        const titleLower = ch.title.toLowerCase();
+        const skipPatterns = ["note", "reference", "copyright", "index", "acknowledg", "bibliograph", "appendix", "about the author", "title page", "colophon"];
+        const isSkip = skipPatterns.some(p => titleLower.includes(p));
+        const checkedAttr = isSkip ? '' : 'checked';
+
+        const item = document.createElement('div');
+        item.className = 'chapter-item-row';
+        item.innerHTML = `
+            <div class="chapter-item-header" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color); gap: 1rem;">
+                <label class="chapter-checkbox-label" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; flex: 1; user-select: none; margin: 0; text-transform: none;">
+                    <input type="checkbox" class="chapter-checkbox" data-idref="${ch.idref}" ${checkedAttr} style="width: auto; margin: 0; cursor: pointer;">
+                    <span class="chapter-title" style="font-weight: 500; font-size: 0.9rem;">${ch.title}</span>
+                </label>
+                <span class="chapter-char-count" style="font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap;">${ch.char_count} chars</span>
+                <button type="button" class="btn btn-xs btn-ghost toggle-preview-btn" style="white-space: nowrap; font-size: 0.8rem; padding: 0.2rem 0.5rem; line-height: 1.2;">Show Preview</button>
+            </div>
+            <div class="chapter-preview-container hidden" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 4px; margin-top: 0.25rem;">
+                <pre class="chapter-preview-text" style="margin: 0; font-family: inherit; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; color: var(--text-secondary); max-height: 200px; overflow-y: auto;">${ch.preview || 'No text preview available.'}</pre>
+            </div>
+        `;
+        wrapper.appendChild(item);
+    });
 }
 

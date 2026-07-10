@@ -358,20 +358,11 @@ def run_job_process(
         except Exception:
             pass
 
-        from epuboverlay.pipeline import F5TTSSynthesizer, DummySynthesizer, generate_media_overlay_epub
+        from epuboverlay.synthesizers import create_synthesizer
+        from epuboverlay.pipeline import generate_media_overlay_epub
         from epuboverlay.progress import ProgressEvent
 
-        if config["synthesizer"] == "f5-tts":
-            synth = F5TTSSynthesizer(
-                ref_audio=config["ref_audio_path"],
-                ref_text=config["ref_text"],
-                device=config.get("device"),
-                speed=config["speed"],
-                nfe_step=config.get("nfe_step", 32),
-                compile=config.get("compile", False),
-            )
-        else:
-            synth = DummySynthesizer(sample_rate=int(config["frame_rate"]))
+        synth = create_synthesizer(config["synthesizer"], **config)
 
         def progress_cb(event: ProgressEvent):
             event_dict = {
@@ -407,6 +398,7 @@ def run_job_process(
             cancel_event=cancel_event,
             chapter_audio_callback=chapter_audio_cb,
             concurrency=config.get("concurrency", 2),
+            selected_chapters=config.get("selected_chapters"),
         )
         progress_queue.put(("completed", job_id, None))
     except Exception as e:

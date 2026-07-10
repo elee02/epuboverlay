@@ -92,8 +92,10 @@ async def get_stats():
 @app.get("/api/config")
 async def get_config():
     """Return available synthesizers and defaults."""
+    from epuboverlay.synthesizers import KOKORO_VOICES
     return {
-        "synthesizers": ["f5-tts", "dummy"],
+        "synthesizers": ["f5-tts", "kokoro", "pocket-tts", "dummy"],
+        "kokoro_voices": KOKORO_VOICES,
         "defaults": {
             "synthesizer": "f5-tts",
             "speed": 1.0,
@@ -102,8 +104,12 @@ async def get_config():
             "concurrency": 2,
             "nfe_step": 32,
             "compile": False,
+            "voice": "af_heart",
+            "voice_formula": "",
+            "lang_code": "a",
         },
     }
+
 
 
 @app.get("/api/jobs")
@@ -125,6 +131,10 @@ async def create_job(
     concurrency: int = Form(2),
     nfe_step: int = Form(32),
     compile: bool = Form(False),
+    voice: str = Form(""),
+    voice_formula: str = Form(""),
+    lang_code: str = Form("a"),
+    selected_chapters: str = Form(""),  # JSON array of idref strings
 ):
     """Submit a new EPUB overlay generation job."""
     if job_manager.has_running_job():
@@ -133,11 +143,36 @@ async def create_job(
             detail="A job is already running. Please wait for it to complete or cancel it.",
         )
 
+    # Validate based on selected synthesizer
     if synthesizer == "f5-tts":
         if not ref_audio or not ref_text:
             raise HTTPException(
                 status_code=400,
                 detail="ref_audio and ref_text are required for f5-tts synthesizer.",
+            )
+    elif synthesizer == "pocket-tts":
+        if not ref_audio:
+            raise HTTPException(
+                status_code=400,
+                detail="ref_audio is required for pocket-tts synthesizer.",
+            )
+    elif synthesizer == "kokoro":
+        if not voice and not voice_formula:
+            raise HTTPException(
+                status_code=400,
+                detail="Either voice or voice_formula is required for kokoro synthesizer.",
+            )
+
+    parsed_chapters = None
+    if selected_chapters:
+        try:
+            parsed_chapters = json.loads(selected_chapters)
+            if not isinstance(parsed_chapters, list):
+                raise ValueError()
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="selected_chapters must be a valid JSON list of strings.",
             )
 
     # Save uploaded EPUB to temp file
@@ -156,11 +191,15 @@ async def create_job(
         "concurrency": concurrency,
         "nfe_step": nfe_step,
         "compile": compile,
+        "voice": voice,
+        "voice_formula": voice_formula,
+        "lang_code": lang_code,
+        "selected_chapters": parsed_chapters,
     }
 
-    # Save ref audio if provided
+    # Save ref audio if provided (only for models that require voice cloning)
     ref_audio_path = None
-    if ref_audio and synthesizer == "f5-tts":
+    if ref_audio and synthesizer in ("f5-tts", "pocket-tts"):
         ref_audio_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         ref_audio_content = await ref_audio.read()
         ref_audio_tmp.write(ref_audio_content)
@@ -210,6 +249,10 @@ async def resume_job(
     concurrency: int | None = Form(None),
     nfe_step: int | None = Form(None),
     compile: bool | None = Form(None),
+    voice: str | None = Form(None),
+    voice_formula: str | None = Form(None),
+    lang_code: str | None = Form(None),
+    selected_chapters: str | None = Form(None),
 ):
     """Resume a failed or cancelled job, optionally updating its configuration options."""
     if job_manager.has_running_job():
@@ -255,6 +298,23 @@ async def resume_job(
     if compile is not None:
         job.config["compile"] = compile
         has_changes = True
+    if voice is not None:
+        job.config["voice"] = voice
+        has_changes = True
+    if voice_formula is not None:
+        job.config["voice_formula"] = voice_formula
+        has_changes = True
+    if lang_code is not None:
+        job.config["lang_code"] = lang_code
+        has_changes = True
+    if selected_chapters is not None:
+        try:
+            parsed = json.loads(selected_chapters)
+            if isinstance(parsed, list):
+                job.config["selected_chapters"] = parsed
+                has_changes = True
+        except Exception:
+            pass
 
     if has_changes:
         # Re-estimate audiobook duration if configuration has changed
@@ -388,6 +448,27 @@ async def job_events(job_id: str):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/api/chapters")
+async def get_chapters(epub: UploadFile = File(...)):
+    """Extract chapter metadata and previews from an uploaded EPUB."""
+    from epuboverlay.pipeline import extract_chapter_previews
+    tmp_epub = tempfile.NamedTemporaryFile(delete=False, suffix=".epub")
+    try:
+        content = await epub.read()
+        tmp_epub.write(content)
+        tmp_epub.close()
+
+        previews = extract_chapter_previews(Path(tmp_epub.name))
+        return previews
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            Path(tmp_epub.name).unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 @app.post("/api/extract")

@@ -918,3 +918,35 @@ audio::-webkit-media-controls-panel {
     color: #fb7185;
 }
 
+
+/* ── Chapter Selection UI Styles ── */
+.chapters-list-wrapper {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 1rem;
+    background: var(--bg-input);
+}
+
+.chapter-item-row {
+    margin-bottom: 0.25rem;
+}
+
+.chapter-preview-container {
+    transition: all 0.3s ease;
+}
+
+.chapter-preview-container.hidden {
+    display: none !important;
+}
+
+.model-specific-options {
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+

@@ -41,168 +41,7 @@ class FrameTimedSynthesizer(Protocol):
         """Return encoded audio bytes and generated frame count for the chunk."""
 
 
-class DummySynthesizer:
-    """A mock synthesizer that generates silent WAV bytes for testing."""
 
-    def __init__(self, sample_rate: int = 24000, chars_per_sec: float = 15.0) -> None:
-        self.sample_rate = sample_rate
-        self.chars_per_sec = chars_per_sec
-
-    def synthesize(self, text: str) -> tuple[bytes, int]:
-        duration = len(text) / self.chars_per_sec
-        if duration <= 0:
-            duration = 0.1
-
-        num_samples = int(duration * self.sample_rate)
-        pcm_data = b"\x00" * (num_samples * 2)
-
-        out_io = io.BytesIO()
-        with wave.open(out_io, "wb") as wav_out:
-            wav_out.setnchannels(1)
-            wav_out.setsampwidth(2)
-            wav_out.setframerate(self.sample_rate)
-            wav_out.writeframes(pcm_data)
-
-        return out_io.getvalue(), num_samples
-
-
-class F5TTSSynthesizer:
-    """A synthesizer that uses F5-TTS for generation with cached reference audio/text representations."""
-
-    def __init__(
-        self,
-        ref_audio: str | Path,
-        ref_text: str,
-        model_name: str = "F5TTS_Base",
-        device: str | None = None,
-        speed: float = 1.0,
-        nfe_step: int = 32,
-        compile: bool = False,
-    ) -> None:
-        try:
-            from f5_tts.api import F5TTS, preprocess_ref_audio_text
-            import torch
-            import torchaudio
-            from f5_tts.infer.utils_infer import convert_char_to_pinyin
-        except ImportError as e:
-            raise ImportError(
-                "f5-tts is not installed. Please install it using 'pip install f5-tts' "
-                "to use the F5TTSSynthesizer."
-            ) from e
-
-        self.f5 = F5TTS(model=model_name, device=device)
-        self.ref_audio = str(ref_audio)
-        self.ref_text = ref_text
-        self.speed = speed
-        self.nfe_step = nfe_step
-        self.device = self.f5.device
-
-        # Preprocess the reference audio and text once
-        ref_file_proc, ref_text_proc = preprocess_ref_audio_text(self.ref_audio, self.ref_text, show_info=print)
-        self.ref_text = ref_text_proc
-
-        # Load reference audio waveform
-        ref_wav, ref_sr = torchaudio.load(ref_file_proc)
-        if ref_wav.shape[0] > 1:
-            ref_wav = torch.mean(ref_wav, dim=0, keepdim=True)
-
-        # Normalize RMS
-        self.target_rms = 0.1
-        self.rms = torch.sqrt(torch.mean(torch.square(ref_wav))).item()
-        if self.rms < self.target_rms:
-            ref_wav = ref_wav * self.target_rms / self.rms
-
-        # Resample to the target sample rate (24000 Hz)
-        self.target_sample_rate = self.f5.target_sample_rate
-        if ref_sr != self.target_sample_rate:
-            resampler = torchaudio.transforms.Resample(ref_sr, self.target_sample_rate)
-            ref_wav = resampler(ref_wav)
-
-        # Move reference waveform to device
-        ref_wav = ref_wav.to(self.device)
-
-        # Pre-compute Mel-spectrogram
-        with torch.inference_mode():
-            # mel_spec expects 2D [channels, samples], returns 3D [1, channels, seq_len]
-            ref_mel = self.f5.ema_model.mel_spec(ref_wav)
-            # Permute to [1, seq_len, channels]
-            self.ref_mel = ref_mel.permute(0, 2, 1)
-
-        # Save precomputed lengths and other settings
-        self.hop_length = self.f5.ema_model.mel_spec.hop_length
-        self.ref_audio_len = ref_wav.shape[-1] // self.hop_length
-        self.ref_pinyins = convert_char_to_pinyin([self.ref_text])[0]
-
-        if compile:
-            try:
-                print("Compiling model (torch.compile) to optimize inference speed. The first chunk will take 1-2 minutes...")
-                self.f5.ema_model = torch.compile(self.f5.ema_model)
-            except Exception as e:
-                print(f"Warning: torch.compile failed ({e}). Falling back to uncompiled model.")
-
-    def synthesize(self, text: str) -> tuple[bytes, int]:
-        if not text.strip():
-            return b"", 0
-
-        import numpy as np
-        import torch
-        from f5_tts.infer.utils_infer import convert_char_to_pinyin
-
-        # Pre-tokenize the input chunk
-        gen_pinyins = convert_char_to_pinyin([text])[0]
-        final_text_list = [self.ref_pinyins + gen_pinyins]
-
-        # Calculate duration
-        ref_text_len = len(self.ref_text.encode("utf-8"))
-        gen_text_len = len(text.encode("utf-8"))
-        
-        # Apply the default short-text speed scaling factor
-        local_speed = self.speed
-        if gen_text_len < 10:
-            local_speed = 0.3
-            
-        duration = self.ref_audio_len + int(self.ref_audio_len / ref_text_len * gen_text_len / local_speed)
-
-        # Inference
-        with torch.inference_mode():
-            generated, _ = self.f5.ema_model.sample(
-                cond=self.ref_mel,
-                text=final_text_list,
-                duration=duration,
-                steps=self.nfe_step,
-                cfg_strength=2.0,  # default cfg strength
-                sway_sampling_coef=-1,  # default sway sampling
-            )
-
-            generated = generated.to(torch.float32)
-            generated = generated[:, self.ref_audio_len:, :]
-            generated = generated.permute(0, 2, 1)
-
-            if self.f5.mel_spec_type == "vocos":
-                generated_wave = self.f5.vocoder.decode(generated)
-            elif self.f5.mel_spec_type == "bigvgan":
-                generated_wave = self.f5.vocoder(generated)
-
-            if self.rms < self.target_rms:
-                generated_wave = generated_wave * self.rms / self.target_rms
-
-            wav = generated_wave.squeeze().cpu().numpy()
-
-        # Normalize/convert float32 numpy array to 16-bit PCM WAV
-        if wav.dtype != np.int16:
-            audio_clipped = np.clip(wav, -1.0, 1.0)
-            audio_int16 = (audio_clipped * 32767.0).astype(np.int16)
-        else:
-            audio_int16 = wav
-
-        out_io = io.BytesIO()
-        with wave.open(out_io, "wb") as wav_out:
-            wav_out.setnchannels(1)
-            wav_out.setsampwidth(2)
-            wav_out.setframerate(self.target_sample_rate)
-            wav_out.writeframes(audio_int16.tobytes())
-
-        return out_io.getvalue(), len(audio_int16)
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -258,6 +97,96 @@ def extract_spine_text_chunks(epub_path: str | Path) -> list[TextChunk]:
                 chunks.append(TextChunk(text=text, idref=idref))
 
     return chunks
+
+
+class _HTMLChapterInfoExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._parts: list[str] = []
+        self._current_tag: str | None = None
+        self._title: str | None = None
+        self._heading: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._current_tag = tag.lower()
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._current_tag == tag.lower():
+            self._current_tag = None
+
+    def handle_data(self, data: str) -> None:
+        stripped = data.strip()
+        if stripped:
+            self._parts.append(stripped)
+            if self._current_tag == "title" and not self._title:
+                self._title = stripped
+            elif self._current_tag in ("h1", "h2") and not self._heading:
+                self._heading = stripped
+
+    def text(self) -> str:
+        return " ".join(self._parts).strip()
+
+    def get_title(self) -> str:
+        if self._heading:
+            return self._heading
+        if self._title:
+            return self._title
+        return ""
+
+
+def extract_chapter_previews(epub_path: str | Path) -> list[dict]:
+    """Extract ordered chapter metadata and previews for UI filtering."""
+    epub_path = Path(epub_path)
+    results = []
+    with zipfile.ZipFile(epub_path) as zf:
+        container_xml = zf.read("META-INF/container.xml")
+        container_root = ET.fromstring(container_xml)
+        rootfile = container_root.find(".//{*}rootfile")
+        if rootfile is None:
+            raise ValueError("EPUB container is missing a rootfile entry")
+
+        opf_path = rootfile.attrib.get("full-path")
+        if not opf_path:
+            raise ValueError("EPUB rootfile entry is missing full-path")
+
+        opf_root = ET.fromstring(zf.read(opf_path))
+
+        manifest: dict[str, str] = {}
+        for item in opf_root.findall(".//{*}manifest/{*}item"):
+            item_id = item.attrib.get("id")
+            href = item.attrib.get("href")
+            if item_id and href:
+                manifest[item_id] = href
+
+        base_dir = Path(opf_path).parent
+        for itemref in opf_root.findall(".//{*}spine/{*}itemref"):
+            idref = itemref.attrib.get("idref")
+            href = manifest.get(idref or "")
+            if not href:
+                continue
+
+            # Ensure we only process HTML/XHTML resources
+            item = opf_root.find(f".//{{*}}manifest/{{*}}item[@id='{idref}']")
+            if item is not None:
+                media_type = item.attrib.get("media-type")
+                if media_type != "application/xhtml+xml":
+                    continue
+
+            html_path = str((base_dir / href).as_posix())
+            if html_path not in zf.namelist():
+                continue
+            extractor = _HTMLChapterInfoExtractor()
+            extractor.feed(zf.read(html_path).decode("utf-8", errors="ignore"))
+            text = extractor.text()
+            title = extractor.get_title() or idref or "Untitled Chapter"
+
+            results.append({
+                "idref": idref,
+                "title": title,
+                "char_count": len(text),
+                "preview": text[:1000]
+            })
+    return results
 
 
 def synthesize_with_internal_timestamps(
@@ -767,6 +696,7 @@ def generate_media_overlay_epub(
     chapter_audio_callback: "Callable[[str, Path], None] | None" = None,
     cache_dir: str | Path | None = None,
     concurrency: int = 2,
+    selected_chapters: list[str] | None = None,
 ) -> None:
     """Orchestrate EPUB extraction, synthesis, SMIL creation, OPF updates, and repackaging.
 
@@ -993,6 +923,8 @@ def generate_media_overlay_epub(
             href = item.attrib.get("href")
             xhtml_file_path = opf_dir / href
             if not xhtml_file_path.exists():
+                continue
+            if selected_chapters is not None and idref not in selected_chapters:
                 continue
             processable_itemrefs.append((itemref, idref, item, href, xhtml_file_path))
 

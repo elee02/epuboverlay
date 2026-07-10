@@ -126,6 +126,8 @@
                             <label for="synthesizer-select">Synthesizer</label>
                             <select id="synthesizer-select" name="synthesizer">
                                 <option value="f5-tts">F5-TTS (Voice Cloning)</option>
+                                <option value="kokoro">Kokoro-82M (Built-in Voices / Formulas)</option>
+                                <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning)</option>
                                 <option value="dummy">Dummy (Silent / Testing)</option>
                             </select>
                         </div>
@@ -154,34 +156,82 @@
                             <label for="concurrency-input">Concurrency</label>
                             <input type="number" id="concurrency-input" name="concurrency" value="2" min="1" max="16" step="1">
                         </div>
-
-                        <div class="form-group">
-                            <label for="nfe-step-input">Inference Steps (NFE)</label>
-                            <input type="number" id="nfe-step-input" name="nfe_step" value="32" min="10" max="64" step="2">
-                        </div>
-
-                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; height: 100%; align-self: flex-end; padding-bottom: 0.5rem;">
-                            <input type="checkbox" id="compile-checkbox" name="compile" style="width: auto; margin: 0; cursor: pointer;">
-                            <label for="compile-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">Compile Model (torch.compile)</label>
-                        </div>
                     </div>
 
-                    <!-- F5-TTS specific fields -->
-                    <div class="ref-audio-fields" id="ref-audio-fields" style="margin-top: 1rem;">
+                    <!-- Voice Cloning Options (F5-TTS and PocketTTS) -->
+                    <div id="cloning-options" class="ref-audio-fields" style="margin-top: 1rem;">
                         <div class="form-group">
                             <label>Reference Audio</label>
                             <div class="file-upload-zone" id="ref-audio-upload-zone" style="padding: 0.8rem;">
                                 <div class="upload-text" style="font-size: 0.8rem;">
-                                    <strong>Upload</strong> voice clip (.wav)
+                                    <strong>Upload</strong> voice clip (.wav, .mp3, etc.)
                                 </div>
                                 <div class="file-name" id="ref-audio-file-name" style="display: none;"></div>
                                 <input type="file" id="ref-audio-file" name="ref_audio" accept=".wav,.mp3,.flac,.ogg">
                             </div>
                         </div>
+                    </div>
 
-                        <div class="form-group">
+                    <!-- F5-TTS Specific Options -->
+                    <div id="f5-tts-options" class="model-specific-options" style="margin-top: 1rem;">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="nfe-step-input">Inference Steps (NFE)</label>
+                                <input type="number" id="nfe-step-input" name="nfe_step" value="32" min="10" max="64" step="2">
+                            </div>
+                            <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; height: 100%; align-self: flex-end; padding-bottom: 0.5rem;">
+                                <input type="checkbox" id="compile-checkbox" name="compile" style="width: auto; margin: 0; cursor: pointer;">
+                                <label for="compile-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">Compile Model (torch.compile)</label>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top: 1rem;">
                             <label for="ref-text-input">Reference Text</label>
                             <textarea id="ref-text-input" name="ref_text" placeholder="Exact transcript of your reference audio clip..." rows="3"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Kokoro Specific Options -->
+                    <div id="kokoro-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="voice-select">Kokoro Voice</label>
+                                <select id="voice-select" name="voice">
+                                    <!-- Populated dynamically via JS -->
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="lang-code-select">Language Code</label>
+                                <select id="lang-code-select" name="lang_code">
+                                    <option value="a">American English</option>
+                                    <option value="b">British English</option>
+                                    <option value="e">Spanish</option>
+                                    <option value="f">French</option>
+                                    <option value="h">Hindi</option>
+                                    <option value="i">Italian</option>
+                                    <option value="j">Japanese</option>
+                                    <option value="p">Portuguese</option>
+                                    <option value="z">Mandarin Chinese</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label for="voice-formula-input">Voice Formula (Blend)</label>
+                            <input type="text" id="voice-formula-input" name="voice_formula" placeholder="Optional voice mix formula (e.g. af_heart*0.6+af_sky*0.4)">
+                        </div>
+                    </div>
+
+                    <!-- Chapter Selection Panel (populated dynamically via JS) -->
+                    <div id="chapter-selection-panel" class="chapter-selection-panel" style="display: none; margin-top: 1.5rem;">
+                        <label style="font-weight: 600; margin-bottom: 0.5rem; display: block; font-size: 1rem;">📖 Chapter Selection</label>
+                        <p class="description" style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                            Select which chapters to narrate. Sections matching common patterns (Notes, Copyright, Index, etc.) have been automatically deselected.
+                        </p>
+                        <div class="chapter-actions" style="margin-bottom: 0.8rem; display: flex; gap: 0.5rem;">
+                            <button type="button" class="btn btn-xs" id="select-all-chapters-btn">Select All</button>
+                            <button type="button" class="btn btn-xs" id="deselect-all-chapters-btn">Deselect All</button>
+                        </div>
+                        <div class="chapters-list-wrapper" id="chapters-list-wrapper">
+                            <!-- Populated dynamically via JS -->
                         </div>
                     </div>
 

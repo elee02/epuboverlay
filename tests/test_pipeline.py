@@ -10,7 +10,6 @@ from pathlib import Path
 from epuboverlay.pipeline import (
     TextChunk,
     TimestampedLine,
-    DummySynthesizer,
     extract_spine_text_chunks,
     format_lrc,
     synthesize_with_internal_timestamps,
@@ -21,6 +20,7 @@ from epuboverlay.pipeline import (
     concatenate_wavs,
     generate_media_overlay_epub,
 )
+from epuboverlay.synthesizers import DummySynthesizer
 
 
 class DummyFrameSynthesizer:
@@ -698,6 +698,44 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("utilization", gpu_data)
             self.assertIn("temperature", gpu_data)
 
+    def test_web_api_get_chapters(self) -> None:
+        import zipfile
+        import tempfile
+        from pathlib import Path
+        from fastapi.testclient import TestClient
+        from epuboverlay.web.server import app
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_epub = Path(tmpdir) / "dummy.epub"
+            with zipfile.ZipFile(dummy_epub, "w") as zf:
+                zf.writestr("mimetype", "application/epub+zip")
+                zf.writestr(
+                    "META-INF/container.xml",
+                    """<?xml version='1.0'?><container version='1.0' xmlns='urn:oasis:names:tc:opendocument:xmlns:container'><rootfiles><rootfile full-path='OEBPS/content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>""",
+                )
+                zf.writestr(
+                    "OEBPS/content.opf",
+                    """<?xml version='1.0' encoding='utf-8'?><package xmlns='http://www.idpf.org/2007/opf' version='3.0'><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test Book</dc:title></metadata><manifest><item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="ch1"/></spine></package>""",
+                )
+                zf.writestr(
+                    "OEBPS/chapter1.xhtml",
+                    """<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter 1 Title</title></head><body><h1>Introduction</h1><p>This is paragraph one of the chapter.</p><p>This is paragraph two of the chapter.</p></body></html>""",
+                )
+
+            client = TestClient(app)
+            with open(dummy_epub, "rb") as f:
+                response = client.post(
+                    "/api/chapters",
+                    files={"epub": ("dummy.epub", f, "application/epub+zip")},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertEqual(len(data), 1)
+            self.assertEqual(data[0]["idref"], "ch1")
+            self.assertEqual(data[0]["title"], "Introduction")
+            self.assertIn("paragraph one", data[0]["preview"])
+
     def test_generate_media_overlay_epub_parallel(self) -> None:
         import io
         import wave
@@ -1156,7 +1194,7 @@ except ImportError:
 @unittest.skipIf(not HAS_F5_TTS, "f5-tts is not installed")
 class F5TTSSynthesizerTests(unittest.TestCase):
     def test_f5_synthesizer_runs_and_produces_audio(self) -> None:
-        from epuboverlay.pipeline import F5TTSSynthesizer
+        from epuboverlay.synthesizers import F5TTSSynthesizer
         ref_audio = "./.venv/lib/python3.14/site-packages/f5_tts/infer/examples/basic/basic_ref_en.wav"
         ref_text = "This is a test of reference audio."
         synth = F5TTSSynthesizer(ref_audio=ref_audio, ref_text=ref_text)

@@ -1,8 +1,6 @@
 from .pipeline import (
     TextChunk,
     TimestampedLine,
-    DummySynthesizer,
-    F5TTSSynthesizer,
     extract_spine_text_chunks,
     format_lrc,
     synthesize_with_internal_timestamps,
@@ -18,6 +16,16 @@ from .pipeline import (
     stream_concat_wav_to_file,
     generate_media_overlay_epub,
 )
+from .synthesizers import (
+    BaseSynthesizer,
+    FrameTimedSynthesizer,
+    DummySynthesizer,
+    F5TTSSynthesizer,
+    KokoroSynthesizer,
+    PocketSynthesizer,
+    create_synthesizer,
+    KOKORO_VOICES,
+)
 from .extract import (
     ChapterOverlay,
     parse_epub_overlays,
@@ -32,8 +40,14 @@ from .progress import (
 __all__ = [
     "TextChunk",
     "TimestampedLine",
+    "BaseSynthesizer",
+    "FrameTimedSynthesizer",
     "DummySynthesizer",
     "F5TTSSynthesizer",
+    "KokoroSynthesizer",
+    "PocketSynthesizer",
+    "create_synthesizer",
+    "KOKORO_VOICES",
     "extract_spine_text_chunks",
     "format_lrc",
     "synthesize_with_internal_timestamps",
