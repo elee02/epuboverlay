@@ -1146,5 +1146,24 @@ class PipelineTests(unittest.TestCase):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+try:
+    import f5_tts
+    HAS_F5_TTS = True
+except ImportError:
+    HAS_F5_TTS = False
+
+
+@unittest.skipIf(not HAS_F5_TTS, "f5-tts is not installed")
+class F5TTSSynthesizerTests(unittest.TestCase):
+    def test_f5_synthesizer_runs_and_produces_audio(self) -> None:
+        from epuboverlay.pipeline import F5TTSSynthesizer
+        ref_audio = "./.venv/lib/python3.14/site-packages/f5_tts/infer/examples/basic/basic_ref_en.wav"
+        ref_text = "This is a test of reference audio."
+        synth = F5TTSSynthesizer(ref_audio=ref_audio, ref_text=ref_text)
+        wav_bytes, frame_count = synth.synthesize("Hello world.")
+        self.assertTrue(len(wav_bytes) > 0)
+        self.assertTrue(frame_count > 0)
+
+
 if __name__ == "__main__":
     sys.exit(unittest.main())
