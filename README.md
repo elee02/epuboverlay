@@ -1,10 +1,10 @@
 # epuboverlay
 
-Generate standard, narrated **EPUB 3 files with Media Overlays** using F5-TTS, Kokoro, or Pocket-TTS, and extract M4A/MP3 + LRC file pairs from narrated e-books.
+`epuboverlay` is a dual-purpose tool designed to generate narrated **EPUB 3 files with Media Overlays** using F5-TTS, Kokoro, or Pocket-TTS, and to extract synchronized audio tracks (M4A/MP3) and standard `.lrc` files from narrated e-books.
 
-Instead of generating clunky, standalone `.lrc` files, `epuboverlay` modifies the EPUB container itself: it segments XHTML chapter text into individual sentences and clauses, wraps them in visual `<span id="...">` tags, synthesizes corresponding spoken audio in your chosen voice, compresses it to standard M4A/AAC (or MP3) using `ffmpeg`, and generates standard W3C SMIL multimedia sync maps. It also supports extraction and optional merging of existing media overlays into standard audio tracks and lyrics files.
-
-This allows modern e-book readers (such as Apple Books, Kobo, or Thorium Reader) to highlight paragraphs and sentences in real-time sync with the narrated audio, providing a premium, accessible audiobook-reading experience.
+Instead of restricting you to one format, `epuboverlay` bridges the gap between interactive e-book reading and standalone audio listening:
+- 📖 **Generation (EPUB Enhancement)**: It segments XHTML text into sentences/clauses, wraps them in visual `<span id="...">` tags, synthesizes matching spoken narration in your chosen voice, generates standard W3C SMIL sync maps, and packages everything back into a fully validated EPUB 3 container. This allows modern e-readers (such as Apple Books, Kobo, or Thorium Reader) to highlight sentences in real-time sync with the audio.
+- 🎵 **Extraction (Standalone Playback)**: It unpacks existing narrated EPUBs, extracts their audio tracks, and generates matching `.lrc` sync files (with optional chapter merging) for playback on standard media/music players (e.g. Poweramp).
 
 ---
 
@@ -27,20 +27,32 @@ This allows modern e-book readers (such as Apple Books, Kobo, or Thorium Reader)
 
 ## System Architecture
 
-The following diagram illustrates how `epuboverlay` processes your e-book:
+The following diagram illustrates the dual workflows supported by `epuboverlay`:
 
 ```mermaid
 flowchart TD
-    A[Input EPUB] --> B[Pipeline Orchestrator]
-    B --> C[Extract XHTML Chapters & Manifest]
-    C --> D[Text Segmentation & HTML Spanning]
-    D --> E["Parallel Audio Synthesis (F5-TTS / Kokoro / Pocket-TTS / Dummy)"]
-    E --> F[Accumulate Timing Offsets from Audio Frames]
-    F --> G[Concatenate WAVs & Convert to M4A/AAC via FFmpeg]
-    G --> H[Generate SMIL Sync Maps]
-    H --> I[Update OPF Metadata & Duration Properties]
-    I --> J[Repackage EPUB Container]
-    J --> K[Narrated EPUB 3 Output]
+    subgraph Gen ["1. Media Overlay Generation"]
+        A1[Input EPUB] --> B1[Pipeline Orchestrator]
+        B1 --> C1[Extract XHTML Chapters & Manifest]
+        C1 --> D1[Text Segmentation & HTML Spanning]
+        D1 --> E1["Parallel Audio Synthesis (F5-TTS / Kokoro / Pocket-TTS / Dummy)"]
+        E1 --> F1[Accumulate Timing Offsets from Audio Frames]
+        F1 --> G1[Concatenate WAVs & Convert to M4A/AAC via FFmpeg]
+        G1 --> H1[Generate SMIL Sync Maps]
+        H1 --> I1[Update OPF Metadata & Duration Properties]
+        I1 --> J1[Repackage EPUB Container]
+        J1 --> K1[Narrated EPUB 3 Output]
+    end
+
+    subgraph Ext ["2. Media Overlay Extraction"]
+        A2[Narrated EPUB 3 Input] --> B2[Unpack EPUB & Parse SMIL Overlays]
+        B2 --> C2[Align XHTML Text Spans with SMIL Timings]
+        C2 --> D2{Merge Chapters?}
+        D2 -- Yes --> E2[Merge Audio & LRC Timings via FFmpeg]
+        D2 -- No --> F2[Export Per-Chapter Audio & LRC Pairs]
+        E2 --> G2[Extracted Audio + LRC Package]
+        F2 --> G2
+    end
 ```
 
 ---

@@ -149,7 +149,7 @@ def _cmd_extract(parsed: argparse.Namespace) -> int:
 
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="epuboverlay — EPUB 3 Media Overlay tools with AI Voice Cloning.",
+        description="epuboverlay — EPUB 3 Media Overlay tools with F5-TTS, Kokoro, and Pocket-TTS.",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
