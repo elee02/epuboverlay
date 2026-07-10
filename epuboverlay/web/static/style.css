@@ -950,3 +950,275 @@ audio::-webkit-media-controls-panel {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Voice Mode Toggle ── */
+.voice-mode-selector {
+    display: flex;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 0.25rem;
+    gap: 0.25rem;
+}
+
+.voice-mode-selector .mode-pill {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    border-radius: calc(var(--radius-sm) - 2px);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.voice-mode-selector .mode-pill:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.voice-mode-selector .mode-pill.active {
+    color: #fff;
+    background: var(--gradient-primary);
+    box-shadow: 0 2px 10px rgba(139, 92, 246, 0.2);
+}
+
+/* ── Blend Visualizer Bar ── */
+.blend-visualizer-bar {
+    display: flex;
+    height: 38px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    margin-top: 0.25rem;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+    position: relative;
+}
+
+.blend-visualizer-bar::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(rgba(255, 255, 255, 0.08), transparent);
+    pointer-events: none;
+}
+
+.blend-visualizer-segment {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    padding: 0 0.5rem;
+    position: relative;
+}
+
+.blend-visualizer-segment:not(:last-child) {
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.blend-visualizer-empty {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 0.8rem;
+}
+
+/* ── Blend Channel Rows ── */
+.blend-channels-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.blend-channel-row {
+    display: grid;
+    grid-template-columns: 16px minmax(110px, 160px) 1fr 50px auto;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.75rem;
+    transition: var(--transition);
+}
+
+.blend-channel-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.blend-channel-color-badge {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    box-shadow: 0 0 8px currentColor;
+    background-color: currentColor;
+}
+
+.blend-channel-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.blend-channel-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.blend-channel-desc {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    margin-top: 0.1rem;
+}
+
+.blend-channel-slider-container {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.blend-channel-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-input);
+    outline: none;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.blend-channel-slider:focus {
+    background: var(--bg-input-focus);
+}
+
+.blend-channel-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.blend-channel-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.9);
+}
+
+.blend-channel-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    border: none;
+    box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.blend-channel-slider::-moz-range-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.9);
+}
+
+.blend-channel-percent {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-align: right;
+    font-family: monospace;
+}
+
+.blend-channel-remove {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.2rem;
+    font-size: 1rem;
+    line-height: 1;
+    border-radius: 4px;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.blend-channel-remove:hover {
+    color: var(--accent-rose);
+    background: rgba(244, 63, 94, 0.15);
+}
+
+/* ── Presets Grid ── */
+.blend-presets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.blend-preset-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: var(--transition);
+    text-align: left;
+}
+
+.blend-preset-card:hover {
+    background: rgba(139, 92, 246, 0.04);
+    border-color: var(--accent-violet);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.1);
+}
+
+.blend-preset-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.blend-preset-desc {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+    line-height: 1.3;
+}
+
+/* ── Voice Preview Ring Animation ── */
+@keyframes pulse-ring {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
+    70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+}
+
+.btn-preview-playing {
+    background: var(--gradient-success) !important;
+    animation: pulse-ring 2s infinite;
+    color: #fff !important;
+}
+

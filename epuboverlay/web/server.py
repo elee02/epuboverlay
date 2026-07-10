@@ -533,6 +533,50 @@ async def extract_audio_lrc(
         # FastAPI/Starlette will handle response completion.
 
 
+@app.post("/api/preview")
+async def preview_voice(
+    voice: str = Form(""),
+    voice_formula: str = Form(""),
+    lang_code: str = Form("a"),
+    text: str = Form("Hello, this is a preview of the selected voice mix."),
+):
+    """Generate a quick audio preview of a voice or blend formula."""
+    from fastapi import Response
+
+    if not voice and not voice_formula:
+        raise HTTPException(
+            status_code=400,
+            detail="Either voice or voice_formula is required.",
+        )
+    if not text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Preview text cannot be empty.",
+        )
+
+    try:
+        from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
+
+        # We instantiate KokoroSynthesizer on CPU for preview
+        synth = KokoroSynthesizer(
+            voice=voice,
+            voice_formula=voice_formula,
+            speed=1.0,
+            lang_code=lang_code,
+            device="cpu",
+        )
+
+        wav_bytes, _ = synth.synthesize(text)
+        return Response(content=wav_bytes, media_type="audio/wav")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Preview synthesis failed: {str(e)}"
+        )
+
+
 def main():
     """Entry point for the epuboverlay-web command."""
     import uvicorn

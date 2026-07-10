@@ -5,7 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="epuboverlay Dashboard — Generate narrated EPUB 3 files with Media Overlays using AI voice cloning.">
     <title>epuboverlay — Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=2">
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            console.error("Global JS Error:", msg, "at", url, ":", line);
+            alert("JS Error: " + msg + " (Line " + line + ")");
+            return false;
+        };
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error("Unhandled promise rejection:", event.reason);
+            alert("Promise Error: " + event.reason);
+        });
+    </script>
 </head>
 <body>
     <div class="app-container">
@@ -194,10 +205,11 @@
                     <div id="kokoro-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
                         <div class="form-grid">
                             <div class="form-group">
-                                <label for="voice-select">Kokoro Voice</label>
-                                <select id="voice-select" name="voice">
-                                    <!-- Populated dynamically via JS -->
-                                </select>
+                                <label>Voice Mode</label>
+                                <div class="voice-mode-selector" id="voice-mode-selector">
+                                    <button type="button" class="mode-pill active" data-mode="single">Single Voice</button>
+                                    <button type="button" class="mode-pill" data-mode="blend">Custom Blend</button>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="lang-code-select">Language Code</label>
@@ -214,9 +226,80 @@
                                 </select>
                             </div>
                         </div>
+
+                        <!-- Single Voice Sub-panel -->
+                        <div id="kokoro-single-panel" class="kokoro-sub-panel" style="margin-top: 1rem;">
+                            <div class="form-group">
+                                <label for="voice-select">Kokoro Voice</label>
+                                <select id="voice-select" name="voice">
+                                    <!-- Populated dynamically via JS -->
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Custom Blend Sub-panel -->
+                        <div id="kokoro-blend-panel" class="kokoro-sub-panel" style="margin-top: 1rem; display: none;">
+                            <!-- Visual Blend Proportion Bar -->
+                            <div class="form-group">
+                                <label>Blend Proportions Visualizer</label>
+                                <div class="blend-visualizer-bar" id="blend-visualizer-bar">
+                                    <!-- Stacked segments created dynamically via JS -->
+                                </div>
+                            </div>
+
+                            <!-- List of active blend channels/sliders -->
+                            <div class="form-group" style="margin-top: 0.5rem;">
+                                <label>Blend Channels</label>
+                                <div class="blend-channels-list" id="blend-channels-list">
+                                    <!-- Dynamic rows created dynamically via JS -->
+                                </div>
+                            </div>
+
+                            <!-- Control bar to add new voice to blend -->
+                            <div class="form-grid" style="margin-top: 0.75rem; grid-template-columns: 1fr auto; align-items: flex-end;">
+                                <div class="form-group">
+                                    <label for="blend-add-select">Select Voice to Add</label>
+                                    <select id="blend-add-select">
+                                        <!-- Dynamically filtered / loaded voices -->
+                                    </select>
+                                </div>
+                                <button type="button" class="btn" id="add-to-blend-btn" style="height: 38px; display: flex; align-items: center; justify-content: center; gap: 0.25rem;">
+                                    ➕ Add Voice
+                                </button>
+                            </div>
+
+                            <div class="form-group" style="margin-top: 0.5rem; flex-direction: row; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" id="show-all-languages-checkbox" style="width: auto; margin: 0; cursor: pointer;">
+                                <label for="show-all-languages-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none; font-size: 0.85rem; color: var(--text-secondary);">Show voices from all languages</label>
+                            </div>
+
+                            <!-- Presets -->
+                            <div class="form-group" style="margin-top: 1rem;">
+                                <label>Voice Presets</label>
+                                <div class="blend-presets-grid" id="blend-presets-grid">
+                                    <!-- Pre-configured combinations -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Under the hood representation (remains in form but read-only / visual help) -->
                         <div class="form-group" style="margin-top: 1rem;">
-                            <label for="voice-formula-input">Voice Formula (Blend)</label>
-                            <input type="text" id="voice-formula-input" name="voice_formula" placeholder="Optional voice mix formula (e.g. af_heart*0.6+af_sky*0.4)">
+                            <label for="voice-formula-input" style="display: flex; justify-content: space-between;">
+                                <span>Voice Formula (Compiled String)</span>
+                                <span class="formula-reset-btn" id="formula-reset-btn" style="color: var(--accent-rose); cursor: pointer; font-size: 0.8rem; font-weight: 500;">🗑| Reset Mix</span>
+                            </label>
+                            <input type="text" id="voice-formula-input" name="voice_formula" readonly placeholder="Mix voices to build a blend formula (e.g. af_heart*0.6+af_sky*0.4)" style="background: var(--bg-primary); cursor: not-allowed; border-color: var(--border-subtle);">
+                        </div>
+
+                        <!-- Voice Preview Panel -->
+                        <div class="form-grid" style="margin-top: 1rem; grid-template-columns: 1fr auto; align-items: flex-end;">
+                            <div class="form-group">
+                                <label for="preview-text-input">Preview Text</label>
+                                <input type="text" id="preview-text-input" placeholder="Type text to preview..." value="Hello, this is a preview of the selected voice mix.">
+                            </div>
+                            <button type="button" class="btn" id="play-preview-btn" style="height: 38px; display: flex; align-items: center; justify-content: center; gap: 0.25rem;">
+                                🔊 Play Preview
+                            </button>
                         </div>
                     </div>
 
@@ -334,6 +417,6 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=2"></script>
 </body>
 </html>

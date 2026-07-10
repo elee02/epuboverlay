@@ -44,6 +44,9 @@ const modeExtract = document.getElementById('mode-extract');
 // ── State ──
 let activeSSE = null;
 let jobs = [];
+let activeVoiceMode = 'single';
+let activeBlendVoices = [];
+let previewAudio = null;
 
 // ── Initialize ──
 document.addEventListener('DOMContentLoaded', async () => {
@@ -56,6 +59,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupTabs();
     setupExtractForm();
     startStatsPolling();
+    setupKokoroMixer();
     
     const purgeBtn = document.getElementById('purge-cache-btn');
     if (purgeBtn) {
@@ -160,6 +164,7 @@ function setupSynthesizerToggle() {
             cloningOptions.style.display = 'none';
             f5TtsOptions.style.display = 'none';
             kokoroOptions.style.display = 'block';
+            setVoiceMode(activeVoiceMode);
         } else {
             cloningOptions.style.display = 'none';
             f5TtsOptions.style.display = 'none';
@@ -177,6 +182,19 @@ function setupForm() {
         e.preventDefault();
 
         const formData = new FormData(jobForm);
+
+        // Adjust Kokoro parameters based on active voice mode
+        if (synthSelect.value === 'kokoro') {
+            if (activeVoiceMode === 'single') {
+                const vs = document.getElementById('voice-select');
+                formData.set('voice', vs ? vs.value : '');
+                formData.set('voice_formula', '');
+            } else {
+                formData.set('voice', '');
+                const vfi = document.getElementById('voice-formula-input');
+                formData.set('voice_formula', vfi ? vfi.value : '');
+            }
+        }
 
         // Validation
         if (!epubFile.files.length) {
@@ -244,6 +262,17 @@ function setupForm() {
             cloningOptions.style.display = 'block';
             f5TtsOptions.style.display = 'block';
             kokoroOptions.style.display = 'none';
+
+            // Reset custom Kokoro voice mixer state
+            activeVoiceMode = 'single';
+            activeBlendVoices = [];
+            if (previewAudio) {
+                previewAudio.pause();
+                previewAudio = null;
+            }
+            updatePreviewButtonState(false);
+            setVoiceMode('single');
+            updateFilteredVoices();
 
             // Show active job and start SSE
             renderActiveJob(job);
@@ -1152,18 +1181,7 @@ async function fetchConfig() {
 }
 
 function populateKokoroVoices() {
-    const select = document.getElementById('voice-select');
-    if (!select) return;
-    select.innerHTML = '';
-    kokoroVoices.forEach(voice => {
-        const opt = document.createElement('option');
-        opt.value = voice;
-        opt.textContent = voice;
-        if (voice === 'af_heart') {
-            opt.selected = true;
-        }
-        select.appendChild(opt);
-    });
+    updateFilteredVoices();
 }
 
 function setupChapterSelection() {
@@ -1250,5 +1268,469 @@ function renderChaptersList(chapters) {
         `;
         wrapper.appendChild(item);
     });
+}
+
+
+// ── Kokoro Custom Blend Mixer & Previews ──
+
+const LANG_PREFIX_MAP = {
+    'a': ['af_', 'am_'],
+    'b': ['bf_', 'bm_'],
+    'e': ['ef_', 'em_'],
+    'f': ['ff_'],
+    'h': ['hf_', 'hm_'],
+    'i': ['if_', 'im_'],
+    'j': ['jf_', 'jm_'],
+    'p': ['pf_', 'pm_'],
+    'z': ['zf_', 'zm_']
+};
+
+const BLEND_COLORS = [
+    '#8b5cf6', // Violet
+    '#06b6d4', // Cyan
+    '#10b981', // Emerald
+    '#f43f5e', // Rose
+    '#f59e0b', // Amber
+    '#3b82f6', // Blue
+    '#f97316', // Orange
+    '#a855f7'  // Purple
+];
+
+const KOKORO_PRESETS = [
+    {
+        name: "Warm Narrative Duet (US)",
+        desc: "Balanced male and female US voices for engaging stories",
+        formula: "af_heart*0.5+am_adam*0.5"
+    },
+    {
+        name: "UK Storyteller Duo",
+        desc: "Cozy blend of Lily and Fable for standard narration",
+        formula: "bf_lily*0.6+bm_fable*0.4"
+    },
+    {
+        name: "Deep Dramatic (US)",
+        desc: "Deeper, atmospheric male voices with a hint of female brightness",
+        formula: "am_onyx*0.6+am_michael*0.3+af_sarah*0.1"
+    },
+    {
+        name: "Cozy Fireside (US)",
+        desc: "Warm female voices blended for a soft reading tone",
+        formula: "af_bella*0.4+af_sky*0.4+af_heart*0.2"
+    }
+];
+
+function getSegmentColor(index) {
+    return BLEND_COLORS[index % BLEND_COLORS.length];
+}
+
+function getVoiceMetadata(voiceName) {
+    const langMap = {
+        'af': { name: 'US English', gender: 'Female' },
+        'am': { name: 'US English', gender: 'Male' },
+        'bf': { name: 'UK English', gender: 'Female' },
+        'bm': { name: 'UK English', gender: 'Male' },
+        'ef': { name: 'Spanish', gender: 'Female' },
+        'em': { name: 'Spanish', gender: 'Male' },
+        'ff': { name: 'French', gender: 'Female' },
+        'hf': { name: 'Hindi', gender: 'Female' },
+        'hm': { name: 'Hindi', gender: 'Male' },
+        'if': { name: 'Italian', gender: 'Female' },
+        'im': { name: 'Italian', gender: 'Male' },
+        'jf': { name: 'Japanese', gender: 'Female' },
+        'jm': { name: 'Japanese', gender: 'Male' },
+        'pf': { name: 'Portuguese', gender: 'Female' },
+        'pm': { name: 'Portuguese', gender: 'Male' },
+        'zf': { name: 'Chinese', gender: 'Female' },
+        'zm': { name: 'Chinese', gender: 'Male' }
+    };
+    const prefix = voiceName.substring(0, 2);
+    const meta = langMap[prefix] || { name: 'Unknown Language', gender: 'Unknown' };
+    
+    // Capitalize name part
+    let namePart = voiceName.substring(3);
+    namePart = namePart.charAt(0).toUpperCase() + namePart.slice(1);
+    
+    return {
+        id: voiceName,
+        displayName: `${namePart} (${meta.name} ${meta.gender})`,
+        langName: meta.name,
+        gender: meta.gender
+    };
+}
+
+function updateFilteredVoices() {
+    const langSelect = document.getElementById('lang-code-select');
+    if (!langSelect) return;
+    
+    const langCode = langSelect.value;
+    const showAllCheckbox = document.getElementById('show-all-languages-checkbox');
+    const showAll = showAllCheckbox ? showAllCheckbox.checked : false;
+    
+    const prefixes = LANG_PREFIX_MAP[langCode] || [];
+    
+    const filtered = kokoroVoices.filter(voice => {
+        if (showAll) return true;
+        return prefixes.some(p => voice.startsWith(p));
+    });
+    
+    // 1. Update Single Voice Selector
+    const voiceSelect = document.getElementById('voice-select');
+    if (voiceSelect) {
+        const prevSelected = voiceSelect.value;
+        voiceSelect.innerHTML = '';
+        
+        filtered.forEach(voice => {
+            const meta = getVoiceMetadata(voice);
+            const opt = document.createElement('option');
+            opt.value = voice;
+            opt.textContent = meta.displayName;
+            if (voice === prevSelected || (!prevSelected && voice === 'af_heart')) {
+                opt.selected = true;
+            }
+            voiceSelect.appendChild(opt);
+        });
+        
+        if (!voiceSelect.value && filtered.length > 0) {
+            voiceSelect.selectedIndex = 0;
+        }
+    }
+    
+    // 2. Update Blend Add Selector
+    const blendAddSelect = document.getElementById('blend-add-select');
+    if (blendAddSelect) {
+        const prevSelectedAdd = blendAddSelect.value;
+        blendAddSelect.innerHTML = '';
+        
+        const activeIds = activeBlendVoices.map(v => v.voice);
+        const addable = filtered.filter(voice => !activeIds.includes(voice));
+        
+        addable.forEach(voice => {
+            const meta = getVoiceMetadata(voice);
+            const opt = document.createElement('option');
+            opt.value = voice;
+            opt.textContent = meta.displayName;
+            if (voice === prevSelectedAdd) {
+                opt.selected = true;
+            }
+            blendAddSelect.appendChild(opt);
+        });
+    }
+}
+
+function renderBlendMixer() {
+    const bar = document.getElementById('blend-visualizer-bar');
+    const list = document.getElementById('blend-channels-list');
+    const formulaInput = document.getElementById('voice-formula-input');
+    
+    if (!bar || !list) return;
+    
+    bar.innerHTML = '';
+    list.innerHTML = '';
+    
+    if (activeBlendVoices.length === 0) {
+        bar.innerHTML = `<div class="blend-visualizer-empty">No voices in mix. Add a voice below!</div>`;
+        if (formulaInput) formulaInput.value = '';
+        return;
+    }
+    
+    const totalWeight = activeBlendVoices.reduce((sum, v) => sum + v.weight, 0);
+    
+    activeBlendVoices.forEach((item, index) => {
+        const color = getSegmentColor(index);
+        const meta = getVoiceMetadata(item.voice);
+        const proportion = totalWeight > 0 ? (item.weight / totalWeight) : 0;
+        const percentage = (proportion * 100).toFixed(0);
+        
+        // 1. Add to visualizer bar
+        if (proportion > 0) {
+            const seg = document.createElement('div');
+            seg.className = 'blend-visualizer-segment';
+            seg.style.width = `${proportion * 100}%`;
+            seg.style.backgroundColor = color;
+            seg.textContent = `${percentage}% ${item.voice}`;
+            seg.title = `${meta.displayName}: ${percentage}%`;
+            bar.appendChild(seg);
+        }
+        
+        // 2. Add slider row
+        const row = document.createElement('div');
+        row.className = 'blend-channel-row';
+        row.innerHTML = `
+            <div class="blend-channel-color-badge" style="color: ${color}"></div>
+            <div class="blend-channel-info">
+                <div class="blend-channel-name">${item.voice}</div>
+                <div class="blend-channel-desc">${meta.displayName}</div>
+            </div>
+            <div class="blend-channel-slider-container">
+                <input type="range" class="blend-channel-slider" min="1" max="100" value="${item.weight}">
+            </div>
+            <div class="blend-channel-percent">${percentage}%</div>
+            <button type="button" class="blend-channel-remove" title="Remove voice">✕</button>
+        `;
+        
+        const slider = row.querySelector('.blend-channel-slider');
+        slider.addEventListener('input', (e) => {
+            item.weight = parseFloat(e.target.value);
+            renderBlendMixer();
+        });
+        
+        const removeBtn = row.querySelector('.blend-channel-remove');
+        removeBtn.addEventListener('click', () => {
+            activeBlendVoices.splice(index, 1);
+            renderBlendMixer();
+            updateFilteredVoices();
+        });
+        
+        list.appendChild(row);
+    });
+    
+    // 3. Compile formula
+    const formulaParts = activeBlendVoices.map(item => {
+        const proportion = totalWeight > 0 ? (item.weight / totalWeight) : 0;
+        return `${item.voice}*${proportion.toFixed(2)}`;
+    });
+    if (formulaInput) {
+        formulaInput.value = formulaParts.join('+');
+    }
+}
+
+function addVoiceToBlend() {
+    const select = document.getElementById('blend-add-select');
+    if (!select) return;
+    const voice = select.value;
+    if (!voice) return;
+    
+    if (activeBlendVoices.some(v => v.voice === voice)) {
+        showToast('Voice is already in the mix!', 'error');
+        return;
+    }
+    
+    activeBlendVoices.push({ voice, weight: 50 });
+    
+    renderBlendMixer();
+    updateFilteredVoices();
+}
+
+function applyPreset(formula) {
+    const parsed = [];
+    const segments = formula.split('+');
+    segments.forEach(seg => {
+        const parts = seg.trim().split('*');
+        if (parts.length === 2) {
+            const voice = parts[0].trim();
+            const weight = parseFloat(parts[1].trim()) * 100;
+            parsed.push({ voice, weight });
+        }
+    });
+    
+    if (parsed.length > 0) {
+        activeBlendVoices = parsed;
+        setVoiceMode('blend');
+        renderBlendMixer();
+        updateFilteredVoices();
+        showToast('Preset applied successfully!', 'success');
+    }
+}
+
+function renderPresets() {
+    const grid = document.getElementById('blend-presets-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    
+    KOKORO_PRESETS.forEach(preset => {
+        const card = document.createElement('div');
+        card.className = 'blend-preset-card';
+        card.innerHTML = `
+            <div class="blend-preset-title">${preset.name}</div>
+            <div class="blend-preset-desc">${preset.desc}</div>
+        `;
+        card.addEventListener('click', () => {
+            applyPreset(preset.formula);
+        });
+        grid.appendChild(card);
+    });
+}
+
+function setVoiceMode(mode) {
+    activeVoiceMode = mode;
+    
+    const selector = document.getElementById('voice-mode-selector');
+    if (selector) {
+        selector.querySelectorAll('.mode-pill').forEach(btn => {
+            if (btn.getAttribute('data-mode') === mode) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+    
+    const singlePanel = document.getElementById('kokoro-single-panel');
+    const blendPanel = document.getElementById('kokoro-blend-panel');
+    
+    if (mode === 'single') {
+        if (singlePanel) singlePanel.style.display = 'block';
+        if (blendPanel) blendPanel.style.display = 'none';
+    } else {
+        if (singlePanel) singlePanel.style.display = 'none';
+        if (blendPanel) blendPanel.style.display = 'block';
+        
+        if (activeBlendVoices.length === 0) {
+            const voiceSelect = document.getElementById('voice-select');
+            const defaultVoice = voiceSelect ? voiceSelect.value : 'af_heart';
+            activeBlendVoices.push({ voice: defaultVoice || 'af_heart', weight: 100 });
+            renderBlendMixer();
+        }
+    }
+}
+
+async function playVoicePreview() {
+    const playBtn = document.getElementById('play-preview-btn');
+    const textInput = document.getElementById('preview-text-input');
+    const langSelect = document.getElementById('lang-code-select');
+    
+    if (!playBtn) return;
+    
+    if (previewAudio && !previewAudio.paused) {
+        previewAudio.pause();
+        previewAudio = null;
+        updatePreviewButtonState(false);
+        return;
+    }
+    
+    const text = textInput ? textInput.value.trim() : '';
+    if (!text) {
+        showToast('Please enter some text to preview.', 'error');
+        return;
+    }
+    
+    let voice = '';
+    let voiceFormula = '';
+    
+    if (activeVoiceMode === 'single') {
+        const voiceSelect = document.getElementById('voice-select');
+        voice = voiceSelect ? voiceSelect.value : '';
+        if (!voice) {
+            showToast('Please select a voice to preview.', 'error');
+            return;
+        }
+    } else {
+        const formulaInput = document.getElementById('voice-formula-input');
+        voiceFormula = formulaInput ? formulaInput.value : '';
+        if (!voiceFormula) {
+            showToast('Please mix some voices to preview.', 'error');
+            return;
+        }
+    }
+    
+    const langCode = langSelect ? langSelect.value : 'a';
+    
+    playBtn.disabled = true;
+    playBtn.innerHTML = '<span class="spinner" style="display:inline-block; width:0.8rem; height:0.8rem; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin-right:0.25rem; vertical-align:middle;"></span> Synthesizing...';
+    
+    try {
+        const body = new FormData();
+        body.append('voice', voice);
+        body.append('voice_formula', voiceFormula);
+        body.append('lang_code', langCode);
+        body.append('text', text);
+        
+        const resp = await fetch('/api/preview', {
+            method: 'POST',
+            body: body
+        });
+        
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Failed to generate preview.');
+        }
+        
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        
+        previewAudio = new Audio(url);
+        previewAudio.addEventListener('ended', () => {
+            updatePreviewButtonState(false);
+            previewAudio = null;
+        });
+        
+        previewAudio.addEventListener('pause', () => {
+            updatePreviewButtonState(false);
+        });
+        
+        updatePreviewButtonState(true);
+        playBtn.disabled = false;
+        await previewAudio.play();
+        
+    } catch (err) {
+        showToast(err.message || 'Failed to play preview.', 'error');
+        updatePreviewButtonState(false);
+        playBtn.disabled = false;
+    }
+}
+
+function updatePreviewButtonState(isPlaying) {
+    const playBtn = document.getElementById('play-preview-btn');
+    if (!playBtn) return;
+    
+    if (isPlaying) {
+        playBtn.textContent = '⏹ Stop Preview';
+        playBtn.classList.add('btn-preview-playing');
+    } else {
+        playBtn.textContent = '🔊 Play Preview';
+        playBtn.classList.remove('btn-preview-playing');
+    }
+}
+
+function setupKokoroMixer() {
+    const modeSelector = document.getElementById('voice-mode-selector');
+    const langSelect = document.getElementById('lang-code-select');
+    const showAllCheckbox = document.getElementById('show-all-languages-checkbox');
+    const addBtn = document.getElementById('add-to-blend-btn');
+    const resetBtn = document.getElementById('formula-reset-btn');
+    const previewBtn = document.getElementById('play-preview-btn');
+    
+    if (modeSelector) {
+        modeSelector.querySelectorAll('.mode-pill').forEach(btn => {
+            btn.addEventListener('click', () => {
+                setVoiceMode(btn.getAttribute('data-mode'));
+            });
+        });
+    }
+    
+    if (langSelect) {
+        langSelect.addEventListener('change', () => {
+            updateFilteredVoices();
+        });
+    }
+    
+    if (showAllCheckbox) {
+        showAllCheckbox.addEventListener('change', () => {
+            updateFilteredVoices();
+        });
+    }
+    
+    if (addBtn) {
+        addBtn.addEventListener('click', () => {
+            addVoiceToBlend();
+        });
+    }
+    
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            activeBlendVoices = [];
+            renderBlendMixer();
+            updateFilteredVoices();
+            showToast('Mix reset successfully.', 'success');
+        });
+    }
+    
+    if (previewBtn) {
+        previewBtn.addEventListener('click', () => {
+            playVoicePreview();
+        });
+    }
+    
+    renderPresets();
 }
 

@@ -106,7 +106,12 @@ class KokoroSynthesizer(BaseSynthesizer):
         if not voice and not voice_formula:
             raise ValueError("Either 'voice' or 'voice_formula' must be provided.")
 
-        self._pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M", device=device)
+        import inspect
+        sig = inspect.signature(KPipeline.__init__)
+        pipe_kwargs = {"lang_code": lang_code, "device": device}
+        if "repo_id" in sig.parameters:
+            pipe_kwargs["repo_id"] = "hexgrad/Kokoro-82M"
+        self._pipeline = KPipeline(**pipe_kwargs)
         self._speed = speed
         self._lang_code = lang_code
 
