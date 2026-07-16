@@ -361,57 +361,71 @@ export function renderCompletedJobs(completedJobs) {
                 `).join('')}
             </div>
 
-            <div class="job-actions-row" style="flex-wrap: wrap; gap: 0.75rem 1.5rem;">
-                <label class="merge-checkbox-label" for="merge-cb-${job.id}">
-                    <input type="checkbox" id="merge-cb-${job.id}" class="merge-chapters-cb">
-                    <span>Merge all chapters</span>
-                </label>
-                <label class="merge-checkbox-label" for="center-cb-${job.id}">
-                    <input type="checkbox" id="center-cb-${job.id}" class="center-subtitles-cb">
-                    <span>Center subtitles</span>
-                </label>
-                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem;">
-                    <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Formats:</span>
-                    <label class="merge-checkbox-label" for="fmt-ass-${job.id}">
-                        <input type="checkbox" id="fmt-ass-${job.id}" class="fmt-cb-ass" checked>
-                        <span>ASS</span>
-                    </label>
-                    <label class="merge-checkbox-label" for="fmt-srt-${job.id}">
-                        <input type="checkbox" id="fmt-srt-${job.id}" class="fmt-cb-srt">
-                        <span>SRT</span>
-                    </label>
-                    <label class="merge-checkbox-label" for="fmt-vtt-${job.id}">
-                        <input type="checkbox" id="fmt-vtt-${job.id}" class="fmt-cb-vtt">
-                        <span>VTT</span>
-                    </label>
-                    <label class="merge-checkbox-label" for="fmt-ttml-${job.id}">
-                        <input type="checkbox" id="fmt-ttml-${job.id}" class="fmt-cb-ttml">
-                        <span>TTML</span>
-                    </label>
-                    <label class="merge-checkbox-label" for="fmt-sbv-${job.id}">
-                        <input type="checkbox" id="fmt-sbv-${job.id}" class="fmt-cb-sbv">
-                        <span>SBV</span>
-                    </label>
-                    <label class="merge-checkbox-label" for="fmt-lrc-${job.id}">
-                        <input type="checkbox" id="fmt-lrc-${job.id}" class="fmt-cb-lrc">
-                        <span>LRC</span>
-                    </label>
-                    <label class="merge-checkbox-label" for="fmt-txt-${job.id}">
-                        <input type="checkbox" id="fmt-txt-${job.id}" class="fmt-cb-txt">
-                        <span>TXT</span>
-                    </label>
+            <div class="audio-export-section" style="margin-top: 1.25rem; border-top: 1px solid var(--border-card); padding-top: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                    <div style="display: flex; gap: 0.5rem;">
+                        <a class="btn btn-download btn-sm" href="/api/jobs/${job.id}/download">
+                            ⬇ Download EPUB
+                        </a>
+                        <button class="btn btn-danger btn-sm delete-job-btn">
+                            🗑️ Delete
+                        </button>
+                    </div>
                 </div>
-            </div>
-            <div class="job-actions">
-                <a class="btn btn-download btn-sm" href="/api/jobs/${job.id}/download">
-                    ⬇ Download EPUB
-                </a>
-                <button class="btn btn-audio btn-sm convert-audio-btn">
-                    🎵 Convert to Audio with Synced Subtitles
-                </button>
-                <button class="btn btn-danger btn-sm delete-job-btn">
-                    🗑️ Delete
-                </button>
+
+                <div class="export-options-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-card); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.25rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                        <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 0.35rem;">
+                            <span>🎧</span> Generate Audiobook + Subtitles
+                        </span>
+                        <button class="btn btn-audio btn-sm convert-audio-btn" style="margin: 0; padding: 0.4rem 0.85rem; font-size: 0.78rem;">
+                            🎵 Convert &amp; Download ZIP
+                        </button>
+                    </div>
+
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center;">
+                        <label class="merge-checkbox-label" for="merge-cb-${job.id}">
+                            <input type="checkbox" id="merge-cb-${job.id}" class="merge-chapters-cb">
+                            <span>Merge all chapters</span>
+                        </label>
+                        <label class="merge-checkbox-label" for="center-cb-${job.id}">
+                            <input type="checkbox" id="center-cb-${job.id}" class="center-subtitles-cb">
+                            <span>Center subtitles (horizontally &amp; vertically)</span>
+                        </label>
+                    </div>
+
+                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem;">
+                        <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Formats:</span>
+                        <label class="merge-checkbox-label" for="fmt-ass-${job.id}">
+                            <input type="checkbox" id="fmt-ass-${job.id}" class="fmt-cb-ass" checked>
+                            <span>ASS</span>
+                        </label>
+                        <label class="merge-checkbox-label" for="fmt-srt-${job.id}">
+                            <input type="checkbox" id="fmt-srt-${job.id}" class="fmt-cb-srt">
+                            <span>SRT</span>
+                        </label>
+                        <label class="merge-checkbox-label" for="fmt-vtt-${job.id}">
+                            <input type="checkbox" id="fmt-vtt-${job.id}" class="fmt-cb-vtt">
+                            <span>VTT</span>
+                        </label>
+                        <label class="merge-checkbox-label" for="fmt-ttml-${job.id}">
+                            <input type="checkbox" id="fmt-ttml-${job.id}" class="fmt-cb-ttml">
+                            <span>TTML</span>
+                        </label>
+                        <label class="merge-checkbox-label" for="fmt-sbv-${job.id}">
+                            <input type="checkbox" id="fmt-sbv-${job.id}" class="fmt-cb-sbv">
+                            <span>SBV</span>
+                        </label>
+                        <label class="merge-checkbox-label" for="fmt-lrc-${job.id}">
+                            <input type="checkbox" id="fmt-lrc-${job.id}" class="fmt-cb-lrc">
+                            <span>LRC</span>
+                        </label>
+                        <label class="merge-checkbox-label" for="fmt-txt-${job.id}">
+                            <input type="checkbox" id="fmt-txt-${job.id}" class="fmt-cb-txt">
+                            <span>TXT</span>
+                        </label>
+                    </div>
+                </div>
             </div>
         `;
 
