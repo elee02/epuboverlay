@@ -514,7 +514,53 @@ class ExtractTests(unittest.TestCase):
             self.assertIn('region="r_center"', ttml_text)
             self.assertIn('tts:displayAlign="center"', ttml_text)
 
+    def test_epub_to_audio_subtitles_mp4_video(self) -> None:
+        """Test extraction with mp4_video option enabled."""
+        from epuboverlay.extract import epub_to_audio_subtitles
 
+        with tempfile.TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "test.epub"
+            output_dir = Path(tmpdir) / "output"
+            self._make_test_epub_with_overlays(epub_path)
+
+            results = epub_to_audio_subtitles(
+                epub_path=epub_path,
+                output_dir=output_dir,
+                merge=False,
+                formats=["ass"],
+                mp4_video=True,
+            )
+
+            self.assertEqual(len(results), 2)
+            for audio, subtitles in results:
+                self.assertTrue(audio.exists())
+                self.assertEqual(audio.suffix, ".mp4")
+                self.assertEqual(len(subtitles), 1)
+                self.assertTrue(subtitles[0].exists())
+
+    def test_epub_to_audio_subtitles_mp4_video_merged(self) -> None:
+        """Test merged extraction with mp4_video option enabled."""
+        from epuboverlay.extract import epub_to_audio_subtitles
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "test.epub"
+            output_dir = Path(tmpdir) / "output"
+            self._make_test_epub_with_overlays(epub_path)
+
+            results = epub_to_audio_subtitles(
+                epub_path=epub_path,
+                output_dir=output_dir,
+                merge=True,
+                formats=["ass"],
+                mp4_video=True,
+            )
+
+            self.assertEqual(len(results), 1)
+            audio, subtitles = results[0]
+            self.assertTrue(audio.exists())
+            self.assertEqual(audio.suffix, ".mp4")
+            self.assertEqual(len(subtitles), 1)
+            self.assertTrue(subtitles[0].exists())
 
 
 class StreamingWavTests(unittest.TestCase):

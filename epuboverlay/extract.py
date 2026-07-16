@@ -555,6 +555,7 @@ def epub_to_audio_subtitles(
     formats: list[str] | None = None,
     center: bool = False,
     progress_callback: Callable[[str], None] | None = None,
+    mp4_video: bool = False,
 ) -> list[tuple[Path, list[Path]]]:
     """Extract audio tracks and multiple subtitle formats from an EPUB3 with Media Overlays.
 
@@ -653,6 +654,13 @@ def epub_to_audio_subtitles(
                     sub_out.write_text(content, encoding="utf-8")
                     sub_paths.append(sub_out)
 
+                if mp4_video:
+                    mp4_out = audio_out.with_suffix(".mp4")
+                    _log(f"  Converting {audio_out.name} to video...")
+                    _audio_to_mp4_video(audio_out, mp4_out)
+                    audio_out.unlink(missing_ok=True)
+                    audio_out = mp4_out
+
                 chapter_outputs.append((audio_out, sub_paths))
                 sub_names = ", ".join(p.name for p in sub_paths)
                 _log(f"  ✓ {audio_out.name} + [{sub_names}]")
@@ -747,6 +755,13 @@ def epub_to_audio_subtitles(
         sub_out.write_text(content, encoding="utf-8")
         merged_subs.append(sub_out)
 
+    if mp4_video:
+        mp4_out = merged_audio.with_suffix(".mp4")
+        _log(f"Converting merged audio {merged_audio.name} to video...")
+        _audio_to_mp4_video(merged_audio, mp4_out)
+        merged_audio.unlink(missing_ok=True)
+        merged_audio = mp4_out
+
     sub_names = ", ".join(p.name for p in merged_subs)
     _log(f"Done! Merged output: {merged_audio.name} + [{sub_names}]")
     return [(merged_audio, merged_subs)]
@@ -807,3 +822,29 @@ def _merge_audio_files(audio_paths: list[Path], output_path: Path) -> None:
         raise RuntimeError(f"ffmpeg merge failed: {stderr}") from e
     finally:
         os.unlink(list_file_path)
+
+
+def _audio_to_mp4_video(audio_path: Path, output_path: Path) -> None:
+    """Convert an audio file to an MP4 video with a static black screen using ffmpeg."""
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "lavfi",
+            "-i", "color=c=black:s=640x360:r=1",
+            "-i", str(audio_path),
+            "-c:v", "libx264",
+            "-tune", "stillimage",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "copy",
+            "-shortest",
+            str(output_path),
+        ]
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", errors="ignore")
+        raise RuntimeError(f"ffmpeg MP4 conversion failed: {stderr}") from e

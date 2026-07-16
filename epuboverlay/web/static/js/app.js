@@ -500,6 +500,7 @@ function setupExtractForm() {
         formData.append('merge', document.getElementById('extract-merge-checkbox').checked);
         formData.append('formats', formats.join(','));
         formData.append('center', document.getElementById('extract-center-checkbox').checked ? 'true' : 'false');
+        formData.append('mp4_video', document.getElementById('extract-mp4-checkbox').checked ? 'true' : 'false');
 
         try {
             const resp = await fetch('/api/extract', {

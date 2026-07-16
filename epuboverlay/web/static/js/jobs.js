@@ -392,6 +392,10 @@ export function renderCompletedJobs(completedJobs) {
                             <input type="checkbox" id="center-cb-${job.id}" class="center-subtitles-cb">
                             <span>Center subtitles (horizontally &amp; vertically)</span>
                         </label>
+                        <label class="merge-checkbox-label" for="mp4-cb-${job.id}">
+                            <input type="checkbox" id="mp4-cb-${job.id}" class="mp4-video-cb" checked>
+                            <span>Convert to MP4 using static black video (Recommended)</span>
+                        </label>
                     </div>
 
                     <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem;">
@@ -436,6 +440,7 @@ export function renderCompletedJobs(completedJobs) {
             const btn = card.querySelector('.convert-audio-btn');
             const merge = card.querySelector('.merge-chapters-cb').checked;
             const center = card.querySelector('.center-subtitles-cb').checked;
+            const mp4Video = card.querySelector('.mp4-video-cb').checked;
             
             // Read selected formats
             const formats = [];
@@ -454,7 +459,7 @@ export function renderCompletedJobs(completedJobs) {
             btn.disabled = true;
             btn.textContent = '⏳ Converting…';
             try {
-                const blob = await convertJobToAudio(job.id, merge, formats, center);
+                const blob = await convertJobToAudio(job.id, merge, formats, center, mp4Video);
                 const stem = (job.book_title || job.original_filename || 'output').replace(/\.epub$/i, '');
                 const zipName = `${stem}_audio_subtitles.zip`;
                 const url = URL.createObjectURL(blob);

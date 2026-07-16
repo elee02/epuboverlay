@@ -490,6 +490,7 @@ async def convert_job_to_audio(
     merge: bool = Form(False),
     formats: str = Form("ass"),
     center: bool = Form(False),
+    mp4_video: bool = Form(False),
 ):
     """Convert a completed job's output EPUB to Audio + Subtitles (ZIP download).
 
@@ -515,6 +516,7 @@ async def convert_job_to_audio(
             merge=merge,
             formats=formats_list,
             center=center,
+            mp4_video=mp4_video,
         )
 
         if not results:
@@ -644,6 +646,7 @@ async def extract_audio_lrc(
     merge: bool = Form(False),
     formats: str = Form("ass"),
     center: bool = Form(False),
+    mp4_video: bool = Form(False),
 ):
     """Extract Audio + Subtitle files from an EPUB3 with Media Overlays.
 
@@ -668,6 +671,7 @@ async def extract_audio_lrc(
             merge=merge,
             formats=formats_list,
             center=center,
+            mp4_video=mp4_video,
         )
 
         if not results:

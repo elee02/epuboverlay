@@ -141,6 +141,7 @@ def _cmd_extract(parsed: argparse.Namespace) -> int:
             formats=formats_list,
             center=parsed.center,
             progress_callback=progress_cb,
+            mp4_video=parsed.mp4_video,
         )
         print(f"\n✓ Extracted {len(results)} set(s):")
         for audio, subtitles in results:
@@ -287,6 +288,12 @@ def main(args: list[str] | None = None) -> int:
         action="store_true",
         default=False,
         help="Center subtitles horizontally and vertically."
+    )
+    ext_parser.add_argument(
+        "--mp4-video",
+        action="store_true",
+        default=False,
+        help="Convert to MP4 using an ultra-low-bitrate static black video."
     )
 
     parsed = parser.parse_args(args)
