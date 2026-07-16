@@ -223,11 +223,80 @@ def _normalize_zip_path(base_dir: Path, href: str) -> str:
     return normalized
 
 
-def build_lrc_from_chapter(chapter: ChapterOverlay) -> str:
+def format_timestamp(seconds: float, decimal_sep: str = ",") -> str:
+    """Format seconds into HH:MM:SS[sep]mmm."""
+    total_seconds = max(seconds, 0.0)
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    secs = int(total_seconds % 60)
+    ms = int(round((total_seconds - int(total_seconds)) * 1000))
+    if ms >= 1000:
+        secs += 1
+        ms -= 1000
+        if secs >= 60:
+            secs -= 60
+            minutes += 1
+            if minutes >= 60:
+                minutes -= 60
+                hours += 1
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}{decimal_sep}{ms:03d}"
+
+
+def format_ass_timestamp(seconds: float) -> str:
+    """Format seconds into H:MM:SS.cs (centiseconds)."""
+    total_seconds = max(seconds, 0.0)
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    secs = int(total_seconds % 60)
+    cs = int(round((total_seconds - int(total_seconds)) * 100))
+    if cs >= 100:
+        secs += 1
+        cs -= 100
+        if secs >= 60:
+            secs -= 60
+            minutes += 1
+            if minutes >= 60:
+                minutes -= 60
+                hours += 1
+    return f"{hours:d}:{minutes:02d}:{secs:02d}.{cs:02d}"
+
+
+def format_sbv_timestamp(seconds: float) -> str:
+    """Format seconds into H:MM:SS.mmm."""
+    total_seconds = max(seconds, 0.0)
+    hours = int(total_seconds // 3600)
+    minutes = int((total_seconds % 3600) // 60)
+    secs = int(total_seconds % 60)
+    ms = int(round((total_seconds - int(total_seconds)) * 1000))
+    if ms >= 1000:
+        secs += 1
+        ms -= 1000
+        if secs >= 60:
+            secs -= 60
+            minutes += 1
+            if minutes >= 60:
+                minutes -= 60
+                hours += 1
+    return f"{hours:d}:{minutes:02d}:{secs:02d}.{ms:03d}"
+
+
+def escape_xml(text: str) -> str:
+    """Escape XML special characters."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
+
+
+def build_lrc_from_chapter(chapter: ChapterOverlay, time_offset: float = 0.0) -> str:
     """Build LRC lyrics content from a chapter's SMIL timings and text.
 
     Args:
         chapter: A parsed ChapterOverlay with timings and id_to_text.
+        time_offset: Optional time offset in seconds to add to timestamps.
 
     Returns:
         LRC formatted string.
@@ -237,10 +306,215 @@ def build_lrc_from_chapter(chapter: ChapterOverlay) -> str:
         text = chapter.id_to_text.get(element_id, "")
         if not text:
             continue
-        total_seconds = max(clip_begin, 0.0)
+        total_seconds = max(clip_begin + time_offset, 0.0)
         minutes = int(total_seconds // 60)
         seconds = total_seconds - (minutes * 60)
         lines.append(f"[{minutes:02d}:{seconds:05.2f}] {text}")
+    return "\n".join(lines)
+
+
+def build_srt_from_chapter(
+    chapter: ChapterOverlay, time_offset: float = 0.0, start_index: int = 1
+) -> tuple[str, int]:
+    """Build SRT subtitle content from a chapter's SMIL timings and text."""
+    blocks: list[str] = []
+    idx = start_index
+    for element_id, clip_begin, clip_end in chapter.timings:
+        text = chapter.id_to_text.get(element_id, "")
+        if not text:
+            continue
+        start_str = format_timestamp(clip_begin + time_offset, ",")
+        end_str = format_timestamp(clip_end + time_offset, ",")
+        blocks.append(f"{idx}\n{start_str} --> {end_str}\n{text}\n")
+        idx += 1
+    return "\n".join(blocks), idx
+
+
+def build_vtt_from_chapter(
+    chapter: ChapterOverlay, time_offset: float = 0.0, start_index: int = 1
+) -> tuple[str, int]:
+    """Build WebVTT subtitle blocks from a chapter's SMIL timings and text."""
+    blocks: list[str] = []
+    idx = start_index
+    for element_id, clip_begin, clip_end in chapter.timings:
+        text = chapter.id_to_text.get(element_id, "")
+        if not text:
+            continue
+        start_str = format_timestamp(clip_begin + time_offset, ".")
+        end_str = format_timestamp(clip_end + time_offset, ".")
+        blocks.append(f"{idx}\n{start_str} --> {end_str}\n{text}\n")
+        idx += 1
+    return "\n".join(blocks), idx
+
+
+def build_ass_from_chapter(
+    chapter: ChapterOverlay, time_offset: float = 0.0, book_title: str = "Chapter"
+) -> str:
+    """Build ASS subtitle content from a chapter's SMIL timings and text."""
+    lines = [
+        "[Script Info]",
+        f"Title: {book_title}",
+        "ScriptType: v4.00+",
+        "WrapStyle: 0",
+        "PlayResX: 640",
+        "PlayResY: 360",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,2,10,10,10,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+    for element_id, clip_begin, clip_end in chapter.timings:
+        text = chapter.id_to_text.get(element_id, "")
+        if not text:
+            continue
+        text = text.replace("\n", r"\N")
+        start_str = format_ass_timestamp(clip_begin + time_offset)
+        end_str = format_ass_timestamp(clip_end + time_offset)
+        lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{text}")
+    return "\n".join(lines)
+
+
+def build_ass_merged(chapters: list[ChapterOverlay], book_title: str) -> str:
+    """Build a single merged ASS file from multiple chapters."""
+    lines = [
+        "[Script Info]",
+        f"Title: {book_title}",
+        "ScriptType: v4.00+",
+        "WrapStyle: 0",
+        "PlayResX: 640",
+        "PlayResY: 360",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,2,10,10,10,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+    time_offset = 0.0
+    for chapter in chapters:
+        for element_id, clip_begin, clip_end in chapter.timings:
+            text = chapter.id_to_text.get(element_id, "")
+            if not text:
+                continue
+            text = text.replace("\n", r"\N")
+            start_str = format_ass_timestamp(clip_begin + time_offset)
+            end_str = format_ass_timestamp(clip_end + time_offset)
+            lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{text}")
+        if chapter.timings:
+            _elem_id, _begin, last_end = chapter.timings[-1]
+            time_offset += last_end
+    return "\n".join(lines)
+
+
+def build_ttml_from_chapter(chapter: ChapterOverlay, time_offset: float = 0.0) -> str:
+    """Build TTML subtitle content from a chapter's SMIL timings and text."""
+    lines = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en">',
+        '  <head>',
+        '    <styling>',
+        '      <style xml:id="s1" tts:textAlign="center" tts:fontFamily="Arial" tts:fontSize="100%"/>',
+        '    </styling>',
+        '  </head>',
+        '  <body>',
+        '    <div>',
+    ]
+    for element_id, clip_begin, clip_end in chapter.timings:
+        text = chapter.id_to_text.get(element_id, "")
+        if not text:
+            continue
+        start_str = format_timestamp(clip_begin + time_offset, ".")
+        end_str = format_timestamp(clip_end + time_offset, ".")
+        escaped_text = escape_xml(text)
+        lines.append(
+            f'      <p begin="{start_str}" end="{end_str}" style="s1">{escaped_text}</p>'
+        )
+    lines.extend(["    </div>", "  </body>", "</tt>"])
+    return "\n".join(lines)
+
+
+def build_ttml_merged(chapters: list[ChapterOverlay]) -> str:
+    """Build a single merged TTML file from multiple chapters."""
+    lines = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en">',
+        '  <head>',
+        '    <styling>',
+        '      <style xml:id="s1" tts:textAlign="center" tts:fontFamily="Arial" tts:fontSize="100%"/>',
+        '    </styling>',
+        '  </head>',
+        '  <body>',
+        '    <div>',
+    ]
+    time_offset = 0.0
+    for chapter in chapters:
+        for element_id, clip_begin, clip_end in chapter.timings:
+            text = chapter.id_to_text.get(element_id, "")
+            if not text:
+                continue
+            start_str = format_timestamp(clip_begin + time_offset, ".")
+            end_str = format_timestamp(clip_end + time_offset, ".")
+            escaped_text = escape_xml(text)
+            lines.append(
+                f'      <p begin="{start_str}" end="{end_str}" style="s1">{escaped_text}</p>'
+            )
+        if chapter.timings:
+            _elem_id, _begin, last_end = chapter.timings[-1]
+            time_offset += last_end
+    lines.extend(["    </div>", "  </body>", "</tt>"])
+    return "\n".join(lines)
+
+
+def build_sbv_from_chapter(chapter: ChapterOverlay, time_offset: float = 0.0) -> str:
+    """Build YouTube SBV subtitle content from a chapter's SMIL timings and text."""
+    blocks: list[str] = []
+    for element_id, clip_begin, clip_end in chapter.timings:
+        text = chapter.id_to_text.get(element_id, "")
+        if not text:
+            continue
+        start_str = format_sbv_timestamp(clip_begin + time_offset)
+        end_str = format_sbv_timestamp(clip_end + time_offset)
+        blocks.append(f"{start_str},{end_str}\n{text}\n")
+    return "\n".join(blocks)
+
+
+def build_sbv_merged(chapters: list[ChapterOverlay]) -> str:
+    """Build a single merged SBV file from multiple chapters."""
+    blocks: list[str] = []
+    time_offset = 0.0
+    for chapter in chapters:
+        content = build_sbv_from_chapter(chapter, time_offset=time_offset)
+        if content:
+            blocks.append(content)
+        if chapter.timings:
+            _elem_id, _begin, last_end = chapter.timings[-1]
+            time_offset += last_end
+    return "\n".join(blocks)
+
+
+def build_txt_from_chapter(chapter: ChapterOverlay) -> str:
+    """Build plain text transcript from a chapter."""
+    lines: list[str] = []
+    for element_id, _clip_begin, _clip_end in chapter.timings:
+        text = chapter.id_to_text.get(element_id, "")
+        if text:
+            lines.append(text)
+    return "\n".join(lines)
+
+
+def build_txt_merged(chapters: list[ChapterOverlay]) -> str:
+    """Build a single merged TXT transcript file from multiple chapters."""
+    lines: list[str] = []
+    for chapter in chapters:
+        content = build_txt_from_chapter(chapter)
+        if content:
+            lines.append(content)
     return "\n".join(lines)
 
 
@@ -251,26 +525,35 @@ def _sanitize_filename(name: str) -> str:
     return name or "chapter"
 
 
-def epub_to_mp3_lrc(
+def epub_to_audio_subtitles(
     epub_path: str | Path,
     output_dir: str | Path,
     merge: bool = False,
+    formats: list[str] | None = None,
     progress_callback: Callable[[str], None] | None = None,
-) -> list[tuple[Path, Path]]:
-    """Extract MP3 + LRC file pairs from an EPUB3 with Media Overlays.
+) -> list[tuple[Path, list[Path]]]:
+    """Extract audio tracks and multiple subtitle formats from an EPUB3 with Media Overlays.
 
     Args:
         epub_path: Path to the input EPUB3 file.
         output_dir: Directory to write output files.
-        merge: If True, merge all chapters into a single MP3+LRC pair.
+        merge: If True, merge all chapters into a single audio + subtitle set.
+        formats: List of subtitle formats to export (e.g., ["ass", "srt", "vtt", "ttml", "sbv", "lrc", "txt"]).
+                 Defaults to ["ass"].
         progress_callback: Optional callback for status messages.
 
     Returns:
-        List of (mp3_path, lrc_path) tuples for each output file.
+        List of (audio_path, list_of_subtitle_paths) tuples.
     """
     epub_path = Path(epub_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not formats:
+        formats = ["ass"]
+
+    # Canonicalize formats
+    formats = [f.lower().strip() for f in formats if f.strip()]
 
     def _log(msg: str) -> None:
         if progress_callback:
@@ -304,96 +587,161 @@ def epub_to_mp3_lrc(
     except Exception:
         pass
 
-    # Extract per-chapter audio + LRC
-    chapter_outputs: list[tuple[Path, Path]] = []
+    if not merge:
+        chapter_outputs: list[tuple[Path, list[Path]]] = []
+        with zipfile.ZipFile(epub_path, "r") as zf:
+            for idx, chapter in enumerate(chapters):
+                _log(f"Extracting chapter {idx + 1}/{len(chapters)}: {chapter.idref}")
+
+                chapter_name = _sanitize_filename(f"{idx + 1:02d}_{chapter.idref}")
+                audio_ext = Path(chapter.audio_href).suffix or ".mp3"
+                audio_out = output_dir / f"{chapter_name}{audio_ext}"
+                try:
+                    audio_data = zf.read(chapter.audio_href)
+                    audio_out.write_bytes(audio_data)
+                except KeyError:
+                    _log(f"  Warning: audio file not found in EPUB: {chapter.audio_href}")
+                    continue
+
+                sub_paths: list[Path] = []
+                for fmt in formats:
+                    sub_out = output_dir / f"{chapter_name}.{fmt}"
+                    if fmt == "ass":
+                        content = build_ass_from_chapter(chapter, book_title=book_title)
+                    elif fmt == "srt":
+                        content, _ = build_srt_from_chapter(chapter)
+                    elif fmt == "vtt":
+                        ch_content, _ = build_vtt_from_chapter(chapter)
+                        content = "WEBVTT\n\n" + ch_content
+                    elif fmt == "ttml":
+                        content = build_ttml_from_chapter(chapter)
+                    elif fmt == "sbv":
+                        content = build_sbv_from_chapter(chapter)
+                    elif fmt == "lrc":
+                        content = build_lrc_from_chapter(chapter)
+                    elif fmt == "txt":
+                        content = build_txt_from_chapter(chapter)
+                    else:
+                        _log(f"  Warning: unsupported subtitle format: {fmt}")
+                        continue
+                    
+                    sub_out.write_text(content, encoding="utf-8")
+                    sub_paths.append(sub_out)
+
+                chapter_outputs.append((audio_out, sub_paths))
+                sub_names = ", ".join(p.name for p in sub_paths)
+                _log(f"  ✓ {audio_out.name} + [{sub_names}]")
+
+        if not chapter_outputs:
+            raise ValueError("No audio files could be extracted from the EPUB.")
+
+        _log(f"Done! Extracted {len(chapter_outputs)} chapter(s) to {output_dir}")
+        return chapter_outputs
+
+    # Merged mode
+    _log("Merging all chapters into a single audio+subtitle set...")
+    audio_ext = Path(chapters[0].audio_href).suffix or ".mp3"
+    merged_name = _sanitize_filename(book_title)
+    merged_audio = output_dir / f"{merged_name}{audio_ext}"
+
+    # Extract temporary per-chapter audio files for merge
+    temp_audio_paths: list[Path] = []
     with zipfile.ZipFile(epub_path, "r") as zf:
         for idx, chapter in enumerate(chapters):
-            _log(f"Extracting chapter {idx + 1}/{len(chapters)}: {chapter.idref}")
-
-            # Generate safe filename
-            chapter_name = _sanitize_filename(f"{idx + 1:02d}_{chapter.idref}")
-
-            # Detect audio format from the source href extension
-            audio_ext = Path(chapter.audio_href).suffix or ".mp3"
-
-            # Extract audio
+            chapter_name = _sanitize_filename(f"temp_{idx + 1:02d}_{chapter.idref}")
             audio_out = output_dir / f"{chapter_name}{audio_ext}"
             try:
                 audio_data = zf.read(chapter.audio_href)
                 audio_out.write_bytes(audio_data)
+                temp_audio_paths.append(audio_out)
             except KeyError:
                 _log(f"  Warning: audio file not found in EPUB: {chapter.audio_href}")
                 continue
 
-            # Build LRC
-            lrc_content = build_lrc_from_chapter(chapter)
-            lrc_out = output_dir / f"{chapter_name}.lrc"
-            lrc_out.write_text(lrc_content, encoding="utf-8")
-
-            chapter_outputs.append((audio_out, lrc_out))
-            _log(f"  ✓ {audio_out.name} + {lrc_out.name}")
-
-    if not chapter_outputs:
-        raise ValueError("No audio files could be extracted from the EPUB.")
-
-    if not merge:
-        _log(f"Done! Extracted {len(chapter_outputs)} chapter(s) to {output_dir}")
-        return chapter_outputs
-
-    # Merge all chapters into a single audio + LRC
-    _log("Merging all chapters into a single audio+LRC pair...")
-
-    # Detect audio format from the first chapter's source
-    audio_ext = Path(chapters[0].audio_href).suffix or ".mp3"
-
-    merged_name = _sanitize_filename(book_title)
-    merged_audio = output_dir / f"{merged_name}{audio_ext}"
-    merged_lrc = output_dir / f"{merged_name}.lrc"
+    if not temp_audio_paths:
+        raise ValueError("No audio files could be extracted for merging.")
 
     # Concatenate audio files using ffmpeg
-    audio_paths = [audio for audio, _lrc in chapter_outputs]
-    _merge_audio_files(audio_paths, merged_audio)
+    _merge_audio_files(temp_audio_paths, merged_audio)
+    for path in temp_audio_paths:
+        path.unlink(missing_ok=True)
 
-    # Build merged LRC with adjusted timestamps
-    merged_lrc_lines: list[str] = []
-    time_offset = 0.0
-
-    for chapter in chapters:
-        chapter_lrc_lines = build_lrc_from_chapter(chapter).splitlines()
-        if not chapter_lrc_lines:
+    merged_subs: list[Path] = []
+    for fmt in formats:
+        sub_out = output_dir / f"{merged_name}.{fmt}"
+        
+        if fmt == "ass":
+            content = build_ass_merged(chapters, book_title=book_title)
+        elif fmt == "srt":
+            blocks: list[str] = []
+            time_offset = 0.0
+            start_index = 1
+            for chapter in chapters:
+                ch_content, next_idx = build_srt_from_chapter(chapter, time_offset=time_offset, start_index=start_index)
+                if ch_content:
+                    blocks.append(ch_content)
+                    start_index = next_idx
+                if chapter.timings:
+                    _elem_id, _begin, last_end = chapter.timings[-1]
+                    time_offset += last_end
+            content = "\n".join(blocks)
+        elif fmt == "vtt":
+            blocks: list[str] = []
+            time_offset = 0.0
+            start_index = 1
+            for chapter in chapters:
+                ch_content, next_idx = build_vtt_from_chapter(chapter, time_offset=time_offset, start_index=start_index)
+                if ch_content:
+                    blocks.append(ch_content)
+                    start_index = next_idx
+                if chapter.timings:
+                    _elem_id, _begin, last_end = chapter.timings[-1]
+                    time_offset += last_end
+            content = "WEBVTT\n\n" + "\n".join(blocks)
+        elif fmt == "ttml":
+            content = build_ttml_merged(chapters)
+        elif fmt == "sbv":
+            content = build_sbv_merged(chapters)
+        elif fmt == "lrc":
+            blocks = []
+            time_offset = 0.0
+            for chapter in chapters:
+                ch_content = build_lrc_from_chapter(chapter, time_offset=time_offset)
+                if ch_content:
+                    blocks.append(ch_content)
+                if chapter.timings:
+                    _elem_id, _begin, last_end = chapter.timings[-1]
+                    time_offset += last_end
+            content = "\n".join(blocks)
+        elif fmt == "txt":
+            content = build_txt_merged(chapters)
+        else:
+            _log(f"  Warning: unsupported subtitle format: {fmt}")
             continue
 
-        if time_offset > 0:
-            # Adjust timestamps by adding the offset
-            for line in chapter_lrc_lines:
-                match = re.match(r'\[(\d+):(\d+\.\d+)\]\s*(.*)', line)
-                if match:
-                    minutes = int(match.group(1))
-                    seconds = float(match.group(2))
-                    text = match.group(3)
-                    total = minutes * 60 + seconds + time_offset
-                    new_min = int(total // 60)
-                    new_sec = total - (new_min * 60)
-                    merged_lrc_lines.append(f"[{new_min:02d}:{new_sec:05.2f}] {text}")
-                else:
-                    merged_lrc_lines.append(line)
-        else:
-            merged_lrc_lines.extend(chapter_lrc_lines)
+        sub_out.write_text(content, encoding="utf-8")
+        merged_subs.append(sub_out)
 
-        # Get chapter duration from last timing
-        if chapter.timings:
-            _elem_id, _begin, last_end = chapter.timings[-1]
-            time_offset += last_end
+    sub_names = ", ".join(p.name for p in merged_subs)
+    _log(f"Done! Merged output: {merged_audio.name} + [{sub_names}]")
+    return [(merged_audio, merged_subs)]
 
-    merged_lrc.write_text("\n".join(merged_lrc_lines), encoding="utf-8")
 
-    # Clean up per-chapter files
-    for audio, lrc in chapter_outputs:
-        audio.unlink(missing_ok=True)
-        lrc.unlink(missing_ok=True)
-
-    _log(f"Done! Merged output: {merged_audio.name} + {merged_lrc.name}")
-    return [(merged_audio, merged_lrc)]
+def epub_to_mp3_lrc(
+    epub_path: str | Path,
+    output_dir: str | Path,
+    merge: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
+) -> list[tuple[Path, Path]]:
+    """Backward compatibility wrapper mapping to epub_to_audio_subtitles."""
+    results = epub_to_audio_subtitles(
+        epub_path=epub_path,
+        output_dir=output_dir,
+        merge=merge,
+        formats=["lrc"],
+        progress_callback=progress_callback,
+    )
+    return [(audio, subs[0]) for audio, subs in results]
 
 
 def _merge_audio_files(audio_paths: list[Path], output_path: Path) -> None:

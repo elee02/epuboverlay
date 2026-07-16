@@ -41,7 +41,7 @@
                 </button>
                 <button class="nav-item" data-page="extract" id="nav-extract">
                     <span class="nav-item-icon">📤</span>
-                    <span class="nav-item-label">Extract Audio + LRC</span>
+                    <span class="nav-item-label">Extract Audio + Subtitles</span>
                 </button>
                 <button class="nav-item" data-page="settings" id="nav-settings">
                     <span class="nav-item-icon">⚙️</span>
@@ -575,14 +575,14 @@
             <!-- ═══════════════════════════════════════ -->
             <div class="content-page" id="page-extract" style="display: none;">
                 <div class="page-heading">
-                    <h2>📤 Extract Audio + LRC</h2>
-                    <p>Extract audio and LRC subtitle files from any EPUB 3 with Media Overlays.</p>
+                    <h2>📤 Extract Audio + Subtitles</h2>
+                    <p>Extract audio and subtitle files from any EPUB 3 with Media Overlays.</p>
                 </div>
 
                 <div class="card" id="extract-card">
                     <p class="card-description">
-                        Upload an EPUB3 file with media overlays (audio narration) and extract Audio + LRC file pairs (supports M4A, MP3, etc.) —
-                        ready for playback on music players like <strong>Poweramp</strong>.
+                        Upload an EPUB3 file with media overlays (audio narration) and extract Audio + Subtitle file sets (supports M4A, MP3, etc.) —
+                        ready for playback on media players or streaming.
                     </p>
 
                     <form id="extract-form" enctype="multipart/form-data">
@@ -598,16 +598,50 @@
                             </div>
                         </div>
 
+                        <div class="form-group" style="margin-bottom: 1rem;">
+                            <label style="margin-bottom: 0.5rem; display: block; font-weight: 500;">Subtitle Formats to Extract</label>
+                            <div style="display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center;">
+                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-fmt-ass" value="ass" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>ASS (SubStation Alpha - Default)</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-fmt-srt" value="srt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>SRT (SubRip)</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-fmt-vtt" value="vtt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>WebVTT</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-fmt-ttml" value="ttml" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>TTML (Broadcasting)</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-fmt-sbv" value="sbv" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>SBV (YouTube)</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-fmt-lrc" value="lrc" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>LRC (Lyrics)</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-fmt-txt" value="txt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>TXT (Transcript)</span>
+                                </label>
+                            </div>
+                        </div>
+
                         <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
                             <input type="checkbox" id="extract-merge-checkbox" name="merge" style="width: auto; margin: 0; cursor: pointer;">
                             <label for="extract-merge-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">
-                                Merge all chapters into a single Audio + LRC pair
+                                Merge all chapters into a single Audio + Subtitles set
                             </label>
                         </div>
  
                         <div style="display: flex; justify-content: flex-end;">
                             <button type="submit" class="btn btn-primary" id="extract-submit-btn">
-                                📤 Extract Audio + LRC
+                                📤 Extract Audio + Subtitles
                             </button>
                         </div>
                     </form>

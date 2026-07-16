@@ -488,12 +488,13 @@ async def delete_job(job_id: str):
 async def convert_job_to_audio(
     job_id: str,
     merge: bool = Form(False),
+    formats: str = Form("ass"),
 ):
-    """Convert a completed job's output EPUB to Audio + LRC (ZIP download).
+    """Convert a completed job's output EPUB to Audio + Subtitles (ZIP download).
 
     Works directly from the job's stored output EPUB — no re-upload needed.
     """
-    from epuboverlay.extract import epub_to_mp3_lrc
+    from epuboverlay.extract import epub_to_audio_subtitles
 
     job = job_manager.get_job(job_id)
     if job is None:
@@ -506,10 +507,12 @@ async def convert_job_to_audio(
     output_dir = Path(tempfile.mkdtemp(prefix="epuboverlay_convert_"))
 
     try:
-        results = epub_to_mp3_lrc(
+        formats_list = [f.strip() for f in formats.split(",") if f.strip()]
+        results = epub_to_audio_subtitles(
             epub_path=job.output_epub_path,
             output_dir=output_dir,
             merge=merge,
+            formats=formats_list,
         )
 
         if not results:
@@ -519,12 +522,13 @@ async def convert_job_to_audio(
             )
 
         stem = Path(job.original_filename or "output").stem
-        zip_name = f"{stem}_audio_lrc"
+        zip_name = f"{stem}_audio_subtitles"
         zip_path = output_dir / f"{zip_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zout:
-            for audio, lrc in results:
+            for audio, subtitles in results:
                 zout.write(audio, audio.name)
-                zout.write(lrc, lrc.name)
+                for sub in subtitles:
+                    zout.write(sub, sub.name)
 
         return FileResponse(
             path=str(zip_path),
@@ -636,12 +640,13 @@ async def get_chapters(epub: UploadFile = File(...)):
 async def extract_audio_lrc(
     epub: UploadFile = File(...),
     merge: bool = Form(False),
+    formats: str = Form("ass"),
 ):
-    """Extract Audio + LRC files from an EPUB3 with Media Overlays.
+    """Extract Audio + Subtitle files from an EPUB3 with Media Overlays.
 
-    Returns a ZIP archive containing per-chapter or merged audio+LRC pairs.
+    Returns a ZIP archive containing per-chapter or merged audio+subtitle pairs.
     """
-    from epuboverlay.extract import epub_to_mp3_lrc
+    from epuboverlay.extract import epub_to_audio_subtitles
 
     # Save uploaded EPUB to temp file
     tmp_epub = tempfile.NamedTemporaryFile(delete=False, suffix=".epub")
@@ -653,10 +658,12 @@ async def extract_audio_lrc(
     output_dir = Path(tempfile.mkdtemp(prefix="epuboverlay_extract_"))
 
     try:
-        results = epub_to_mp3_lrc(
+        formats_list = [f.strip() for f in formats.split(",") if f.strip()]
+        results = epub_to_audio_subtitles(
             epub_path=Path(tmp_epub.name),
             output_dir=output_dir,
             merge=merge,
+            formats=formats_list,
         )
 
         if not results:
@@ -666,12 +673,13 @@ async def extract_audio_lrc(
             )
 
         # Package results into a ZIP
-        zip_name = Path(epub.filename or "output").stem + "_audio_lrc"
+        zip_name = Path(epub.filename or "output").stem + "_audio_subtitles"
         zip_path = output_dir / f"{zip_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zout:
-            for audio, lrc in results:
+            for audio, subtitles in results:
                 zout.write(audio, audio.name)
-                zout.write(lrc, lrc.name)
+                for sub in subtitles:
+                    zout.write(sub, sub.name)
 
         return FileResponse(
             path=str(zip_path),

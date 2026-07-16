@@ -57,8 +57,8 @@ class ExtractTests(unittest.TestCase):
     <item id="ch2" href="ch2.xhtml" media-type="application/xhtml+xml" media-overlay="smil_ch2"/>
     <item id="smil_ch1" href="smil_ch1.smil" media-type="application/smil+xml"/>
     <item id="smil_ch2" href="smil_ch2.smil" media-type="application/smil+xml"/>
-    <item id="audio_ch1" href="audio/audio_ch1.mp3" media-type="audio/mpeg"/>
-    <item id="audio_ch2" href="audio/audio_ch2.mp3" media-type="audio/mpeg"/>
+    <item id="audio_ch1" href="audio/audio_ch1.wav" media-type="audio/wav"/>
+    <item id="audio_ch2" href="audio/audio_ch2.wav" media-type="audio/wav"/>
   </manifest>
   <spine>
     <itemref idref="ch1"/>
@@ -90,11 +90,11 @@ class ExtractTests(unittest.TestCase):
     <seq epub:textref="ch1.xhtml">
       <par id="par_p1">
         <text src="ch1.xhtml#p1"/>
-        <audio src="audio/audio_ch1.mp3" clipBegin="0.000s" clipEnd="0.500s"/>
+        <audio src="audio/audio_ch1.wav" clipBegin="0.000s" clipEnd="0.500s"/>
       </par>
       <par id="par_p2">
         <text src="ch1.xhtml#p2"/>
-        <audio src="audio/audio_ch1.mp3" clipBegin="0.500s" clipEnd="1.000s"/>
+        <audio src="audio/audio_ch1.wav" clipBegin="0.500s" clipEnd="1.000s"/>
       </par>
     </seq>
   </body>
@@ -107,7 +107,7 @@ class ExtractTests(unittest.TestCase):
     <seq epub:textref="ch2.xhtml">
       <par id="par_p3">
         <text src="ch2.xhtml#p3"/>
-        <audio src="audio/audio_ch2.mp3" clipBegin="0.000s" clipEnd="0.500s"/>
+        <audio src="audio/audio_ch2.wav" clipBegin="0.000s" clipEnd="0.500s"/>
       </par>
     </seq>
   </body>
@@ -115,9 +115,9 @@ class ExtractTests(unittest.TestCase):
 
             # Audio files (use WAV bytes since we don't need real MP3 for parsing tests)
             wav_bytes = self._make_wav_bytes(1.0)
-            zf.writestr("OEBPS/audio/audio_ch1.mp3", wav_bytes)
+            zf.writestr("OEBPS/audio/audio_ch1.wav", wav_bytes)
             wav_bytes2 = self._make_wav_bytes(0.5)
-            zf.writestr("OEBPS/audio/audio_ch2.mp3", wav_bytes2)
+            zf.writestr("OEBPS/audio/audio_ch2.wav", wav_bytes2)
 
     def test_parse_epub_overlays(self) -> None:
         """Test that parse_epub_overlays correctly extracts chapter overlay data."""
@@ -394,6 +394,84 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(_normalize_zip_path(Path("OEBPS"), "ch1.xhtml"), "OEBPS/ch1.xhtml")
         self.assertEqual(_normalize_zip_path(Path("OEBPS"), "../ch1.xhtml"), "ch1.xhtml")
         self.assertEqual(_normalize_zip_path(Path("."), "ch1.xhtml"), "ch1.xhtml")
+
+    def test_format_timestamps(self) -> None:
+        """Test timestamp formatting functions."""
+        from epuboverlay.extract import format_timestamp, format_ass_timestamp, format_sbv_timestamp
+
+        # Standard timestamp (comma for SRT, dot for VTT)
+        self.assertEqual(format_timestamp(0.0, ","), "00:00:00,000")
+        self.assertEqual(format_timestamp(61.237, ","), "00:01:01,237")
+        self.assertEqual(format_timestamp(3665.999, "."), "01:01:05.999")
+        
+        # ASS timestamp (H:MM:SS.cs)
+        self.assertEqual(format_ass_timestamp(0.0), "0:00:00.00")
+        self.assertEqual(format_ass_timestamp(61.237), "0:01:01.24")
+        self.assertEqual(format_ass_timestamp(3665.999), "1:01:06.00")
+        
+        # SBV timestamp (H:MM:SS.mmm)
+        self.assertEqual(format_sbv_timestamp(0.0), "0:00:00.000")
+        self.assertEqual(format_sbv_timestamp(61.237), "0:01:01.237")
+        self.assertEqual(format_sbv_timestamp(3665.999), "1:01:05.999")
+
+    def test_epub_to_audio_subtitles_all_formats(self) -> None:
+        """Test extraction of audio and all 7 subtitle formats."""
+        from epuboverlay.extract import epub_to_audio_subtitles
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "test.epub"
+            output_dir = Path(tmpdir) / "output"
+            self._make_test_epub_with_overlays(epub_path)
+
+            formats = ["ass", "srt", "vtt", "ttml", "sbv", "lrc", "txt"]
+            results = epub_to_audio_subtitles(
+                epub_path=epub_path,
+                output_dir=output_dir,
+                merge=False,
+                formats=formats,
+            )
+
+            self.assertEqual(len(results), 2)
+            for audio, subtitles in results:
+                self.assertTrue(audio.exists())
+                self.assertEqual(len(subtitles), 7)
+                for sub in subtitles:
+                    self.assertTrue(sub.exists())
+                    self.assertGreater(sub.stat().st_size, 0)
+                    
+                # Verify specific contents
+                extensions = {sub.suffix for sub in subtitles}
+                self.assertEqual(extensions, {".ass", ".srt", ".vtt", ".ttml", ".sbv", ".lrc", ".txt"})
+
+    def test_epub_to_audio_subtitles_merged(self) -> None:
+        """Test merged extraction for all formats."""
+        from epuboverlay.extract import epub_to_audio_subtitles
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "test.epub"
+            output_dir = Path(tmpdir) / "output"
+            self._make_test_epub_with_overlays(epub_path)
+
+            formats = ["ass", "srt", "vtt", "ttml", "sbv", "lrc", "txt"]
+            results = epub_to_audio_subtitles(
+                epub_path=epub_path,
+                output_dir=output_dir,
+                merge=True,
+                formats=formats,
+            )
+
+            self.assertEqual(len(results), 1)
+            audio, subtitles = results[0]
+            self.assertTrue(audio.exists())
+            self.assertEqual(len(subtitles), 7)
+            
+            # Check content of merged ASS
+            ass_path = next(p for p in subtitles if p.suffix == ".ass")
+            ass_text = ass_path.read_text(encoding="utf-8")
+            self.assertIn("Dialogue:", ass_text)
+            self.assertIn("Hello world.", ass_text)
+            self.assertIn("Chapter two begins here.", ass_text)
+
 
 
 class StreamingWavTests(unittest.TestCase):

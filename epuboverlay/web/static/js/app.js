@@ -473,15 +473,32 @@ function setupExtractForm() {
         extractSubmitBtn.innerHTML = '<span class="spinner"></span> Extracting...';
 
         extractStatus.style.display = 'block';
-        extractStatusTitle.textContent = 'Extracting Audio + LRC...';
+        extractStatusTitle.textContent = 'Extracting Audio + Subtitles...';
         extractStatusBadge.className = 'phase-badge synthesizing';
         extractStatusBadge.querySelector('.phase-text').textContent = 'Processing';
         extractStatusMessage.textContent = 'Uploading and processing EPUB file...';
         extractStatusMessage.style.display = 'block';
 
+        const formats = [];
+        ['ass', 'srt', 'vtt', 'ttml', 'sbv', 'lrc', 'txt'].forEach(fmt => {
+            const el = document.getElementById(`extract-fmt-${fmt}`);
+            if (el && el.checked) {
+                formats.push(fmt);
+            }
+        });
+
+        if (formats.length === 0) {
+            showToast('Please select at least one subtitle format to extract.', 'error');
+            extractSubmitBtn.disabled = false;
+            extractSubmitBtn.innerHTML = '📤 Extract Audio + Subtitles';
+            extractStatus.style.display = 'none';
+            return;
+        }
+
         const formData = new FormData();
         formData.append('epub', extractEpubFile.files[0]);
         formData.append('merge', document.getElementById('extract-merge-checkbox').checked);
+        formData.append('formats', formats.join(','));
 
         try {
             const resp = await fetch('/api/extract', {
@@ -496,7 +513,7 @@ function setupExtractForm() {
 
             const blob = await resp.blob();
             const url = URL.createObjectURL(blob);
-            const filename = extractEpubFile.files[0].name.replace('.epub', '') + '_audio_lrc.zip';
+            const filename = extractEpubFile.files[0].name.replace('.epub', '') + '_audio_subtitles.zip';
 
             const a = document.createElement('a');
             a.href = url;
@@ -511,7 +528,7 @@ function setupExtractForm() {
             extractStatusBadge.innerHTML = '<span class="phase-text">Done</span>';
             extractStatusMessage.textContent = `✓ Downloaded ${filename}`;
 
-            showToast('Audio + LRC extracted successfully!', 'success');
+            showToast('Audio + Subtitles extracted successfully!', 'success');
             extractForm.reset();
             extractEpubFileName.style.display = 'none';
 
@@ -523,7 +540,7 @@ function setupExtractForm() {
             showToast(err.message, 'error');
         } finally {
             extractSubmitBtn.disabled = false;
-            extractSubmitBtn.innerHTML = '📤 Extract Audio + LRC';
+            extractSubmitBtn.innerHTML = '📤 Extract Audio + Subtitles';
         }
     });
 }

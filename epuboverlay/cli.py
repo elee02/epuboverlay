@@ -112,33 +112,39 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
 
 
 def _cmd_extract(parsed: argparse.Namespace) -> int:
-    """Execute the 'extract' subcommand — extract MP3+LRC from EPUB3."""
-    from epuboverlay.extract import epub_to_mp3_lrc
+    """Execute the 'extract' subcommand — extract Audio and Subtitles from EPUB3."""
+    from epuboverlay.extract import epub_to_audio_subtitles
 
     epub_path = parsed.epub.expanduser()
     output_dir = parsed.output.expanduser()
 
-    print(f"Extracting MP3+LRC from: {epub_path}")
+    print(f"Extracting Audio + Subtitles from: {epub_path}")
     print(f"Output directory: {output_dir}")
     if parsed.merge:
-        print("Mode: Merged (single MP3+LRC pair)")
+        print("Mode: Merged (single Audio + Subtitle set)")
     else:
-        print("Mode: Per-chapter (separate MP3+LRC per chapter)")
+        print("Mode: Per-chapter (separate Audio + Subtitles per chapter)")
+    
+    # Parse formats
+    formats_list = [f.strip().lower() for f in parsed.formats.split(",") if f.strip()]
+    print(f"Target formats: {', '.join(formats_list)}")
     print()
 
     def progress_cb(msg: str) -> None:
         print(msg)
 
     try:
-        results = epub_to_mp3_lrc(
+        results = epub_to_audio_subtitles(
             epub_path=epub_path,
             output_dir=output_dir,
             merge=parsed.merge,
+            formats=formats_list,
             progress_callback=progress_cb,
         )
-        print(f"\n✓ Extracted {len(results)} file pair(s):")
-        for mp3, lrc in results:
-            print(f"  • {mp3.name}  +  {lrc.name}")
+        print(f"\n✓ Extracted {len(results)} set(s):")
+        for audio, subtitles in results:
+            sub_names = ", ".join(s.name for s in subtitles)
+            print(f"  • {audio.name}  +  [{sub_names}]")
         return 0
     except Exception as e:
         import traceback
@@ -249,8 +255,8 @@ def main(args: list[str] | None = None) -> int:
     # ── extract subcommand ──
     ext_parser = subparsers.add_parser(
         "extract",
-        help="Extract MP3 + LRC files from an EPUB3 with Media Overlays.",
-        description="Extract MP3 + LRC files from an EPUB3 with Media Overlays for playback on music players like Poweramp.",
+        help="Extract audio tracks and subtitle files from an EPUB3 with Media Overlays.",
+        description="Extract audio tracks and subtitle files (ASS, SRT, VTT, TTML, SBV, LRC, TXT) from an EPUB3 with Media Overlays.",
     )
     ext_parser.add_argument(
         "--epub",
@@ -262,13 +268,18 @@ def main(args: list[str] | None = None) -> int:
         "-o", "--output",
         required=True,
         type=Path,
-        help="Output directory for MP3 + LRC files."
+        help="Output directory for extracted audio and subtitle files."
     )
     ext_parser.add_argument(
         "--merge",
         action="store_true",
         default=False,
-        help="Merge all chapters into a single MP3 + LRC pair."
+        help="Merge all chapters into a single audio + subtitle set."
+    )
+    ext_parser.add_argument(
+        "--formats",
+        default="ass",
+        help="Comma-separated list of subtitle formats to export (choices: ass, srt, vtt, ttml, sbv, lrc, txt; default: ass)."
     )
 
     parsed = parser.parse_args(args)
