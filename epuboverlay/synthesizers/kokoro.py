@@ -115,8 +115,24 @@ class KokoroSynthesizer(BaseSynthesizer):
         pipe_kwargs = {"lang_code": lang_code, "device": device}
         if "repo_id" in sig.parameters:
             pipe_kwargs["repo_id"] = "hexgrad/Kokoro-82M"
-        self._pipeline = KPipeline(**pipe_kwargs)
+
+        try:
+            self._pipeline = KPipeline(**pipe_kwargs)
+        except ImportError as e:
+            err_msg = str(e)
+            msg = f"Kokoro G2P initialization failed: {err_msg}."
+            if lang_code == "j":
+                msg += " Please install Japanese dependencies: 'pip install fugashi unidic-lite jaconv mojimoji'"
+            elif lang_code == "z":
+                msg += " Please install Chinese dependencies: 'pip install jieba g2pM'"
+            else:
+                msg += f" Please ensure all dependencies for language '{lang_code}' are installed."
+            raise ImportError(msg) from e
+
+
         self._speed = speed
+
+
         self._lang_code = lang_code
 
         # Resolve the voice tensor once at startup
