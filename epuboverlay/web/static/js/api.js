@@ -73,8 +73,9 @@ export async function previewVoice(formData) {
         body: formData
     });
     if (!resp.ok) {
-        const err = await resp.json();
-        throw new Error(err.detail || 'Failed to generate voice preview');
+        let detail = 'Failed to generate voice preview';
+        try { const err = await resp.json(); detail = err.detail || detail; } catch (_) {}
+        throw new Error(detail);
     }
     return await resp.blob();
 }

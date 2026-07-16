@@ -137,7 +137,7 @@ def save_settings_data(data: dict) -> None:
 @app.get("/api/config")
 async def get_config():
     """Return available synthesizers and defaults."""
-    from epuboverlay.synthesizers import KOKORO_VOICES
+    from epuboverlay.synthesizers import KOKORO_VOICES, POCKET_VOICES
     data = load_settings_data()
     current = data.get("current_settings", {})
     
@@ -153,11 +153,13 @@ async def get_config():
         "voice_formula": current.get("voice_formula", ""),
         "lang_code": current.get("lang_code", "a"),
         "device": current.get("device", ""),
+        "pocket_voice": current.get("pocket_voice", "alba"),
     }
     
     return {
         "synthesizers": ["f5-tts", "kokoro", "pocket-tts", "dummy"],
         "kokoro_voices": KOKORO_VOICES,
+        "pocket_voices": POCKET_VOICES,
         "defaults": defaults,
     }
 
@@ -230,6 +232,7 @@ async def create_job(
     voice: str = Form(""),
     voice_formula: str = Form(""),
     lang_code: str = Form("a"),
+    pocket_voice: str = Form(""),        # PocketTTS preset voice name
     selected_chapters: str = Form(""),  # JSON array of idref strings
 ):
     """Submit a new EPUB overlay generation job."""
@@ -247,10 +250,10 @@ async def create_job(
                 detail="ref_audio and ref_text are required for f5-tts synthesizer.",
             )
     elif synthesizer == "pocket-tts":
-        if not ref_audio:
+        if not ref_audio and not pocket_voice:
             raise HTTPException(
                 status_code=400,
-                detail="ref_audio is required for pocket-tts synthesizer.",
+                detail="Either ref_audio (clone mode) or pocket_voice (preset mode) is required for pocket-tts synthesizer.",
             )
     elif synthesizer == "kokoro":
         if not voice and not voice_formula:
@@ -292,6 +295,7 @@ async def create_job(
         "voice": voice,
         "voice_formula": voice_formula,
         "lang_code": lang_code,
+        "pocket_voice": pocket_voice,
         "selected_chapters": parsed_chapters,
         "expand_numerals": norm_settings.get("expand_numerals", True),
         "resolve_contractions": norm_settings.get("resolve_contractions", True),
@@ -692,39 +696,90 @@ async def extract_audio_lrc(
 
 @app.post("/api/preview")
 async def preview_voice(
+    synthesizer: str = Form("kokoro"),
+    # Kokoro params
     voice: str = Form(""),
     voice_formula: str = Form(""),
     lang_code: str = Form("a"),
-    text: str = Form("Hello, this is a preview of the selected voice mix."),
+    # PocketTTS params
+    pocket_voice: str = Form(""),           # preset voice name
+    ref_audio: UploadFile | None = File(None),  # for clone / F5-TTS
+    ref_text: str = Form(""),               # F5-TTS only
+    # Common
+    speed: float = Form(1.0),
+    device: str = Form(""),
+    text: str = Form("Hello, this is a preview of the selected voice."),
 ):
-    """Generate a quick audio preview of a voice or blend formula."""
+    """Generate a quick audio preview for Kokoro, PocketTTS, or F5-TTS."""
     from fastapi import Response
 
-    if not voice and not voice_formula:
-        raise HTTPException(
-            status_code=400,
-            detail="Either voice or voice_formula is required.",
-        )
     if not text.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Preview text cannot be empty.",
-        )
+        raise HTTPException(status_code=400, detail="Preview text cannot be empty.")
+
+    # Save ref audio to a temp file if provided
+    tmp_ref_path: Path | None = None
+    if ref_audio and ref_audio.filename:
+        tmp_ref = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        tmp_ref.write(await ref_audio.read())
+        tmp_ref.close()
+        tmp_ref_path = Path(tmp_ref.name)
 
     try:
-        from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
+        if synthesizer == "kokoro":
+            if not voice and not voice_formula:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Either voice or voice_formula is required for Kokoro.",
+                )
+            from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
+            synth = KokoroSynthesizer(
+                voice=voice,
+                voice_formula=voice_formula,
+                speed=speed,
+                lang_code=lang_code,
+                device=device or None,
+            )
 
-        # We instantiate KokoroSynthesizer on CPU for preview
-        synth = KokoroSynthesizer(
-            voice=voice,
-            voice_formula=voice_formula,
-            speed=1.0,
-            lang_code=lang_code,
-            device="cpu",
-        )
+        elif synthesizer == "pocket-tts":
+            if not pocket_voice and not tmp_ref_path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Either pocket_voice (preset) or ref_audio (clone) is required for PocketTTS.",
+                )
+            from epuboverlay.synthesizers.pocket import PocketSynthesizer
+            synth = PocketSynthesizer(
+                voice=pocket_voice,
+                ref_audio=tmp_ref_path,
+                speed=speed,
+            )
+
+        elif synthesizer == "f5-tts":
+            if not tmp_ref_path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="ref_audio is required for F5-TTS preview.",
+                )
+            if not ref_text.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="ref_text is required for F5-TTS preview.",
+                )
+            from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
+            synth = F5TTSSynthesizer(
+                ref_audio=tmp_ref_path,
+                ref_text=ref_text,
+                device=device or None,
+                speed=speed,
+            )
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported synthesizer for preview: {synthesizer}")
 
         wav_bytes, _ = synth.synthesize(text)
         return Response(content=wav_bytes, media_type="audio/wav")
+
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -732,6 +787,12 @@ async def preview_voice(
             status_code=500,
             detail=f"Preview synthesis failed: {str(e)}"
         )
+    finally:
+        if tmp_ref_path:
+            try:
+                tmp_ref_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def main():

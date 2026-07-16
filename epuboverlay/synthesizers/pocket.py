@@ -8,14 +8,34 @@ from pathlib import Path
 from epuboverlay.synthesizers.base import BaseSynthesizer
 
 
+# Built-in preset voices shipped with pocket_tts.
+# Primary voices come from VCTK, Expresso, EARS, and community donations.
+POCKET_VOICES: list[str] = [
+    # Primary presets
+    "alba", "marius", "javert", "jean", "fantine",
+    "cosette", "eponine", "azelma",
+    # Extended presets
+    "anna", "vera", "charles", "paul", "george",
+    "mary", "jane", "michael", "eve",
+]
+
+
 class PocketSynthesizer(BaseSynthesizer):
     """PocketTTS synthesizer — ~100M parameter zero-shot voice cloner by Kyutai Labs.
 
-    Runs at ~6x real-time on CPU.  The voice state is pre-computed from the
-    reference audio file once at startup and cached for all subsequent calls.
+    Runs at ~6x real-time on CPU.  Supports two voice modes:
+
+    1. **Preset voice** — pass ``voice`` with a built-in name (e.g. ``"alba"``).
+       The voice embedding is loaded instantly from a pre-computed ``.safetensors``
+       file.
+    2. **Clone voice** — pass ``ref_audio`` with a path to a WAV/MP3 clip.
+       The voice state is computed from the audio file once at startup.
+
+    Exactly one of ``voice`` or ``ref_audio`` must be provided.
 
     Args:
-        ref_audio: Path to a reference audio file (.wav) for voice cloning.
+        ref_audio: Path to a reference audio file for voice cloning (clone mode).
+        voice: Name of a built-in preset voice (preset mode).
         speed: Speech speed factor (default 1.0).
     """
 
@@ -23,7 +43,8 @@ class PocketSynthesizer(BaseSynthesizer):
 
     def __init__(
         self,
-        ref_audio: str | Path,
+        ref_audio: str | Path | None = None,
+        voice: str = "",
         speed: float = 1.0,
     ) -> None:
         try:
@@ -34,12 +55,32 @@ class PocketSynthesizer(BaseSynthesizer):
                 "'pip install pocket-tts' to use the PocketSynthesizer."
             ) from e
 
-        self.ref_audio = str(ref_audio)
+        if not voice and not ref_audio:
+            raise ValueError(
+                "Either 'voice' (preset name) or 'ref_audio' (file path) must be provided."
+            )
+        if voice and ref_audio:
+            raise ValueError(
+                "Provide either 'voice' (preset) or 'ref_audio' (clone), not both."
+            )
+
         self._speed = speed
 
-        # Load model and pre-compute voice state once
+        # Load model once
         self._model = TTSModel.load_model()
-        self._voice_state = self._model.get_state_for_audio_prompt(self.ref_audio)
+
+        if voice:
+            if voice not in POCKET_VOICES:
+                raise ValueError(
+                    f"Unknown PocketTTS preset voice: '{voice}'. "
+                    f"Available: {', '.join(POCKET_VOICES)}"
+                )
+            self._voice_state = self._model.get_state_for_voice(voice)
+            self._voice_label = voice
+        else:
+            self.ref_audio = str(ref_audio)
+            self._voice_state = self._model.get_state_for_audio_prompt(self.ref_audio)
+            self._voice_label = Path(ref_audio).name  # type: ignore[arg-type]
 
     @property
     def sample_rate(self) -> int:

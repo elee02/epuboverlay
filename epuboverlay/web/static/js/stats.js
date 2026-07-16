@@ -35,13 +35,21 @@ export async function updateStats() {
                 const gpuNameLabel = document.getElementById('gpu-name-label');
                 const statGpu = document.getElementById('stat-gpu');
                 const fillGpu = document.getElementById('fill-gpu');
-                if (gpuNameLabel) gpuNameLabel.textContent = data.gpu.name;
-                if (statGpu) statGpu.textContent = `${data.gpu.utilization.toFixed(0)}% (${data.gpu.vram_used.toFixed(1)} / ${data.gpu.vram_total.toFixed(0)} GB, ${data.gpu.temperature.toFixed(0)}°C)`;
+
+                // Use a short GPU label (extract series name like "RTX 4060")
+                const fullName = data.gpu.name;
+                const shortName = fullName.replace(/NVIDIA\s*/i, '').replace(/GeForce\s*/i, '').trim();
+                if (gpuNameLabel) gpuNameLabel.textContent = shortName;
+                // Full name as tooltip on the row
+                gpuBadge.title = fullName;
+
+                if (statGpu) statGpu.textContent = `${data.gpu.utilization.toFixed(0)}% · ${data.gpu.vram_used.toFixed(1)}/${data.gpu.vram_total.toFixed(0)} GB`;
                 if (fillGpu) fillGpu.style.width = `${data.gpu.utilization}%`;
             } else {
                 gpuBadge.style.display = 'none';
             }
         }
+
 
         // Cache Size
         try {

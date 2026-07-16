@@ -1,12 +1,15 @@
 import { fetchConfig, fetchChapters, purgeAllCache } from './api.js';
 import { showToast } from './utils.js';
 import { startStatsPolling } from './stats.js';
-import { setupKokoroMixer, updateFilteredVoices, setKokoroVoices, activeVoiceMode } from './kokoro.js';
+import { setupKokoroMixer, updateFilteredVoices, setKokoroVoices } from './kokoro.js';
 import { refreshJobsList, connectSSE } from './jobs.js';
 import { initSettings } from './settings.js';
 import { showConfirmModal } from './modal.js';
+import { initPlayground } from './playground.js';
+import { setupPocketModeToggle, setPocketVoices } from './pocket.js';
 
-// DOM References
+// ── DOM References ──────────────────────────────────────────────────────────
+
 const jobForm = document.getElementById('job-form');
 const submitBtn = document.getElementById('submit-btn');
 const epubFile = document.getElementById('epub-file');
@@ -27,42 +30,42 @@ const extractStatusTitle = document.getElementById('extract-status-title');
 const extractStatusBadge = document.getElementById('extract-status-badge');
 const extractStatusMessage = document.getElementById('extract-status-message');
 
-const tabGenerate = document.getElementById('tab-generate');
-const tabExtract = document.getElementById('tab-extract');
-const tabSettings = document.getElementById('tab-settings');
-const modeGenerate = document.getElementById('mode-generate');
-const modeExtract = document.getElementById('mode-extract');
-const modeSettings = document.getElementById('mode-settings');
+// ── Bootstrap ───────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
     // 1. Fetch config and setup defaults
     try {
         const config = await fetchConfig();
         setKokoroVoices(config.kokoro_voices || []);
+        setPocketVoices(config.pocket_voices || []);
         applyConfigDefaults(config.defaults || {});
     } catch (err) {
         showToast('Failed to fetch config: ' + err.message, 'error');
     }
 
     // 2. Setup systems
-    setupTabs();
+    setupSidebarNav();
     setupFileUploads();
     setupSynthesizerToggle();
     setupChapterSelection();
     setupForm();
     setupExtractForm();
     setupKokoroMixer();
-    
-    // Initialize settings panel
+    setupPocketFormPanel();
+
+    // Voice Playground
+    initPlayground();
+
+    // Settings panel
     initSettings();
 
-    // Start stats polling
+    // Stats polling
     startStatsPolling();
 
     // Load initial jobs
     refreshJobsList(onJobUpdate);
 
-    // Bind purge cache button
+    // Purge cache button
     const purgeBtn = document.getElementById('purge-cache-btn');
     if (purgeBtn) {
         purgeBtn.addEventListener('click', async () => {
@@ -93,9 +96,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+// ── Config defaults ─────────────────────────────────────────────────────────
+
 function applyConfigDefaults(defaults) {
     if (synthSelect) synthSelect.value = defaults.synthesizer || 'f5-tts';
-    
+
     const deviceSelect = document.getElementById('device-select');
     if (deviceSelect) deviceSelect.value = defaults.device || '';
 
@@ -116,61 +121,71 @@ function applyConfigDefaults(defaults) {
 
     const formulaInput = document.getElementById('voice-formula-input');
     if (formulaInput) formulaInput.value = defaults.voice_formula || '';
-    
+
     const nfeStepInput = document.getElementById('nfe-step-input');
     if (nfeStepInput) nfeStepInput.value = defaults.nfe_step || 32;
 
     const compileCheckbox = document.getElementById('compile-checkbox');
     if (compileCheckbox) compileCheckbox.checked = !!defaults.compile;
+
+    const pocketVoiceSelect = document.getElementById('pocket-voice-select');
+    if (pocketVoiceSelect) pocketVoiceSelect.value = defaults.pocket_voice || 'alba';
 }
 
-// Global SSE update callback
+// ── Global SSE update callback ──────────────────────────────────────────────
+
 function onJobUpdate(job) {
     import('./jobs.js').then(module => {
         module.renderActiveJob(job, onJobUpdate);
     });
 }
 
-// Tab Switching
-function setupTabs() {
-    tabGenerate.addEventListener('click', () => {
-        tabGenerate.classList.add('active');
-        tabExtract.classList.remove('active');
-        tabSettings.classList.remove('active');
-        modeGenerate.style.display = 'block';
-        modeExtract.style.display = 'none';
-        modeSettings.style.display = 'none';
+// ── Sidebar Navigation ──────────────────────────────────────────────────────
+
+function setupSidebarNav() {
+    const pages = {
+        generate:   document.getElementById('page-generate'),
+        playground: document.getElementById('page-playground'),
+        extract:    document.getElementById('page-extract'),
+        settings:   document.getElementById('page-settings'),
+    };
+
+    const navItems = document.querySelectorAll('.nav-item[data-page]');
+
+    function showPage(pageId) {
+        Object.entries(pages).forEach(([id, el]) => {
+            if (el) el.style.display = id === pageId ? 'block' : 'none';
+        });
+        navItems.forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-page') === pageId);
+        });
+    }
+
+    navItems.forEach(btn => {
+        btn.addEventListener('click', () => showPage(btn.getAttribute('data-page')));
     });
 
-    tabExtract.addEventListener('click', () => {
-        tabExtract.classList.add('active');
-        tabGenerate.classList.remove('active');
-        tabSettings.classList.remove('active');
-        modeExtract.style.display = 'block';
-        modeGenerate.style.display = 'none';
-        modeSettings.style.display = 'none';
-    });
-
-    tabSettings.addEventListener('click', () => {
-        tabSettings.classList.add('active');
-        tabGenerate.classList.remove('active');
-        tabExtract.classList.remove('active');
-        modeSettings.style.display = 'block';
-        modeGenerate.style.display = 'none';
-        modeExtract.style.display = 'none';
-    });
+    // Default: generate
+    showPage('generate');
 }
 
-// File Drop Zone Handling
+// ── File Upload Zones ───────────────────────────────────────────────────────
+
 function setupFileUploads() {
     setupDropZone(epubUploadZone, epubFile, epubFileName);
     setupDropZone(refAudioUploadZone, refAudioFile, refAudioFileName);
     setupDropZone(extractEpubUploadZone, extractEpubFile, extractEpubFileName);
+
+    // PocketTTS clone upload zone in the form
+    const pocketZone = document.getElementById('pocket-ref-audio-upload-zone');
+    const pocketInput = document.getElementById('pocket-ref-audio-file');
+    const pocketName = document.getElementById('pocket-ref-audio-file-name');
+    setupDropZone(pocketZone, pocketInput, pocketName);
 }
 
 function setupDropZone(zone, input, nameDisplay) {
     if (!zone || !input) return;
-    
+
     ['dragover', 'dragenter'].forEach(evt => {
         zone.addEventListener(evt, (e) => {
             e.preventDefault();
@@ -207,39 +222,41 @@ function showFileName(el, name) {
     el.style.display = 'block';
 }
 
-// Synthesizer Type Toggling
+// ── Synthesizer Type Toggling (Generate form) ───────────────────────────────
+
 function setupSynthesizerToggle() {
     const cloningOptions = document.getElementById('cloning-options');
     const f5TtsOptions = document.getElementById('f5-tts-options');
     const kokoroOptions = document.getElementById('kokoro-options');
+    const pocketOptions = document.getElementById('pocket-tts-options');
 
     function toggleFields() {
         const val = synthSelect.value;
-        if (val === 'f5-tts') {
-            cloningOptions.style.display = 'block';
-            f5TtsOptions.style.display = 'block';
-            kokoroOptions.style.display = 'none';
-        } else if (val === 'pocket-tts') {
-            cloningOptions.style.display = 'block';
-            f5TtsOptions.style.display = 'none';
-            kokoroOptions.style.display = 'none';
-        } else if (val === 'kokoro') {
-            cloningOptions.style.display = 'none';
-            f5TtsOptions.style.display = 'none';
-            kokoroOptions.style.display = 'block';
-            updateFilteredVoices();
-        } else {
-            cloningOptions.style.display = 'none';
-            f5TtsOptions.style.display = 'none';
-            kokoroOptions.style.display = 'none';
-        }
+        cloningOptions.style.display = val === 'f5-tts' ? 'grid' : 'none';
+        f5TtsOptions.style.display   = val === 'f5-tts' ? 'block' : 'none';
+        kokoroOptions.style.display  = val === 'kokoro'  ? 'block' : 'none';
+        pocketOptions.style.display  = val === 'pocket-tts' ? 'block' : 'none';
+
+        if (val === 'kokoro') updateFilteredVoices();
     }
 
     synthSelect.addEventListener('change', toggleFields);
     toggleFields();
 }
 
-// Chapter Selection Loader
+// ── PocketTTS form panel ────────────────────────────────────────────────────
+
+function setupPocketFormPanel() {
+    setupPocketModeToggle({
+        modeSelector: document.getElementById('pocket-voice-mode-selector'),
+        presetPanel:  document.getElementById('pocket-preset-panel'),
+        clonePanel:   document.getElementById('pocket-clone-panel'),
+        voiceSelect:  document.getElementById('pocket-voice-select'),
+    });
+}
+
+// ── Chapter Selection Loader ────────────────────────────────────────────────
+
 function setupChapterSelection() {
     epubFile.addEventListener('change', async () => {
         if (!epubFile.files.length) {
@@ -315,7 +332,8 @@ function renderChaptersList(chapters) {
     });
 }
 
-// Form Submission for Job
+// ── Form Submission for Job ──────────────────────────────────────────────────
+
 function setupForm() {
     jobForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -336,6 +354,20 @@ function setupForm() {
             }
         }
 
+        // Adjust PocketTTS parameters
+        if (synthSelect.value === 'pocket-tts') {
+            const activePocketMode = document.getElementById('pocket-voice-mode-selector')
+                .querySelector('.mode-pill.active').getAttribute('data-mode');
+            if (activePocketMode === 'preset') {
+                const pocketVoiceSelect = document.getElementById('pocket-voice-select');
+                formData.set('pocket_voice', pocketVoiceSelect ? pocketVoiceSelect.value : '');
+                // Remove ref_audio if present (not needed in preset mode)
+                formData.delete('ref_audio');
+            } else {
+                formData.set('pocket_voice', '');
+            }
+        }
+
         if (!epubFile.files.length) {
             showToast('Please select an EPUB file.', 'error');
             return;
@@ -352,9 +384,20 @@ function setupForm() {
                 return;
             }
         } else if (selectedSynth === 'pocket-tts') {
-            if (!refAudioFile.files.length) {
-                showToast('Reference audio is required for PocketTTS.', 'error');
-                return;
+            const activePocketMode = document.getElementById('pocket-voice-mode-selector')
+                .querySelector('.mode-pill.active').getAttribute('data-mode');
+            if (activePocketMode === 'clone') {
+                const pocketRefAudio = document.getElementById('pocket-ref-audio-file');
+                if (!pocketRefAudio || !pocketRefAudio.files.length) {
+                    showToast('Reference audio is required for PocketTTS clone mode.', 'error');
+                    return;
+                }
+            } else {
+                const pocketVoiceSelect = document.getElementById('pocket-voice-select');
+                if (!pocketVoiceSelect || !pocketVoiceSelect.value) {
+                    showToast('Please select a PocketTTS preset voice.', 'error');
+                    return;
+                }
             }
         } else if (selectedSynth === 'kokoro') {
             if (!formData.get('voice') && !formData.get('voice_formula')?.trim()) {
@@ -388,7 +431,7 @@ function setupForm() {
             jobForm.reset();
             epubFileName.style.display = 'none';
             refAudioFileName.style.display = 'none';
-            
+
             document.getElementById('chapter-selection-panel').style.display = 'none';
             document.getElementById('chapters-list-wrapper').innerHTML = '';
 
@@ -396,9 +439,11 @@ function setupForm() {
             const cloningOptions = document.getElementById('cloning-options');
             const f5TtsOptions = document.getElementById('f5-tts-options');
             const kokoroOptions = document.getElementById('kokoro-options');
-            cloningOptions.style.display = 'block';
-            f5TtsOptions.style.display = 'block';
-            kokoroOptions.style.display = 'none';
+            const pocketOptions = document.getElementById('pocket-tts-options');
+            if (cloningOptions) cloningOptions.style.display = 'none';
+            if (f5TtsOptions) f5TtsOptions.style.display = 'none';
+            if (kokoroOptions) kokoroOptions.style.display = 'none';
+            if (pocketOptions) pocketOptions.style.display = 'none';
 
             // Refresh list & launch SSE
             refreshJobsList(onJobUpdate);
@@ -413,7 +458,8 @@ function setupForm() {
     });
 }
 
-// Extraction Form Submission
+// ── Extraction Form Submission ──────────────────────────────────────────────
+
 function setupExtractForm() {
     extractForm.addEventListener('submit', async (e) => {
         e.preventDefault();

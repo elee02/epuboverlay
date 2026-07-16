@@ -10,7 +10,7 @@ from epuboverlay.synthesizers.base import BaseSynthesizer, FrameTimedSynthesizer
 from epuboverlay.synthesizers.dummy import DummySynthesizer
 from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
 from epuboverlay.synthesizers.kokoro import KokoroSynthesizer, KOKORO_VOICES
-from epuboverlay.synthesizers.pocket import PocketSynthesizer
+from epuboverlay.synthesizers.pocket import PocketSynthesizer, POCKET_VOICES
 
 # Registry mapping backend ID string -> factory callable
 _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
@@ -35,7 +35,8 @@ _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
         device=kw.get("device", "cpu"),
     ),
     "pocket-tts": lambda **kw: PocketSynthesizer(
-        ref_audio=kw["ref_audio_path"] if "ref_audio_path" in kw else kw["ref_audio"],
+        ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
+        voice=kw.get("pocket_voice", "") or kw.get("voice", ""),
         speed=float(kw.get("speed", 1.0)),
     ),
 }
@@ -64,5 +65,6 @@ __all__ = [
     "KokoroSynthesizer",
     "PocketSynthesizer",
     "KOKORO_VOICES",
+    "POCKET_VOICES",
     "create_synthesizer",
 ]
