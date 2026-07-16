@@ -706,6 +706,14 @@ async def extract_audio_lrc(
         # FastAPI/Starlette will handle response completion.
 
 
+import hashlib
+import asyncio
+
+_PREVIEW_SYNTH_CACHE = {}
+_PREVIEW_CACHE_LOCK = asyncio.Lock()
+_MAX_CACHE_SIZE = 3
+
+
 @app.post("/api/preview")
 async def preview_voice(
     synthesizer: str = Form("kokoro"),
@@ -728,70 +736,119 @@ async def preview_voice(
     if not text.strip():
         raise HTTPException(status_code=400, detail="Preview text cannot be empty.")
 
-    # Save ref audio to a temp file if provided
-    tmp_ref_path: Path | None = None
+    # 1. Read ref_audio bytes to compute hash if present
+    ref_audio_hash = None
+    ref_audio_bytes = b""
     if ref_audio and ref_audio.filename:
-        tmp_ref = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        tmp_ref.write(await ref_audio.read())
-        tmp_ref.close()
-        tmp_ref_path = Path(tmp_ref.name)
+        ref_audio_bytes = await ref_audio.read()
+        ref_audio_hash = hashlib.md5(ref_audio_bytes).hexdigest()
 
-    try:
-        if synthesizer == "kokoro":
-            if not voice and not voice_formula:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Either voice or voice_formula is required for Kokoro.",
-                )
-            from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
-            synth = KokoroSynthesizer(
-                voice=voice,
-                voice_formula=voice_formula,
-                speed=speed,
-                lang_code=lang_code,
-                device=device or None,
-            )
-
-        elif synthesizer == "pocket-tts":
-            if not pocket_voice and not tmp_ref_path:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Either pocket_voice (preset) or ref_audio (clone) is required for PocketTTS.",
-                )
-            from epuboverlay.synthesizers.pocket import PocketSynthesizer
-            synth = PocketSynthesizer(
-                voice=pocket_voice,
-                ref_audio=tmp_ref_path,
-                speed=speed,
-            )
-
-        elif synthesizer == "f5-tts":
-            if not tmp_ref_path:
-                raise HTTPException(
-                    status_code=400,
-                    detail="ref_audio is required for F5-TTS preview.",
-                )
-            if not ref_text.strip():
-                raise HTTPException(
-                    status_code=400,
-                    detail="ref_text is required for F5-TTS preview.",
-                )
-            from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
-            synth = F5TTSSynthesizer(
-                ref_audio=tmp_ref_path,
-                ref_text=ref_text,
-                device=device or None,
-                speed=speed,
-            )
-
+    # 2. Build a unique cache key based on the settings
+    cache_key = None
+    if synthesizer == "kokoro":
+        cache_key = ("kokoro", voice, voice_formula, lang_code, speed, device or "cpu")
+    elif synthesizer == "pocket-tts":
+        if pocket_voice:
+            cache_key = ("pocket-tts", "preset", pocket_voice, speed)
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported synthesizer for preview: {synthesizer}")
+            cache_key = ("pocket-tts", "clone", ref_audio_hash, speed)
+    elif synthesizer == "f5-tts":
+        ref_text_hash = hashlib.md5(ref_text.encode("utf-8")).hexdigest()
+        cache_key = ("f5-tts", ref_audio_hash, ref_text_hash, speed, device or "cpu")
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported synthesizer: {synthesizer}")
 
+    # 3. Retrieve or build the synthesizer with thread-safe lock
+    synth = None
+    async with _PREVIEW_CACHE_LOCK:
+        if cache_key in _PREVIEW_SYNTH_CACHE:
+            synth = _PREVIEW_SYNTH_CACHE[cache_key]
+            # Move to the end of dict to maintain LRU ordering
+            _PREVIEW_SYNTH_CACHE.pop(cache_key)
+            _PREVIEW_SYNTH_CACHE[cache_key] = synth
+        else:
+            # Cache miss: initialize a temporary file for cloning if required
+            tmp_ref_path: Path | None = None
+            if ref_audio_bytes:
+                tmp_ref = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                tmp_ref.write(ref_audio_bytes)
+                tmp_ref.close()
+                tmp_ref_path = Path(tmp_ref.name)
+
+            try:
+                if synthesizer == "kokoro":
+                    if not voice and not voice_formula:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Either voice or voice_formula is required for Kokoro.",
+                        )
+                    from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
+                    synth = KokoroSynthesizer(
+                        voice=voice,
+                        voice_formula=voice_formula,
+                        speed=speed,
+                        lang_code=lang_code,
+                        device=device or None,
+                    )
+
+                elif synthesizer == "pocket-tts":
+                    if not pocket_voice and not tmp_ref_path:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Either pocket_voice (preset) or ref_audio (clone) is required for PocketTTS.",
+                        )
+                    from epuboverlay.synthesizers.pocket import PocketSynthesizer
+                    synth = PocketSynthesizer(
+                        voice=pocket_voice,
+                        ref_audio=tmp_ref_path,
+                        speed=speed,
+                    )
+
+                elif synthesizer == "f5-tts":
+                    if not tmp_ref_path:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="ref_audio is required for F5-TTS preview.",
+                        )
+                    if not ref_text.strip():
+                        raise HTTPException(
+                            status_code=400,
+                            detail="ref_text is required for F5-TTS preview.",
+                        )
+                    from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
+                    synth = F5TTSSynthesizer(
+                        ref_audio=tmp_ref_path,
+                        ref_text=ref_text,
+                        device=device or None,
+                        speed=speed,
+                    )
+
+                # Save model to cache
+                _PREVIEW_SYNTH_CACHE[cache_key] = synth
+
+                # Manage cache size (LRU eviction)
+                if len(_PREVIEW_SYNTH_CACHE) > _MAX_CACHE_SIZE:
+                    oldest_key = next(iter(_PREVIEW_SYNTH_CACHE))
+                    old_synth = _PREVIEW_SYNTH_CACHE.pop(oldest_key)
+                    # Force garbage collection to free VRAM/RAM
+                    import gc
+                    import torch
+                    del old_synth
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+            finally:
+                if tmp_ref_path:
+                    try:
+                        tmp_ref_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+    # 4. Perform synthesis
+    try:
         wav_bytes, _ = synth.synthesize(text)
         return Response(content=wav_bytes, media_type="audio/wav")
-
-    except HTTPException:
-        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -799,12 +856,7 @@ async def preview_voice(
             status_code=500,
             detail=f"Preview synthesis failed: {str(e)}"
         )
-    finally:
-        if tmp_ref_path:
-            try:
-                tmp_ref_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+
 
 
 def main():
