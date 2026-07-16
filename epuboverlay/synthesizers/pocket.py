@@ -75,8 +75,9 @@ class PocketSynthesizer(BaseSynthesizer):
                     f"Unknown PocketTTS preset voice: '{voice}'. "
                     f"Available: {', '.join(POCKET_VOICES)}"
                 )
-            self._voice_state = self._model.get_state_for_voice(voice)
+            self._voice_state = self._model.get_state_for_audio_prompt(voice)
             self._voice_label = voice
+
         else:
             self.ref_audio = str(ref_audio)
             self._voice_state = self._model.get_state_for_audio_prompt(self.ref_audio)
