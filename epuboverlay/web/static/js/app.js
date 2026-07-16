@@ -499,6 +499,7 @@ function setupExtractForm() {
         formData.append('epub', extractEpubFile.files[0]);
         formData.append('merge', document.getElementById('extract-merge-checkbox').checked);
         formData.append('formats', formats.join(','));
+        formData.append('center', document.getElementById('extract-center-checkbox').checked ? 'true' : 'false');
 
         try {
             const resp = await fetch('/api/extract', {

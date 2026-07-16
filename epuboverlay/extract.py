@@ -314,7 +314,7 @@ def build_lrc_from_chapter(chapter: ChapterOverlay, time_offset: float = 0.0) ->
 
 
 def build_srt_from_chapter(
-    chapter: ChapterOverlay, time_offset: float = 0.0, start_index: int = 1
+    chapter: ChapterOverlay, time_offset: float = 0.0, start_index: int = 1, center: bool = False
 ) -> tuple[str, int]:
     """Build SRT subtitle content from a chapter's SMIL timings and text."""
     blocks: list[str] = []
@@ -325,13 +325,15 @@ def build_srt_from_chapter(
             continue
         start_str = format_timestamp(clip_begin + time_offset, ",")
         end_str = format_timestamp(clip_end + time_offset, ",")
+        if center:
+            text = "{\\an5}" + text
         blocks.append(f"{idx}\n{start_str} --> {end_str}\n{text}\n")
         idx += 1
     return "\n".join(blocks), idx
 
 
 def build_vtt_from_chapter(
-    chapter: ChapterOverlay, time_offset: float = 0.0, start_index: int = 1
+    chapter: ChapterOverlay, time_offset: float = 0.0, start_index: int = 1, center: bool = False
 ) -> tuple[str, int]:
     """Build WebVTT subtitle blocks from a chapter's SMIL timings and text."""
     blocks: list[str] = []
@@ -342,15 +344,17 @@ def build_vtt_from_chapter(
             continue
         start_str = format_timestamp(clip_begin + time_offset, ".")
         end_str = format_timestamp(clip_end + time_offset, ".")
-        blocks.append(f"{idx}\n{start_str} --> {end_str}\n{text}\n")
+        cue_settings = " align:center line:50%" if center else ""
+        blocks.append(f"{idx}\n{start_str} --> {end_str}{cue_settings}\n{text}\n")
         idx += 1
     return "\n".join(blocks), idx
 
 
 def build_ass_from_chapter(
-    chapter: ChapterOverlay, time_offset: float = 0.0, book_title: str = "Chapter"
+    chapter: ChapterOverlay, time_offset: float = 0.0, book_title: str = "Chapter", center: bool = False
 ) -> str:
     """Build ASS subtitle content from a chapter's SMIL timings and text."""
+    alignment = "5" if center else "2"
     lines = [
         "[Script Info]",
         f"Title: {book_title}",
@@ -362,7 +366,7 @@ def build_ass_from_chapter(
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,2,10,10,10,1",
+        f"Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,{alignment},10,10,10,1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -378,8 +382,9 @@ def build_ass_from_chapter(
     return "\n".join(lines)
 
 
-def build_ass_merged(chapters: list[ChapterOverlay], book_title: str) -> str:
+def build_ass_merged(chapters: list[ChapterOverlay], book_title: str, center: bool = False) -> str:
     """Build a single merged ASS file from multiple chapters."""
+    alignment = "5" if center else "2"
     lines = [
         "[Script Info]",
         f"Title: {book_title}",
@@ -391,7 +396,7 @@ def build_ass_merged(chapters: list[ChapterOverlay], book_title: str) -> str:
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,2,10,10,10,1",
+        f"Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,{alignment},10,10,10,1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -412,19 +417,27 @@ def build_ass_merged(chapters: list[ChapterOverlay], book_title: str) -> str:
     return "\n".join(lines)
 
 
-def build_ttml_from_chapter(chapter: ChapterOverlay, time_offset: float = 0.0) -> str:
+def build_ttml_from_chapter(chapter: ChapterOverlay, time_offset: float = 0.0, center: bool = False) -> str:
     """Build TTML subtitle content from a chapter's SMIL timings and text."""
     lines = [
         '<?xml version="1.0" encoding="utf-8"?>',
-        '<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en">',
+        '<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling" xml:lang="en">',
         '  <head>',
         '    <styling>',
         '      <style xml:id="s1" tts:textAlign="center" tts:fontFamily="Arial" tts:fontSize="100%"/>',
         '    </styling>',
+    ]
+    if center:
+        lines.extend([
+            '    <layout>',
+            '      <region xml:id="r_center" tts:displayAlign="center" tts:textAlign="center"/>',
+            '    </layout>'
+        ])
+    lines.extend([
         '  </head>',
         '  <body>',
         '    <div>',
-    ]
+    ])
     for element_id, clip_begin, clip_end in chapter.timings:
         text = chapter.id_to_text.get(element_id, "")
         if not text:
@@ -432,26 +445,35 @@ def build_ttml_from_chapter(chapter: ChapterOverlay, time_offset: float = 0.0) -
         start_str = format_timestamp(clip_begin + time_offset, ".")
         end_str = format_timestamp(clip_end + time_offset, ".")
         escaped_text = escape_xml(text)
+        region_attr = ' region="r_center"' if center else ''
         lines.append(
-            f'      <p begin="{start_str}" end="{end_str}" style="s1">{escaped_text}</p>'
+            f'      <p begin="{start_str}" end="{end_str}" style="s1"{region_attr}>{escaped_text}</p>'
         )
     lines.extend(["    </div>", "  </body>", "</tt>"])
     return "\n".join(lines)
 
 
-def build_ttml_merged(chapters: list[ChapterOverlay]) -> str:
+def build_ttml_merged(chapters: list[ChapterOverlay], center: bool = False) -> str:
     """Build a single merged TTML file from multiple chapters."""
     lines = [
         '<?xml version="1.0" encoding="utf-8"?>',
-        '<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en">',
+        '<tt xmlns="http://www.w3.org/ns/ttml" xmlns:tts="http://www.w3.org/ns/ttml#styling" xml:lang="en">',
         '  <head>',
         '    <styling>',
         '      <style xml:id="s1" tts:textAlign="center" tts:fontFamily="Arial" tts:fontSize="100%"/>',
         '    </styling>',
+    ]
+    if center:
+        lines.extend([
+            '    <layout>',
+            '      <region xml:id="r_center" tts:displayAlign="center" tts:textAlign="center"/>',
+            '    </layout>'
+        ])
+    lines.extend([
         '  </head>',
         '  <body>',
         '    <div>',
-    ]
+    ])
     time_offset = 0.0
     for chapter in chapters:
         for element_id, clip_begin, clip_end in chapter.timings:
@@ -461,8 +483,9 @@ def build_ttml_merged(chapters: list[ChapterOverlay]) -> str:
             start_str = format_timestamp(clip_begin + time_offset, ".")
             end_str = format_timestamp(clip_end + time_offset, ".")
             escaped_text = escape_xml(text)
+            region_attr = ' region="r_center"' if center else ''
             lines.append(
-                f'      <p begin="{start_str}" end="{end_str}" style="s1">{escaped_text}</p>'
+                f'      <p begin="{start_str}" end="{end_str}" style="s1"{region_attr}>{escaped_text}</p>'
             )
         if chapter.timings:
             _elem_id, _begin, last_end = chapter.timings[-1]
@@ -530,6 +553,7 @@ def epub_to_audio_subtitles(
     output_dir: str | Path,
     merge: bool = False,
     formats: list[str] | None = None,
+    center: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[tuple[Path, list[Path]]]:
     """Extract audio tracks and multiple subtitle formats from an EPUB3 with Media Overlays.
@@ -540,6 +564,7 @@ def epub_to_audio_subtitles(
         merge: If True, merge all chapters into a single audio + subtitle set.
         formats: List of subtitle formats to export (e.g., ["ass", "srt", "vtt", "ttml", "sbv", "lrc", "txt"]).
                  Defaults to ["ass"].
+        center: If True, center alignment vertically and horizontally.
         progress_callback: Optional callback for status messages.
 
     Returns:
@@ -607,14 +632,14 @@ def epub_to_audio_subtitles(
                 for fmt in formats:
                     sub_out = output_dir / f"{chapter_name}.{fmt}"
                     if fmt == "ass":
-                        content = build_ass_from_chapter(chapter, book_title=book_title)
+                        content = build_ass_from_chapter(chapter, book_title=book_title, center=center)
                     elif fmt == "srt":
-                        content, _ = build_srt_from_chapter(chapter)
+                        content, _ = build_srt_from_chapter(chapter, center=center)
                     elif fmt == "vtt":
-                        ch_content, _ = build_vtt_from_chapter(chapter)
+                        ch_content, _ = build_vtt_from_chapter(chapter, center=center)
                         content = "WEBVTT\n\n" + ch_content
                     elif fmt == "ttml":
-                        content = build_ttml_from_chapter(chapter)
+                        content = build_ttml_from_chapter(chapter, center=center)
                     elif fmt == "sbv":
                         content = build_sbv_from_chapter(chapter)
                     elif fmt == "lrc":
@@ -671,13 +696,13 @@ def epub_to_audio_subtitles(
         sub_out = output_dir / f"{merged_name}.{fmt}"
         
         if fmt == "ass":
-            content = build_ass_merged(chapters, book_title=book_title)
+            content = build_ass_merged(chapters, book_title=book_title, center=center)
         elif fmt == "srt":
             blocks: list[str] = []
             time_offset = 0.0
             start_index = 1
             for chapter in chapters:
-                ch_content, next_idx = build_srt_from_chapter(chapter, time_offset=time_offset, start_index=start_index)
+                ch_content, next_idx = build_srt_from_chapter(chapter, time_offset=time_offset, start_index=start_index, center=center)
                 if ch_content:
                     blocks.append(ch_content)
                     start_index = next_idx
@@ -690,7 +715,7 @@ def epub_to_audio_subtitles(
             time_offset = 0.0
             start_index = 1
             for chapter in chapters:
-                ch_content, next_idx = build_vtt_from_chapter(chapter, time_offset=time_offset, start_index=start_index)
+                ch_content, next_idx = build_vtt_from_chapter(chapter, time_offset=time_offset, start_index=start_index, center=center)
                 if ch_content:
                     blocks.append(ch_content)
                     start_index = next_idx
@@ -699,7 +724,7 @@ def epub_to_audio_subtitles(
                     time_offset += last_end
             content = "WEBVTT\n\n" + "\n".join(blocks)
         elif fmt == "ttml":
-            content = build_ttml_merged(chapters)
+            content = build_ttml_merged(chapters, center=center)
         elif fmt == "sbv":
             content = build_sbv_merged(chapters)
         elif fmt == "lrc":

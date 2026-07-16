@@ -139,6 +139,7 @@ def _cmd_extract(parsed: argparse.Namespace) -> int:
             output_dir=output_dir,
             merge=parsed.merge,
             formats=formats_list,
+            center=parsed.center,
             progress_callback=progress_cb,
         )
         print(f"\n✓ Extracted {len(results)} set(s):")
@@ -280,6 +281,12 @@ def main(args: list[str] | None = None) -> int:
         "--formats",
         default="ass",
         help="Comma-separated list of subtitle formats to export (choices: ass, srt, vtt, ttml, sbv, lrc, txt; default: ass)."
+    )
+    ext_parser.add_argument(
+        "--center",
+        action="store_true",
+        default=False,
+        help="Center subtitles horizontally and vertically."
     )
 
     parsed = parser.parse_args(args)

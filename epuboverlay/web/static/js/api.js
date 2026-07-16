@@ -141,12 +141,13 @@ export async function deleteProfile(name) {
     return await resp.json();
 }
 
-export async function convertJobToAudio(jobId, merge, formats) {
+export async function convertJobToAudio(jobId, merge, formats, center) {
     const formData = new FormData();
     formData.append('merge', merge ? 'true' : 'false');
     if (formats && formats.length > 0) {
         formData.append('formats', formats.join(','));
     }
+    formData.append('center', center ? 'true' : 'false');
     const resp = await fetch(`/api/jobs/${jobId}/convert-audio`, {
         method: 'POST',
         body: formData

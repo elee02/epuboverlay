@@ -472,6 +472,49 @@ class ExtractTests(unittest.TestCase):
             self.assertIn("Hello world.", ass_text)
             self.assertIn("Chapter two begins here.", ass_text)
 
+    def test_epub_to_audio_subtitles_centered(self) -> None:
+        """Test extraction with centering enabled for ASS, SRT, WebVTT, and TTML."""
+        from epuboverlay.extract import epub_to_audio_subtitles
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "test.epub"
+            output_dir = Path(tmpdir) / "output"
+            self._make_test_epub_with_overlays(epub_path)
+
+            formats = ["ass", "srt", "vtt", "ttml"]
+            results = epub_to_audio_subtitles(
+                epub_path=epub_path,
+                output_dir=output_dir,
+                merge=False,
+                formats=formats,
+                center=True,
+            )
+
+            self.assertEqual(len(results), 2)
+            subtitles = results[0][1]
+            
+            # Check ASS centering (Alignment should be 5 instead of 2)
+            ass_path = next(p for p in subtitles if p.suffix == ".ass")
+            ass_text = ass_path.read_text(encoding="utf-8")
+            self.assertIn("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,1,1,5,10,10,10,1", ass_text)
+
+            # Check SRT centering (Should prepend {\an5})
+            srt_path = next(p for p in subtitles if p.suffix == ".srt")
+            srt_text = srt_path.read_text(encoding="utf-8")
+            self.assertIn("{\\an5}Hello world.", srt_text)
+
+            # Check VTT centering (Should append align:center line:50%)
+            vtt_path = next(p for p in subtitles if p.suffix == ".vtt")
+            vtt_text = vtt_path.read_text(encoding="utf-8")
+            self.assertIn("align:center line:50%", vtt_text)
+
+            # Check TTML centering (Should contain centered region)
+            ttml_path = next(p for p in subtitles if p.suffix == ".ttml")
+            ttml_text = ttml_path.read_text(encoding="utf-8")
+            self.assertIn('region="r_center"', ttml_text)
+            self.assertIn('tts:displayAlign="center"', ttml_text)
+
+
 
 
 class StreamingWavTests(unittest.TestCase):
