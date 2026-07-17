@@ -1183,6 +1183,22 @@ def _merge_audio_files(audio_paths: list[Path], output_path: Path) -> None:
 
 def _audio_to_mp4_video(audio_path: Path, output_path: Path, subtitle_path: Path | None = None) -> None:
     """Convert an audio file to an MP4 video with a static black screen using ffmpeg."""
+    # Query audio duration using ffprobe to avoid -shortest stopping on cover art streams
+    duration = None
+    try:
+        probe_cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(audio_path)
+        ]
+        res = subprocess.run(probe_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        dur_str = res.stdout.decode().strip()
+        if dur_str:
+            duration = float(dur_str)
+    except Exception:
+        pass
+
     try:
         cmd = [
             "ffmpeg", "-y",
@@ -1192,7 +1208,7 @@ def _audio_to_mp4_video(audio_path: Path, output_path: Path, subtitle_path: Path
         ]
         if subtitle_path:
             escaped_sub_path = str(subtitle_path.resolve()).replace(":", "\\:").replace("\\", "/")
-            cmd.extend(["-vf", f"subtitles='{escaped_sub_path}'"])
+            cmd.extend(["-filter:v:0", f"subtitles='{escaped_sub_path}'"])
         cmd.extend([
             "-map", "0:v",
             "-map", "1:a",
@@ -1203,9 +1219,13 @@ def _audio_to_mp4_video(audio_path: Path, output_path: Path, subtitle_path: Path
             "-c:a", "copy",
             "-c:v:1", "copy",
             "-disposition:v:1", "attached_pic",
-            "-shortest",
-            str(output_path),
         ])
+        if duration is not None:
+            cmd.extend(["-t", f"{duration:.3f}"])
+        else:
+            cmd.extend(["-shortest"])
+        cmd.append(str(output_path))
+
         subprocess.run(
             cmd,
             check=True,
