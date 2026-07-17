@@ -373,65 +373,128 @@ export function renderCompletedJobs(completedJobs) {
                     </div>
                 </div>
 
-                <div class="export-options-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-card); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.25rem;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                <div class="export-options-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-card); border-radius: var(--radius-sm); padding: 1rem; display: flex; flex-direction: column; gap: 1rem; margin-top: 0.25rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--border-card); padding-bottom: 0.5rem;">
                         <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 0.35rem;">
-                            <span>🎧</span> Generate Audiobook + Subtitles
+                            <span>🎧</span> Export Audiobook + Subtitles
                         </span>
                         <button class="btn btn-audio btn-sm convert-audio-btn" style="margin: 0; padding: 0.4rem 0.85rem; font-size: 0.78rem;">
-                            🎵 Convert &amp; Download ZIP
+                            🎵 Export Audiobook &amp; Subtitles
                         </button>
                     </div>
 
-                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center;">
-                        <label class="merge-checkbox-label" for="merge-cb-${job.id}">
-                            <input type="checkbox" id="merge-cb-${job.id}" class="merge-chapters-cb">
-                            <span>Merge all chapters</span>
-                        </label>
-                        <label class="merge-checkbox-label" for="center-cb-${job.id}">
-                            <input type="checkbox" id="center-cb-${job.id}" class="center-subtitles-cb">
-                            <span>Center subtitles (horizontally &amp; vertically)</span>
-                        </label>
-                        <label class="merge-checkbox-label" for="mp4-cb-${job.id}">
-                            <input type="checkbox" id="mp4-cb-${job.id}" class="mp4-video-cb" checked>
-                            <span>Convert to MP4 using static black video (Recommended)</span>
-                        </label>
+                    <!-- Group 1: Subtitle Formats -->
+                    <div class="options-group-sub" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                        <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">📝 Subtitle Formats:</span>
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center;">
+                            <label class="merge-checkbox-label" for="fmt-ass-${job.id}">
+                                <input type="checkbox" id="fmt-ass-${job.id}" class="fmt-cb-ass" checked>
+                                <span>ASS</span>
+                            </label>
+                            <label class="merge-checkbox-label" for="fmt-srt-${job.id}">
+                                <input type="checkbox" id="fmt-srt-${job.id}" class="fmt-cb-srt">
+                                <span>SRT</span>
+                            </label>
+                            <label class="merge-checkbox-label" for="fmt-vtt-${job.id}">
+                                <input type="checkbox" id="fmt-vtt-${job.id}" class="fmt-cb-vtt">
+                                <span>VTT</span>
+                            </label>
+                            <label class="merge-checkbox-label" for="fmt-ttml-${job.id}">
+                                <input type="checkbox" id="fmt-ttml-${job.id}" class="fmt-cb-ttml">
+                                <span>TTML</span>
+                            </label>
+                            <label class="merge-checkbox-label" for="fmt-sbv-${job.id}">
+                                <input type="checkbox" id="fmt-sbv-${job.id}" class="fmt-cb-sbv">
+                                <span>SBV</span>
+                            </label>
+                            <label class="merge-checkbox-label" for="fmt-lrc-${job.id}">
+                                <input type="checkbox" id="fmt-lrc-${job.id}" class="fmt-cb-lrc">
+                                <span>LRC</span>
+                            </label>
+                            <label class="merge-checkbox-label" for="fmt-txt-${job.id}">
+                                <input type="checkbox" id="fmt-txt-${job.id}" class="fmt-cb-txt">
+                                <span>TXT</span>
+                            </label>
+                        </div>
                     </div>
 
-                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem;">
-                        <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Formats:</span>
-                        <label class="merge-checkbox-label" for="fmt-ass-${job.id}">
-                            <input type="checkbox" id="fmt-ass-${job.id}" class="fmt-cb-ass" checked>
-                            <span>ASS</span>
-                        </label>
-                        <label class="merge-checkbox-label" for="fmt-srt-${job.id}">
-                            <input type="checkbox" id="fmt-srt-${job.id}" class="fmt-cb-srt">
-                            <span>SRT</span>
-                        </label>
-                        <label class="merge-checkbox-label" for="fmt-vtt-${job.id}">
-                            <input type="checkbox" id="fmt-vtt-${job.id}" class="fmt-cb-vtt">
-                            <span>VTT</span>
-                        </label>
-                        <label class="merge-checkbox-label" for="fmt-ttml-${job.id}">
-                            <input type="checkbox" id="fmt-ttml-${job.id}" class="fmt-cb-ttml">
-                            <span>TTML</span>
-                        </label>
-                        <label class="merge-checkbox-label" for="fmt-sbv-${job.id}">
-                            <input type="checkbox" id="fmt-sbv-${job.id}" class="fmt-cb-sbv">
-                            <span>SBV</span>
-                        </label>
-                        <label class="merge-checkbox-label" for="fmt-lrc-${job.id}">
-                            <input type="checkbox" id="fmt-lrc-${job.id}" class="fmt-cb-lrc">
-                            <span>LRC</span>
-                        </label>
-                        <label class="merge-checkbox-label" for="fmt-txt-${job.id}">
-                            <input type="checkbox" id="fmt-txt-${job.id}" class="fmt-cb-txt">
-                            <span>TXT</span>
-                        </label>
+                    <!-- Group 2: Processing Options -->
+                    <div class="options-group-sub" style="display: flex; flex-direction: column; gap: 0.5rem; border-top: 1px solid var(--border-card); padding-top: 0.75rem;">
+                        <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">⚙️ Processing Options:</span>
+                        <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                            <label class="merge-checkbox-label" for="audio-cb-${job.id}">
+                                <input type="checkbox" id="audio-cb-${job.id}" class="include-audio-cb" checked>
+                                <span>Include Audiobook (.m4b)</span>
+                            </label>
+                            <label class="merge-checkbox-label" for="merge-cb-${job.id}">
+                                <input type="checkbox" id="merge-cb-${job.id}" class="merge-chapters-cb" checked>
+                                <span>Merge all chapters</span>
+                            </label>
+                            <label class="merge-checkbox-label" for="center-cb-${job.id}">
+                                <input type="checkbox" id="center-cb-${job.id}" class="center-subtitles-cb" checked>
+                                <span>Center subtitles (horizontally &amp; vertically)</span>
+                            </label>
+                            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                                <label class="merge-checkbox-label" for="mp4-cb-${job.id}" id="mp4-group-${job.id}">
+                                    <input type="checkbox" id="mp4-cb-${job.id}" class="mp4-video-cb">
+                                    <span>Convert to MP4 using static black video</span>
+                                </label>
+                                <label class="merge-checkbox-label" for="embed-subs-cb-${job.id}" id="embed-subs-group-${job.id}" style="margin-left: 1.5rem; opacity: 0.5;">
+                                    <input type="checkbox" id="embed-subs-cb-${job.id}" class="embed-subtitles-cb" disabled>
+                                    <span>Embed the Subtitles</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Group 3: Cover Art -->
+                    <div class="options-group-sub" style="display: flex; flex-direction: column; gap: 0.5rem; border-top: 1px solid var(--border-card); padding-top: 0.75rem;">
+                        <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">🖼️ Cover Art:</span>
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <input type="file" id="cover-art-${job.id}" class="cover-art-file-input" accept=".jpg,.jpeg,.png" style="font-size: 0.75rem; color: var(--text-secondary); background: var(--bg-input); border: 1px solid var(--border-subtle); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); width: 100%; max-width: 320px; cursor: pointer;">
+                            <span style="font-size: 0.75rem; color: var(--text-muted);">Optional (defaults to EPUB's cover)</span>
+                        </div>
                     </div>
                 </div>
             </div>
         `;
+
+        // Setup checkbox dependencies
+        const audioCb = card.querySelector(`.include-audio-cb`);
+        const mp4Cb = card.querySelector(`.mp4-video-cb`);
+        const embedSubsCb = card.querySelector(`.embed-subtitles-cb`);
+        const mp4Group = card.querySelector(`#mp4-group-${job.id}`);
+        const embedSubsGroup = card.querySelector(`#embed-subs-group-${job.id}`);
+
+        function updateCardCheckboxDependencies() {
+            const audioChecked = audioCb.checked;
+            const mp4Checked = mp4Cb.checked;
+            
+            if (audioChecked) {
+                mp4Cb.disabled = false;
+                if (mp4Group) mp4Group.style.opacity = '1';
+                
+                embedSubsCb.disabled = !mp4Checked;
+                if (embedSubsGroup) {
+                    embedSubsGroup.style.opacity = mp4Checked ? '1' : '0.5';
+                }
+                if (!mp4Checked) embedSubsCb.checked = false;
+            } else {
+                mp4Cb.disabled = true;
+                mp4Cb.checked = false;
+                if (mp4Group) mp4Group.style.opacity = '0.5';
+                
+                embedSubsCb.disabled = true;
+                embedSubsCb.checked = false;
+                if (embedSubsGroup) embedSubsGroup.style.opacity = '0.5';
+            }
+        }
+
+        if (audioCb && mp4Cb) {
+            audioCb.addEventListener('change', updateCardCheckboxDependencies);
+            mp4Cb.addEventListener('change', updateCardCheckboxDependencies);
+            updateCardCheckboxDependencies();
+        }
 
         card.querySelector('.delete-job-btn').addEventListener('click', () => deleteJob(job.id, () => refreshJobsList(() => {})));
 
@@ -441,6 +504,10 @@ export function renderCompletedJobs(completedJobs) {
             const merge = card.querySelector('.merge-chapters-cb').checked;
             const center = card.querySelector('.center-subtitles-cb').checked;
             const mp4Video = card.querySelector('.mp4-video-cb').checked;
+            const embedSubtitles = card.querySelector('.embed-subtitles-cb').checked;
+            const includeAudio = card.querySelector('.include-audio-cb').checked;
+            const coverArtInput = card.querySelector(`#cover-art-${job.id}`);
+            const coverArtFile = coverArtInput && coverArtInput.files.length > 0 ? coverArtInput.files[0] : null;
             
             // Read selected formats
             const formats = [];
@@ -451,17 +518,17 @@ export function renderCompletedJobs(completedJobs) {
                 }
             });
 
-            if (formats.length === 0) {
-                showToast('Please select at least one subtitle format.', 'error');
+            if (formats.length === 0 && !includeAudio) {
+                showToast('Please select at least one format (Audiobook or a subtitle format) to export.', 'error');
                 return;
             }
 
             btn.disabled = true;
-            btn.textContent = '⏳ Converting…';
+            btn.textContent = '⏳ Exporting…';
             try {
-                const blob = await convertJobToAudio(job.id, merge, formats, center, mp4Video);
+                const blob = await convertJobToAudio(job.id, merge, formats, center, mp4Video, embedSubtitles, includeAudio, coverArtFile);
                 const stem = (job.book_title || job.original_filename || 'output').replace(/\.epub$/i, '');
-                const zipName = `${stem}_audio_subtitles.zip`;
+                const zipName = `${stem}_audiobook_subtitles.zip`;
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -470,12 +537,12 @@ export function renderCompletedJobs(completedJobs) {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                showToast('🎵 Audio + Subtitles exported successfully!', 'success');
+                showToast('🎵 Audiobook + Subtitles exported successfully!', 'success');
             } catch (err) {
-                showToast('Conversion failed: ' + err.message, 'error');
+                showToast('Export failed: ' + err.message, 'error');
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '🎵 Convert to Audio with Synced Subtitles';
+                btn.innerHTML = '🎵 Export Audiobook &amp; Subtitles';
             }
         });
 

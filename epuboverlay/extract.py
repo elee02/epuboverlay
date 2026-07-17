@@ -223,6 +223,200 @@ def _normalize_zip_path(base_dir: Path, href: str) -> str:
     return normalized
 
 
+def _get_audio_duration(path: Path) -> float:
+    """Get duration of audio file in seconds using ffprobe."""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path)
+        ]
+        result = subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        return float(result.stdout.decode().strip())
+    except Exception:
+        return 0.0
+
+
+def _escape_metadata(val: str) -> str:
+    """Escape FFmpeg metadata special characters."""
+    return val.replace('\\', '\\\\').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#').replace('\n', '\\\n')
+
+
+def _extract_epub_cover(epub_path: Path, output_image_path: Path) -> bool:
+    """Attempt to find and extract the cover art image from the EPUB file.
+
+    Returns True if successful, False otherwise.
+    """
+    try:
+        with zipfile.ZipFile(epub_path, "r") as zf:
+            container_xml = zf.read("META-INF/container.xml")
+            container_root = ET.fromstring(container_xml)
+            rootfile = container_root.find(".//{*}rootfile")
+            if rootfile is None:
+                return False
+            opf_path = rootfile.attrib.get("full-path", "")
+            if not opf_path:
+                return False
+            
+            opf_content = zf.read(opf_path)
+            opf_root = ET.fromstring(opf_content)
+            opf_dir = Path(opf_path).parent
+
+            # 1. Look for item with property="cover-image"
+            cover_href = ""
+            for item in opf_root.findall(".//{*}manifest/{*}item"):
+                properties = item.attrib.get("properties", "")
+                if "cover-image" in properties:
+                    cover_href = item.attrib.get("href", "")
+                    break
+
+            # 2. Look for legacy meta cover tag
+            if not cover_href:
+                for meta in opf_root.findall(".//{*}metadata/{*}meta"):
+                    if meta.attrib.get("name") == "cover":
+                        cover_id = meta.attrib.get("content")
+                        if cover_id:
+                            # find item with this id
+                            for item in opf_root.findall(".//{*}manifest/{*}item"):
+                                if item.attrib.get("id") == cover_id:
+                                    cover_href = item.attrib.get("href", "")
+                                    break
+                            if cover_href:
+                                break
+
+            # 3. Fallback: search for item with id containing "cover"
+            if not cover_href:
+                for item in opf_root.findall(".//{*}manifest/{*}item"):
+                    item_id = item.attrib.get("id", "").lower()
+                    if "cover" in item_id and item.attrib.get("media-type", "").startswith("image/"):
+                        cover_href = item.attrib.get("href", "")
+                        break
+
+            if cover_href:
+                cover_zip_path = _normalize_zip_path(opf_dir, cover_href)
+                img_data = zf.read(cover_zip_path)
+                output_image_path.write_bytes(img_data)
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _process_cover_art(img_path: Path, output_path: Path) -> Path:
+    """Ensures the cover image is a high-resolution 1400x1400 JPEG if PIL is available."""
+    try:
+        from PIL import Image
+        with Image.open(img_path) as img:
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            resized = img.resize((1400, 1400), Image.Resampling.LANCZOS)
+            resized.save(output_path, "JPEG", quality=90)
+            return output_path
+    except Exception:
+        if img_path != output_path:
+            shutil.copy2(img_path, output_path)
+        return output_path
+
+
+def _convert_to_m4b(
+    input_audio: Path,
+    output_path: Path,
+    metadata: dict[str, str],
+    chapters: list[ChapterOverlay] | None = None,
+    chapter_durations: list[float] | None = None,
+    cover_art: Path | None = None,
+) -> None:
+    """Convert input audio to a proper M4B audiobook file with metadata, chapters, and cover art."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as meta_file:
+        meta_file.write(";FFMETADATA1\n")
+        for k, v in metadata.items():
+            if v:
+                meta_file.write(f"{k}={_escape_metadata(v)}\n")
+        
+        if chapters and chapter_durations:
+            current_ms = 0
+            for idx, ch in enumerate(chapters):
+                if idx < len(chapter_durations):
+                    dur_ms = int(round(chapter_durations[idx] * 1000))
+                    meta_file.write("[CHAPTER]\n")
+                    meta_file.write("TIMEBASE=1/1000\n")
+                    meta_file.write(f"START={current_ms}\n")
+                    end_ms = current_ms + dur_ms
+                    meta_file.write(f"END={end_ms}\n")
+                    meta_file.write(f"title={_escape_metadata(ch.title)}\n")
+                    current_ms = end_ms
+        meta_file_path = Path(meta_file.name)
+
+    try:
+        is_aac = False
+        try:
+            probe_cmd = [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=codec_name",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(input_audio)
+            ]
+            codec = subprocess.run(probe_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.decode().strip()
+            if codec == "aac":
+                is_aac = True
+        except Exception:
+            pass
+
+        cmd = ["ffmpeg", "-y"]
+        cmd.extend(["-i", str(input_audio)])
+        
+        if cover_art and cover_art.exists():
+            cmd.extend(["-i", str(cover_art)])
+            
+        cmd.extend(["-i", str(meta_file_path)])
+        
+        if cover_art and cover_art.exists():
+            cmd.extend([
+                "-map", "0:a",
+                "-map", "1:v",
+                "-map_metadata", "2",
+            ])
+        else:
+            cmd.extend([
+                "-map", "0:a",
+                "-map_metadata", "1",
+            ])
+
+        if is_aac:
+            cmd.extend(["-c:a", "copy"])
+        else:
+            cmd.extend(["-c:a", "aac", "-b:a", "64k"])
+
+        if cover_art and cover_art.exists():
+            cmd.extend([
+                "-c:v", "mjpeg",
+                "-disposition:v:1", "attached_pic"
+            ])
+
+        cmd.extend(["-movflags", "+faststart"])
+        cmd.extend(["-f", "mp4"])
+        cmd.extend([str(output_path)])
+
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", errors="ignore")
+        raise RuntimeError(f"FFmpeg M4B generation failed: {stderr}") from e
+    finally:
+        meta_file_path.unlink(missing_ok=True)
+
+
 def format_timestamp(seconds: float, decimal_sep: str = ",") -> str:
     """Format seconds into HH:MM:SS[sep]mmm."""
     total_seconds = max(seconds, 0.0)
@@ -556,7 +750,10 @@ def epub_to_audio_subtitles(
     center: bool = False,
     progress_callback: Callable[[str], None] | None = None,
     mp4_video: bool = False,
-) -> list[tuple[Path, list[Path]]]:
+    include_audio: bool = True,
+    embed_subtitles: bool = False,
+    cover_art: str | Path | None = None,
+) -> list[tuple[Path | None, list[Path]]]:
     """Extract audio tracks and multiple subtitle formats from an EPUB3 with Media Overlays.
 
     Args:
@@ -567,6 +764,10 @@ def epub_to_audio_subtitles(
                  Defaults to ["ass"].
         center: If True, center alignment vertically and horizontally.
         progress_callback: Optional callback for status messages.
+        mp4_video: If True, convert the audio to MP4 video using a static black video.
+        include_audio: If True, extract/compile audiobook files.
+        embed_subtitles: If True and mp4_video is True, burn subtitles into the MP4 video.
+        cover_art: Optional path to custom cover art image.
 
     Returns:
         List of (audio_path, list_of_subtitle_paths) tuples.
@@ -574,6 +775,9 @@ def epub_to_audio_subtitles(
     epub_path = Path(epub_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if mp4_video and not include_audio:
+        raise ValueError("Cannot convert to MP4 video without including the audio.")
 
     if not formats:
         formats = ["ass"]
@@ -596,8 +800,10 @@ def epub_to_audio_subtitles(
 
     _log(f"Found {len(chapters)} chapters with media overlays")
 
-    # Extract book title from EPUB metadata
+    # Extract book title, author, and ASIN/identifier from EPUB metadata
     book_title = epub_path.stem
+    author = "Unknown"
+    asin = ""
     try:
         with zipfile.ZipFile(epub_path, "r") as zf:
             container_xml = zf.read("META-INF/container.xml")
@@ -610,26 +816,26 @@ def epub_to_audio_subtitles(
                     title_el = opf_root.find(".//{*}title")
                     if title_el is not None and title_el.text:
                         book_title = title_el.text.strip()
+                    creator_el = opf_root.find(".//{*}creator")
+                    if creator_el is not None and creator_el.text:
+                        author = creator_el.text.strip()
+                    for id_el in opf_root.findall(".//{*}identifier"):
+                        if id_el.text:
+                            asin = id_el.text.strip()
+                            break
     except Exception:
         pass
 
     if not merge:
-        chapter_outputs: list[tuple[Path, list[Path]]] = []
+        chapter_outputs: list[tuple[Path | None, list[Path]]] = []
         with zipfile.ZipFile(epub_path, "r") as zf:
             for idx, chapter in enumerate(chapters):
                 _log(f"Extracting chapter {idx + 1}/{len(chapters)}: {chapter.idref}")
 
                 chapter_name = _sanitize_filename(f"{idx + 1:02d}_{chapter.idref}")
-                audio_ext = Path(chapter.audio_href).suffix or ".mp3"
-                audio_out = output_dir / f"{chapter_name}{audio_ext}"
-                try:
-                    audio_data = zf.read(chapter.audio_href)
-                    audio_out.write_bytes(audio_data)
-                except KeyError:
-                    _log(f"  Warning: audio file not found in EPUB: {chapter.audio_href}")
-                    continue
-
+                
                 sub_paths: list[Path] = []
+                sub_for_embedding = None
                 for fmt in formats:
                     sub_out = output_dir / f"{chapter_name}.{fmt}"
                     if fmt == "ass":
@@ -653,32 +859,113 @@ def epub_to_audio_subtitles(
                     
                     sub_out.write_text(content, encoding="utf-8")
                     sub_paths.append(sub_out)
+                    if fmt == "ass":
+                        sub_for_embedding = sub_out
+                    elif fmt == "srt" and not sub_for_embedding:
+                        sub_for_embedding = sub_out
 
-                if mp4_video:
-                    mp4_out = audio_out.with_suffix(".mp4")
-                    _log(f"  Converting {audio_out.name} to video...")
-                    _audio_to_mp4_video(audio_out, mp4_out)
-                    audio_out.unlink(missing_ok=True)
-                    audio_out = mp4_out
+                audio_out = None
+                if include_audio:
+                    audio_ext = Path(chapter.audio_href).suffix or ".mp3"
+                    temp_audio_out = output_dir / f"temp_{chapter_name}{audio_ext}"
+                    try:
+                        audio_data = zf.read(chapter.audio_href)
+                        temp_audio_out.write_bytes(audio_data)
+                    except KeyError:
+                        _log(f"  Warning: audio file not found in EPUB: {chapter.audio_href}")
+                        continue
+
+                    m4b_out = output_dir / f"{chapter_name}.m4b"
+                    
+                    # Resolve cover art
+                    temp_cover = None
+                    if cover_art and Path(cover_art).exists():
+                        temp_cover = Path(cover_art)
+                    else:
+                        extracted_cover_path = output_dir / f"extracted_cover_{idx}.jpg"
+                        if _extract_epub_cover(epub_path, extracted_cover_path):
+                            temp_cover = extracted_cover_path
+                    
+                    processed_cover = None
+                    if temp_cover:
+                        processed_cover = output_dir / f"cover_{idx}_processed.jpg"
+                        processed_cover = _process_cover_art(temp_cover, processed_cover)
+
+                    chapter_metadata = {
+                        "title": chapter.title,
+                        "artist": author,
+                        "album": book_title,
+                        "genre": "Audiobook",
+                        "comment": "Bookmarking enabled",
+                    }
+                    if asin:
+                        chapter_metadata["asin"] = asin
+
+                    duration = _get_audio_duration(temp_audio_out)
+                    if duration == 0.0 and chapter.timings:
+                        duration = chapter.timings[-1][2]
+
+                    _log(f"  Compiling {chapter_name}.m4b...")
+                    _convert_to_m4b(
+                        input_audio=temp_audio_out,
+                        output_path=m4b_out,
+                        metadata=chapter_metadata,
+                        chapters=[chapter],
+                        chapter_durations=[duration],
+                        cover_art=processed_cover
+                    )
+
+                    # Cleanup
+                    temp_audio_out.unlink(missing_ok=True)
+                    if processed_cover:
+                        processed_cover.unlink(missing_ok=True)
+                    if temp_cover and temp_cover.name.startswith("extracted_cover_"):
+                        temp_cover.unlink(missing_ok=True)
+
+                    audio_out = m4b_out
+
+                    if mp4_video:
+                        mp4_out = audio_out.with_suffix(".mp4")
+                        _log(f"  Converting {audio_out.name} to video...")
+                        
+                        burn_sub_path = None
+                        temp_burn_sub = None
+                        if embed_subtitles:
+                            if sub_for_embedding:
+                                burn_sub_path = sub_for_embedding
+                            else:
+                                ass_content = build_ass_from_chapter(chapter, book_title=book_title, center=center)
+                                temp_burn_sub = tempfile.NamedTemporaryFile(suffix=".ass", delete=False, mode="w", encoding="utf-8")
+                                temp_burn_sub.write(ass_content)
+                                temp_burn_sub.close()
+                                burn_sub_path = Path(temp_burn_sub.name)
+
+                        _audio_to_mp4_video(audio_out, mp4_out, subtitle_path=burn_sub_path)
+                        
+                        if temp_burn_sub:
+                            Path(temp_burn_sub.name).unlink(missing_ok=True)
+                        audio_out.unlink(missing_ok=True)
+                        audio_out = mp4_out
 
                 chapter_outputs.append((audio_out, sub_paths))
                 sub_names = ", ".join(p.name for p in sub_paths)
-                _log(f"  ✓ {audio_out.name} + [{sub_names}]")
+                audio_name = audio_out.name if audio_out else "No audio"
+                _log(f"  ✓ {audio_name} + [{sub_names}]")
 
         if not chapter_outputs:
-            raise ValueError("No audio files could be extracted from the EPUB.")
+            raise ValueError("No files could be extracted from the EPUB.")
 
         _log(f"Done! Extracted {len(chapter_outputs)} chapter(s) to {output_dir}")
         return chapter_outputs
 
     # Merged mode
-    _log("Merging all chapters into a single audio+subtitle set...")
+    _log("Merging all chapters...")
     audio_ext = Path(chapters[0].audio_href).suffix or ".mp3"
     merged_name = _sanitize_filename(book_title)
-    merged_audio = output_dir / f"{merged_name}{audio_ext}"
+    merged_m4b = output_dir / f"{merged_name}.m4b"
 
-    # Extract temporary per-chapter audio files for merge
     temp_audio_paths: list[Path] = []
+    chapter_durations: list[float] = []
     with zipfile.ZipFile(epub_path, "r") as zf:
         for idx, chapter in enumerate(chapters):
             chapter_name = _sanitize_filename(f"temp_{idx + 1:02d}_{chapter.idref}")
@@ -687,6 +974,11 @@ def epub_to_audio_subtitles(
                 audio_data = zf.read(chapter.audio_href)
                 audio_out.write_bytes(audio_data)
                 temp_audio_paths.append(audio_out)
+                
+                dur = _get_audio_duration(audio_out)
+                if dur == 0.0 and chapter.timings:
+                    dur = chapter.timings[-1][2]
+                chapter_durations.append(dur)
             except KeyError:
                 _log(f"  Warning: audio file not found in EPUB: {chapter.audio_href}")
                 continue
@@ -694,12 +986,58 @@ def epub_to_audio_subtitles(
     if not temp_audio_paths:
         raise ValueError("No audio files could be extracted for merging.")
 
-    # Concatenate audio files using ffmpeg
-    _merge_audio_files(temp_audio_paths, merged_audio)
+    if include_audio:
+        temp_merged_audio = output_dir / f"temp_merged_{merged_name}{audio_ext}"
+        _merge_audio_files(temp_audio_paths, temp_merged_audio)
+        
+        _log("Converting merged audio to M4B audiobook...")
+        temp_cover = None
+        if cover_art and Path(cover_art).exists():
+            temp_cover = Path(cover_art)
+        else:
+            extracted_cover_path = output_dir / "extracted_cover_merged.jpg"
+            if _extract_epub_cover(epub_path, extracted_cover_path):
+                temp_cover = extracted_cover_path
+        
+        processed_cover = None
+        if temp_cover:
+            processed_cover = output_dir / "cover_merged_processed.jpg"
+            processed_cover = _process_cover_art(temp_cover, processed_cover)
+
+        merged_metadata = {
+            "title": book_title,
+            "artist": author,
+            "album": book_title,
+            "genre": "Audiobook",
+            "comment": "Bookmarking enabled",
+        }
+        if asin:
+            merged_metadata["asin"] = asin
+
+        _convert_to_m4b(
+            input_audio=temp_merged_audio,
+            output_path=merged_m4b,
+            metadata=merged_metadata,
+            chapters=chapters,
+            chapter_durations=chapter_durations,
+            cover_art=processed_cover
+        )
+        
+        temp_merged_audio.unlink(missing_ok=True)
+        if processed_cover:
+            processed_cover.unlink(missing_ok=True)
+        if temp_cover and temp_cover.name.startswith("extracted_cover_"):
+            temp_cover.unlink(missing_ok=True)
+        
+        final_audio = merged_m4b
+    else:
+        final_audio = None
+
     for path in temp_audio_paths:
         path.unlink(missing_ok=True)
 
     merged_subs: list[Path] = []
+    sub_for_embedding = None
     for fmt in formats:
         sub_out = output_dir / f"{merged_name}.{fmt}"
         
@@ -754,17 +1092,38 @@ def epub_to_audio_subtitles(
 
         sub_out.write_text(content, encoding="utf-8")
         merged_subs.append(sub_out)
+        if fmt == "ass":
+            sub_for_embedding = sub_out
+        elif fmt == "srt" and not sub_for_embedding:
+            sub_for_embedding = sub_out
 
-    if mp4_video:
-        mp4_out = merged_audio.with_suffix(".mp4")
-        _log(f"Converting merged audio {merged_audio.name} to video...")
-        _audio_to_mp4_video(merged_audio, mp4_out)
-        merged_audio.unlink(missing_ok=True)
-        merged_audio = mp4_out
+    if mp4_video and final_audio:
+        mp4_out = final_audio.with_suffix(".mp4")
+        _log(f"Converting merged audio {final_audio.name} to video...")
+        
+        burn_sub_path = None
+        temp_burn_sub = None
+        if embed_subtitles:
+            if sub_for_embedding:
+                burn_sub_path = sub_for_embedding
+            else:
+                ass_content = build_ass_merged(chapters, book_title=book_title, center=center)
+                temp_burn_sub = tempfile.NamedTemporaryFile(suffix=".ass", delete=False, mode="w", encoding="utf-8")
+                temp_burn_sub.write(ass_content)
+                temp_burn_sub.close()
+                burn_sub_path = Path(temp_burn_sub.name)
+
+        _audio_to_mp4_video(final_audio, mp4_out, subtitle_path=burn_sub_path)
+        
+        if temp_burn_sub:
+            Path(temp_burn_sub.name).unlink(missing_ok=True)
+        final_audio.unlink(missing_ok=True)
+        final_audio = mp4_out
 
     sub_names = ", ".join(p.name for p in merged_subs)
-    _log(f"Done! Merged output: {merged_audio.name} + [{sub_names}]")
-    return [(merged_audio, merged_subs)]
+    audio_name = final_audio.name if final_audio else "No audio"
+    _log(f"Done! Merged output: {audio_name} + [{sub_names}]")
+    return [(final_audio, merged_subs)]
 
 
 def epub_to_mp3_lrc(
@@ -772,7 +1131,7 @@ def epub_to_mp3_lrc(
     output_dir: str | Path,
     merge: bool = False,
     progress_callback: Callable[[str], None] | None = None,
-) -> list[tuple[Path, Path]]:
+) -> list[tuple[Path | None, Path]]:
     """Backward compatibility wrapper mapping to epub_to_audio_subtitles."""
     results = epub_to_audio_subtitles(
         epub_path=epub_path,
@@ -792,12 +1151,10 @@ def _merge_audio_files(audio_paths: list[Path], output_path: Path) -> None:
         shutil.copy2(audio_paths[0], output_path)
         return
 
-    # Create a concat list file for ffmpeg
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".txt", delete=False, encoding="utf-8"
     ) as list_file:
         for audio in audio_paths:
-            # Escape single quotes in paths for ffmpeg
             escaped = str(audio.resolve()).replace("'", "'\\''")
             list_file.write(f"file '{escaped}'\n")
         list_file_path = list_file.name
@@ -824,21 +1181,31 @@ def _merge_audio_files(audio_paths: list[Path], output_path: Path) -> None:
         os.unlink(list_file_path)
 
 
-def _audio_to_mp4_video(audio_path: Path, output_path: Path) -> None:
+def _audio_to_mp4_video(audio_path: Path, output_path: Path, subtitle_path: Path | None = None) -> None:
     """Convert an audio file to an MP4 video with a static black screen using ffmpeg."""
     try:
         cmd = [
             "ffmpeg", "-y",
             "-f", "lavfi",
-            "-i", "color=c=black:s=640x360:r=1",
+            "-i", "color=c=black:s=640x360:r=10",
             "-i", str(audio_path),
-            "-c:v", "libx264",
+        ]
+        if subtitle_path:
+            escaped_sub_path = str(subtitle_path.resolve()).replace(":", "\\:").replace("\\", "/")
+            cmd.extend(["-vf", f"subtitles='{escaped_sub_path}'"])
+        cmd.extend([
+            "-map", "0:v",
+            "-map", "1:a",
+            "-map", "1:v?",
+            "-c:v:0", "libx264",
             "-tune", "stillimage",
             "-pix_fmt", "yuv420p",
             "-c:a", "copy",
+            "-c:v:1", "copy",
+            "-disposition:v:1", "attached_pic",
             "-shortest",
             str(output_path),
-        ]
+        ])
         subprocess.run(
             cmd,
             check=True,

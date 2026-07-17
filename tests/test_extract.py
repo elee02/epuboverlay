@@ -562,6 +562,56 @@ class ExtractTests(unittest.TestCase):
             self.assertEqual(len(subtitles), 1)
             self.assertTrue(subtitles[0].exists())
 
+    def test_extract_epub_cover_missing(self) -> None:
+        """Test extract_epub_cover on a book with no cover."""
+        from epuboverlay.extract import _extract_epub_cover
+        with tempfile.TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "test.epub"
+            self._make_test_epub_with_overlays(epub_path)
+            
+            cover_out = Path(tmpdir) / "cover.jpg"
+            success = _extract_epub_cover(epub_path, cover_out)
+            self.assertFalse(success)
+            self.assertFalse(cover_out.exists())
+
+    def test_escape_metadata(self) -> None:
+        """Test metadata escaping rules."""
+        from epuboverlay.extract import _escape_metadata
+        self.assertEqual(_escape_metadata("hello; world\nnew=line"), "hello\\; world\\\nnew\\=line")
+
+    def test_process_cover_art(self) -> None:
+        """Test processing/resizing of cover art."""
+        from epuboverlay.extract import _process_cover_art
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dummy_file = Path(tmpdir) / "dummy.png"
+            dummy_file.write_bytes(b"dummy image bytes")
+            out_file = Path(tmpdir) / "processed.jpg"
+            
+            result_path = _process_cover_art(dummy_file, out_file)
+            self.assertTrue(result_path.exists())
+            self.assertEqual(result_path.read_bytes(), b"dummy image bytes")
+
+    def test_epub_to_audio_subtitles_no_audio(self) -> None:
+        """Test epub_to_audio_subtitles with include_audio=False."""
+        from epuboverlay.extract import epub_to_audio_subtitles
+        with tempfile.TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "test.epub"
+            output_dir = Path(tmpdir) / "output"
+            self._make_test_epub_with_overlays(epub_path)
+            
+            results = epub_to_audio_subtitles(
+                epub_path=epub_path,
+                output_dir=output_dir,
+                merge=False,
+                formats=["lrc"],
+                include_audio=False,
+            )
+            self.assertEqual(len(results), 2)
+            self.assertIsNone(results[0][0])
+            self.assertIsNone(results[1][0])
+            self.assertTrue(results[0][1][0].exists())
+            self.assertTrue(results[1][1][0].exists())
+
 
 class StreamingWavTests(unittest.TestCase):
     """Test the new disk-streaming WAV helper functions."""

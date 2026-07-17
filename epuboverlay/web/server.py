@@ -487,10 +487,13 @@ async def delete_job(job_id: str):
 @app.post("/api/jobs/{job_id}/convert-audio")
 async def convert_job_to_audio(
     job_id: str,
-    merge: bool = Form(False),
+    merge: bool = Form(True),
     formats: str = Form("ass"),
-    center: bool = Form(False),
+    center: bool = Form(True),
     mp4_video: bool = Form(False),
+    embed_subtitles: bool = Form(False),
+    include_audio: bool = Form(True),
+    cover_art: UploadFile | None = File(None),
 ):
     """Convert a completed job's output EPUB to Audio + Subtitles (ZIP download).
 
@@ -507,8 +510,17 @@ async def convert_job_to_audio(
         raise HTTPException(status_code=404, detail="Output EPUB file not found.")
 
     output_dir = Path(tempfile.mkdtemp(prefix="epuboverlay_convert_"))
+    tmp_cover_path = None
 
     try:
+        # Save cover art if provided
+        if cover_art and cover_art.filename:
+            tmp_cover = tempfile.NamedTemporaryFile(delete=False, suffix=Path(cover_art.filename).suffix)
+            cover_content = await cover_art.read()
+            tmp_cover.write(cover_content)
+            tmp_cover.close()
+            tmp_cover_path = Path(tmp_cover.name)
+
         formats_list = [f.strip() for f in formats.split(",") if f.strip()]
         results = epub_to_audio_subtitles(
             epub_path=job.output_epub_path,
@@ -517,12 +529,15 @@ async def convert_job_to_audio(
             formats=formats_list,
             center=center,
             mp4_video=mp4_video,
+            include_audio=include_audio,
+            embed_subtitles=embed_subtitles,
+            cover_art=tmp_cover_path,
         )
 
         if not results:
             raise HTTPException(
                 status_code=400,
-                detail="No audio overlays found in the output EPUB.",
+                detail="No files could be extracted from the output EPUB.",
             )
 
         stem = Path(job.original_filename or "output").stem
@@ -530,7 +545,8 @@ async def convert_job_to_audio(
         zip_path = output_dir / f"{zip_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zout:
             for audio, subtitles in results:
-                zout.write(audio, audio.name)
+                if audio:
+                    zout.write(audio, audio.name)
                 for sub in subtitles:
                     zout.write(sub, sub.name)
 
@@ -538,12 +554,19 @@ async def convert_job_to_audio(
             path=str(zip_path),
             filename=f"{zip_name}.zip",
             media_type="application/zip",
+            background=None,
         )
 
-    except (ValueError, HTTPException):
-        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_cover_path:
+            try:
+                tmp_cover_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 @app.delete("/api/cache")
@@ -643,10 +666,13 @@ async def get_chapters(epub: UploadFile = File(...)):
 @app.post("/api/extract")
 async def extract_audio_lrc(
     epub: UploadFile = File(...),
-    merge: bool = Form(False),
+    merge: bool = Form(True),
     formats: str = Form("ass"),
-    center: bool = Form(False),
+    center: bool = Form(True),
     mp4_video: bool = Form(False),
+    embed_subtitles: bool = Form(False),
+    include_audio: bool = Form(True),
+    cover_art: UploadFile | None = File(None),
 ):
     """Extract Audio + Subtitle files from an EPUB3 with Media Overlays.
 
@@ -660,10 +686,19 @@ async def extract_audio_lrc(
     tmp_epub.write(content)
     tmp_epub.close()
 
+    tmp_cover_path = None
     # Create temp output directory
     output_dir = Path(tempfile.mkdtemp(prefix="epuboverlay_extract_"))
 
     try:
+        # Save cover art if provided
+        if cover_art and cover_art.filename:
+            tmp_cover = tempfile.NamedTemporaryFile(delete=False, suffix=Path(cover_art.filename).suffix)
+            cover_content = await cover_art.read()
+            tmp_cover.write(cover_content)
+            tmp_cover.close()
+            tmp_cover_path = Path(tmp_cover.name)
+
         formats_list = [f.strip() for f in formats.split(",") if f.strip()]
         results = epub_to_audio_subtitles(
             epub_path=Path(tmp_epub.name),
@@ -672,12 +707,15 @@ async def extract_audio_lrc(
             formats=formats_list,
             center=center,
             mp4_video=mp4_video,
+            include_audio=include_audio,
+            embed_subtitles=embed_subtitles,
+            cover_art=tmp_cover_path,
         )
 
         if not results:
             raise HTTPException(
                 status_code=400,
-                detail="No audio overlays found in the EPUB.",
+                detail="No files could be extracted from the EPUB.",
             )
 
         # Package results into a ZIP
@@ -685,7 +723,8 @@ async def extract_audio_lrc(
         zip_path = output_dir / f"{zip_name}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zout:
             for audio, subtitles in results:
-                zout.write(audio, audio.name)
+                if audio:
+                    zout.write(audio, audio.name)
                 for sub in subtitles:
                     zout.write(sub, sub.name)
 
@@ -701,11 +740,16 @@ async def extract_audio_lrc(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Clean up temp epub
+        # Clean up temp epub and cover
         try:
             Path(tmp_epub.name).unlink(missing_ok=True)
         except Exception:
             pass
+        if tmp_cover_path:
+            try:
+                tmp_cover_path.unlink(missing_ok=True)
+            except Exception:
+                pass
         # Note: output_dir cleanup is deferred — FileResponse needs the file.
         # FastAPI/Starlette will handle response completion.
 

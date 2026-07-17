@@ -25,6 +25,13 @@ const extractSubmitBtn = document.getElementById('extract-submit-btn');
 const extractEpubFile = document.getElementById('extract-epub-file');
 const extractEpubUploadZone = document.getElementById('extract-epub-upload-zone');
 const extractEpubFileName = document.getElementById('extract-epub-file-name');
+const extractCoverFile = document.getElementById('extract-cover-file');
+const extractCoverUploadZone = document.getElementById('extract-cover-upload-zone');
+const extractCoverFileName = document.getElementById('extract-cover-file-name');
+const extractAudioCheckbox = document.getElementById('extract-audio-checkbox');
+const extractMp4Checkbox = document.getElementById('extract-mp4-checkbox');
+const extractEmbedSubsCheckbox = document.getElementById('extract-embed-subs-checkbox');
+const extractEmbedSubsGroup = document.getElementById('extract-embed-subs-group');
 const extractStatus = document.getElementById('extract-status');
 const extractStatusTitle = document.getElementById('extract-status-title');
 const extractStatusBadge = document.getElementById('extract-status-badge');
@@ -175,6 +182,7 @@ function setupFileUploads() {
     setupDropZone(epubUploadZone, epubFile, epubFileName);
     setupDropZone(refAudioUploadZone, refAudioFile, refAudioFileName);
     setupDropZone(extractEpubUploadZone, extractEpubFile, extractEpubFileName);
+    setupDropZone(extractCoverUploadZone, extractCoverFile, extractCoverFileName);
 
     // PocketTTS clone upload zone in the form
     const pocketZone = document.getElementById('pocket-ref-audio-upload-zone');
@@ -461,6 +469,35 @@ function setupForm() {
 // ── Extraction Form Submission ──────────────────────────────────────────────
 
 function setupExtractForm() {
+    function updateCheckboxDependencies() {
+        const audioChecked = extractAudioCheckbox.checked;
+        const mp4Checked = extractMp4Checkbox.checked;
+        const mp4Label = extractMp4Checkbox.closest('label');
+        
+        if (audioChecked) {
+            extractMp4Checkbox.disabled = false;
+            if (mp4Label) mp4Label.style.opacity = '1';
+            
+            extractEmbedSubsCheckbox.disabled = !mp4Checked;
+            extractEmbedSubsGroup.style.opacity = mp4Checked ? '1' : '0.5';
+            if (!mp4Checked) extractEmbedSubsCheckbox.checked = false;
+        } else {
+            extractMp4Checkbox.disabled = true;
+            extractMp4Checkbox.checked = false;
+            if (mp4Label) mp4Label.style.opacity = '0.5';
+            
+            extractEmbedSubsCheckbox.disabled = true;
+            extractEmbedSubsCheckbox.checked = false;
+            extractEmbedSubsGroup.style.opacity = '0.5';
+        }
+    }
+
+    if (extractAudioCheckbox && extractMp4Checkbox) {
+        extractAudioCheckbox.addEventListener('change', updateCheckboxDependencies);
+        extractMp4Checkbox.addEventListener('change', updateCheckboxDependencies);
+        updateCheckboxDependencies();
+    }
+
     extractForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
@@ -470,10 +507,10 @@ function setupExtractForm() {
         }
 
         extractSubmitBtn.disabled = true;
-        extractSubmitBtn.innerHTML = '<span class="spinner"></span> Extracting...';
+        extractSubmitBtn.innerHTML = '<span class="spinner"></span> Exporting...';
 
         extractStatus.style.display = 'block';
-        extractStatusTitle.textContent = 'Extracting Audio + Subtitles...';
+        extractStatusTitle.textContent = 'Exporting Audiobook + Subtitles...';
         extractStatusBadge.className = 'phase-badge synthesizing';
         extractStatusBadge.querySelector('.phase-text').textContent = 'Processing';
         extractStatusMessage.textContent = 'Uploading and processing EPUB file...';
@@ -487,10 +524,10 @@ function setupExtractForm() {
             }
         });
 
-        if (formats.length === 0) {
-            showToast('Please select at least one subtitle format to extract.', 'error');
+        if (formats.length === 0 && !extractAudioCheckbox.checked) {
+            showToast('Please select at least one format (Audiobook or a subtitle format) to export.', 'error');
             extractSubmitBtn.disabled = false;
-            extractSubmitBtn.innerHTML = '📤 Extract Audio + Subtitles';
+            extractSubmitBtn.innerHTML = '📤 Export Audiobook + Subtitles';
             extractStatus.style.display = 'none';
             return;
         }
@@ -500,7 +537,13 @@ function setupExtractForm() {
         formData.append('merge', document.getElementById('extract-merge-checkbox').checked);
         formData.append('formats', formats.join(','));
         formData.append('center', document.getElementById('extract-center-checkbox').checked ? 'true' : 'false');
-        formData.append('mp4_video', document.getElementById('extract-mp4-checkbox').checked ? 'true' : 'false');
+        formData.append('mp4_video', extractMp4Checkbox.checked ? 'true' : 'false');
+        formData.append('embed_subtitles', extractEmbedSubsCheckbox.checked ? 'true' : 'false');
+        formData.append('include_audio', extractAudioCheckbox.checked ? 'true' : 'false');
+        
+        if (extractCoverFile && extractCoverFile.files.length > 0) {
+            formData.append('cover_art', extractCoverFile.files[0]);
+        }
 
         try {
             const resp = await fetch('/api/extract', {
@@ -515,7 +558,7 @@ function setupExtractForm() {
 
             const blob = await resp.blob();
             const url = URL.createObjectURL(blob);
-            const filename = extractEpubFile.files[0].name.replace('.epub', '') + '_audio_subtitles.zip';
+            const filename = extractEpubFile.files[0].name.replace('.epub', '') + '_audiobook_subtitles.zip';
 
             const a = document.createElement('a');
             a.href = url;
@@ -525,24 +568,26 @@ function setupExtractForm() {
             a.remove();
             URL.revokeObjectURL(url);
 
-            extractStatusTitle.textContent = 'Extraction Complete!';
+            extractStatusTitle.textContent = 'Export Complete!';
             extractStatusBadge.className = 'phase-badge done';
             extractStatusBadge.innerHTML = '<span class="phase-text">Done</span>';
             extractStatusMessage.textContent = `✓ Downloaded ${filename}`;
 
-            showToast('Audio + Subtitles extracted successfully!', 'success');
+            showToast('Audiobook + Subtitles exported successfully!', 'success');
             extractForm.reset();
             extractEpubFileName.style.display = 'none';
+            if (extractCoverFileName) extractCoverFileName.style.display = 'none';
+            updateCheckboxDependencies();
 
         } catch (err) {
-            extractStatusTitle.textContent = 'Extraction Failed';
+            extractStatusTitle.textContent = 'Export Failed';
             extractStatusBadge.className = 'phase-badge error';
             extractStatusBadge.innerHTML = '<span class="phase-text">Error</span>';
             extractStatusMessage.textContent = `✗ ${err.message}`;
             showToast(err.message, 'error');
         } finally {
             extractSubmitBtn.disabled = false;
-            extractSubmitBtn.innerHTML = '📤 Extract Audio + Subtitles';
+            extractSubmitBtn.innerHTML = '📤 Export Audiobook + Subtitles';
         }
     });
 }

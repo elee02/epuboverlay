@@ -141,7 +141,7 @@ export async function deleteProfile(name) {
     return await resp.json();
 }
 
-export async function convertJobToAudio(jobId, merge, formats, center, mp4Video) {
+export async function convertJobToAudio(jobId, merge, formats, center, mp4Video, embedSubtitles, includeAudio, coverArtFile) {
     const formData = new FormData();
     formData.append('merge', merge ? 'true' : 'false');
     if (formats && formats.length > 0) {
@@ -149,6 +149,11 @@ export async function convertJobToAudio(jobId, merge, formats, center, mp4Video)
     }
     formData.append('center', center ? 'true' : 'false');
     formData.append('mp4_video', mp4Video ? 'true' : 'false');
+    formData.append('embed_subtitles', embedSubtitles ? 'true' : 'false');
+    formData.append('include_audio', includeAudio ? 'true' : 'false');
+    if (coverArtFile) {
+        formData.append('cover_art', coverArtFile);
+    }
     const resp = await fetch(`/api/jobs/${jobId}/convert-audio`, {
         method: 'POST',
         body: formData

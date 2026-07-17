@@ -117,6 +117,7 @@ def _cmd_extract(parsed: argparse.Namespace) -> int:
 
     epub_path = parsed.epub.expanduser()
     output_dir = parsed.output.expanduser()
+    cover_art_path = parsed.cover_art.expanduser() if parsed.cover_art else None
 
     print(f"Extracting Audio + Subtitles from: {epub_path}")
     print(f"Output directory: {output_dir}")
@@ -142,11 +143,15 @@ def _cmd_extract(parsed: argparse.Namespace) -> int:
             center=parsed.center,
             progress_callback=progress_cb,
             mp4_video=parsed.mp4_video,
+            include_audio=not parsed.no_audio,
+            embed_subtitles=parsed.embed_subtitles,
+            cover_art=cover_art_path,
         )
         print(f"\n✓ Extracted {len(results)} set(s):")
         for audio, subtitles in results:
             sub_names = ", ".join(s.name for s in subtitles)
-            print(f"  • {audio.name}  +  [{sub_names}]")
+            audio_name = audio.name if audio else "No Audio"
+            print(f"  • {audio_name}  +  [{sub_names}]")
         return 0
     except Exception as e:
         import traceback
@@ -294,6 +299,23 @@ def main(args: list[str] | None = None) -> int:
         action="store_true",
         default=False,
         help="Convert to MP4 using an ultra-low-bitrate static black video."
+    )
+    ext_parser.add_argument(
+        "--no-audio",
+        action="store_true",
+        default=False,
+        help="Do not extract/generate audio files, only extract subtitles."
+    )
+    ext_parser.add_argument(
+        "--embed-subtitles",
+        action="store_true",
+        default=False,
+        help="Embed/burn subtitles into the MP4 video (only if --mp4-video is specified)."
+    )
+    ext_parser.add_argument(
+        "--cover-art",
+        type=Path,
+        help="Path to an optional cover art image to embed in the audiobook (.m4b)."
     )
 
     parsed = parser.parse_args(args)

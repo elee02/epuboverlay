@@ -41,7 +41,7 @@
                 </button>
                 <button class="nav-item" data-page="extract" id="nav-extract">
                     <span class="nav-item-icon">📤</span>
-                    <span class="nav-item-label">Extract Audio + Subtitles</span>
+                    <span class="nav-item-label">Export Audiobook</span>
                 </button>
                 <button class="nav-item" data-page="settings" id="nav-settings">
                     <span class="nav-item-icon">⚙️</span>
@@ -575,18 +575,18 @@
             <!-- ═══════════════════════════════════════ -->
             <div class="content-page" id="page-extract" style="display: none;">
                 <div class="page-heading">
-                    <h2>📤 Extract Audio + Subtitles</h2>
-                    <p>Extract audio and subtitle files from any EPUB 3 with Media Overlays.</p>
+                    <h2>📤 Export Audiobook + Subtitles</h2>
+                    <p>Extract synchronized audiobooks (.m4b) and subtitles from any EPUB 3 with Media Overlays.</p>
                 </div>
 
                 <div class="card" id="extract-card">
                     <p class="card-description">
-                        Upload an EPUB3 file with media overlays (audio narration) and extract Audio + Subtitle file sets (supports M4A, MP3, etc.) —
-                        ready for playback on media players or streaming.
+                        Upload an EPUB3 file with media overlays (audio narration) to compile it into a proper audiobook (.m4b) and matching subtitle files.
                     </p>
 
                     <form id="extract-form" enctype="multipart/form-data">
-                        <div class="form-group full-width" style="margin-bottom: 1rem;">
+                        <!-- EPUB Upload -->
+                        <div class="form-group full-width" style="margin-bottom: 1.25rem;">
                             <label>EPUB File (with Audio Overlays)</label>
                             <div class="file-upload-zone" id="extract-epub-upload-zone">
                                 <div class="upload-icon">📖</div>
@@ -598,64 +598,100 @@
                             </div>
                         </div>
 
-                        <div class="form-group" style="margin-bottom: 1rem;">
-                            <label style="margin-bottom: 0.5rem; display: block; font-weight: 500;">Subtitle Formats to Extract</label>
-                            <div style="display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center;">
-                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
-                                    <input type="checkbox" id="extract-fmt-ass" value="ass" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                                    <span>ASS (SubStation Alpha - Default)</span>
+                        <!-- Group 1: Subtitle Formats -->
+                        <div class="options-group-box">
+                            <div class="options-group-title">
+                                <span>📝</span> Subtitle Formats to Extract
+                            </div>
+                            <div class="options-group-content">
+                                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center;">
+                                    <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                        <input type="checkbox" id="extract-fmt-ass" value="ass" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                        <span>ASS (SubStation Alpha - Default)</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                        <input type="checkbox" id="extract-fmt-srt" value="srt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                        <span>SRT (SubRip)</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                        <input type="checkbox" id="extract-fmt-vtt" value="vtt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                        <span>WebVTT</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                        <input type="checkbox" id="extract-fmt-ttml" value="ttml" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                        <span>TTML (Broadcasting)</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                        <input type="checkbox" id="extract-fmt-sbv" value="sbv" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                        <span>SBV (YouTube)</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                        <input type="checkbox" id="extract-fmt-lrc" value="lrc" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                        <span>LRC (Lyrics)</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                        <input type="checkbox" id="extract-fmt-txt" value="txt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                        <span>TXT (Transcript)</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Group 2: Processing Options -->
+                        <div class="options-group-box">
+                            <div class="options-group-title">
+                                <span>⚙️</span> Processing Options
+                            </div>
+                            <div class="options-group-content">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-audio-checkbox" name="include_audio" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>Include Audiobook (.m4b)</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
-                                    <input type="checkbox" id="extract-fmt-srt" value="srt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                                    <span>SRT (SubRip)</span>
+
+                                <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-merge-checkbox" name="merge" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>Merge all chapters into a single Audio + Subtitles set</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
-                                    <input type="checkbox" id="extract-fmt-vtt" value="vtt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                                    <span>WebVTT</span>
+
+                                <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-center-checkbox" name="center" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>Center subtitles (horizontally &amp; vertically)</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
-                                    <input type="checkbox" id="extract-fmt-ttml" value="ttml" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                                    <span>TTML (Broadcasting)</span>
+
+                                <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
+                                    <input type="checkbox" id="extract-mp4-checkbox" name="mp4_video" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>Convert to MP4 using an ultra-low-bitrate static black video</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
-                                    <input type="checkbox" id="extract-fmt-sbv" value="sbv" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                                    <span>SBV (YouTube)</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
-                                    <input type="checkbox" id="extract-fmt-lrc" value="lrc" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                                    <span>LRC (Lyrics)</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
-                                    <input type="checkbox" id="extract-fmt-txt" value="txt" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                                    <span>TXT (Transcript)</span>
+
+                                <label id="extract-embed-subs-group" style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary); margin-left: 1.5rem; opacity: 0.5;">
+                                    <input type="checkbox" id="extract-embed-subs-checkbox" name="embed_subtitles" disabled style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
+                                    <span>Embed the Subtitles into the video</span>
                                 </label>
                             </div>
                         </div>
 
-                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
-                            <input type="checkbox" id="extract-merge-checkbox" name="merge" style="width: auto; margin: 0; cursor: pointer;">
-                            <label for="extract-merge-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">
-                                Merge all chapters into a single Audio + Subtitles set
-                            </label>
+                        <!-- Group 3: Cover Art Image -->
+                        <div class="options-group-box">
+                            <div class="options-group-title">
+                                <span>🖼️</span> Audiobook Cover Art
+                            </div>
+                            <div class="options-group-content">
+                                <div class="form-group full-width">
+                                    <label>Cover Art Image (Optional, will auto-extract from EPUB if not provided)</label>
+                                    <div class="file-upload-zone" id="extract-cover-upload-zone" style="padding: 0.8rem;">
+                                        <div class="upload-text" style="font-size: 0.8rem;">
+                                            <strong>Upload</strong> cover image (.jpg, .jpeg, .png)
+                                        </div>
+                                        <div class="file-name" id="extract-cover-file-name" style="display: none;"></div>
+                                        <input type="file" id="extract-cover-file" name="cover_art" accept=".jpg,.jpeg,.png">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
-                            <input type="checkbox" id="extract-center-checkbox" name="center" style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                            <label for="extract-center-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">
-                                Center subtitles (horizontally &amp; vertically)
-                            </label>
-                        </div>
-
-                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
-                            <input type="checkbox" id="extract-mp4-checkbox" name="mp4_video" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                            <label for="extract-mp4-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">
-                                Convert to MP4 using an ultra-low-bitrate static black video (Recommended)
-                            </label>
-                        </div>
- 
                         <div style="display: flex; justify-content: flex-end;">
                             <button type="submit" class="btn btn-primary" id="extract-submit-btn">
-                                📤 Extract Audio + Subtitles
+                                📤 Export Audiobook + Subtitles
                             </button>
                         </div>
                     </form>
