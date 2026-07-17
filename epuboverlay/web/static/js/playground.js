@@ -50,6 +50,8 @@ function getElements() {
         f5Panel:            document.getElementById('pg-f5-panel'),
         // Kokoro sub-elements
         voiceModeSelector:  document.getElementById('pg-voice-mode-selector'),
+        kokoroSinglePanel:  document.getElementById('pg-kokoro-single-panel'),
+        kokoroBlendPanel:   document.getElementById('pg-kokoro-blend-panel'),
         langSelect:         document.getElementById('pg-lang-code-select'),
         voiceSelect:        document.getElementById('pg-voice-select'),
         blendVisualizerBar: document.getElementById('pg-blend-visualizer-bar'),
