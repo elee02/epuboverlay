@@ -1622,3 +1622,194 @@ audio::-webkit-media-controls-panel {
     transition: var(--transition);
 }
 
+/* ── Settings Sub-tabs ── */
+.settings-tab-btn {
+    transition: var(--transition);
+}
+.settings-tab-btn:not(.active) {
+    color: var(--text-secondary);
+}
+.settings-tab-btn.active {
+    background: var(--accent-violet) !important;
+    color: #fff !important;
+}
+
+/* ── Live Microphone Recorder ── */
+.rec-dot {
+    transition: var(--transition);
+}
+.rec-dot.pulsing {
+    animation: rec-pulse 1.2s infinite ease-in-out;
+}
+@keyframes rec-pulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.3); opacity: 0.4; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Voice Library Grid Card ── */
+.voice-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    transition: var(--transition);
+}
+.voice-card:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+.voice-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.voice-card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.voice-card-actions {
+    display: flex;
+    gap: 0.4rem;
+}
+.voice-card-text {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    background: var(--bg-primary);
+    padding: 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    max-height: 80px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* ── Playground Stack Card ── */
+.pg-history-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    transition: var(--transition);
+}
+.pg-history-card:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+}
+.pg-history-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+}
+.pg-meta-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+.pg-meta-badge.kokoro {
+    background: rgba(139, 92, 246, 0.15);
+    color: var(--accent-violet);
+    border: 1px solid rgba(139, 92, 246, 0.25);
+}
+.pg-meta-badge.pocket-tts {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--accent-emerald);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.pg-meta-badge.f5-tts {
+    background: rgba(6, 182, 212, 0.15);
+    color: var(--accent-cyan);
+    border: 1px solid rgba(6, 182, 212, 0.25);
+}
+.pg-meta-badge.settings {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+}
+.pg-history-text {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.pg-history-player {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--bg-primary);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+}
+.pg-history-play-btn {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    transition: var(--transition);
+}
+.pg-history-play-btn:hover {
+    color: var(--accent-violet);
+}
+.pg-history-progress-container {
+    flex: 1;
+    height: 6px;
+    background: var(--border-subtle);
+    border-radius: 3px;
+    position: relative;
+    cursor: pointer;
+}
+.pg-history-progress-fill {
+    height: 100%;
+    background: var(--accent-violet);
+    border-radius: 3px;
+    width: 0%;
+}
+.pg-history-time {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: monospace;
+    min-width: 65px;
+    text-align: right;
+}
+.pg-history-dl-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    transition: var(--transition);
+}
+.pg-history-dl-btn:hover {
+    color: var(--accent-emerald);
+}
+.audio-source-switch button {
+    border: 1px solid var(--border-subtle);
+}
+.audio-source-switch button.active-source {
+    background: var(--accent-violet) !important;
+    color: #fff !important;
+    border-color: var(--accent-violet) !important;
+}
+
+

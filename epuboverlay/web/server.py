@@ -90,6 +90,8 @@ async def get_stats():
 
 
 SETTINGS_FILE = Path.home() / ".epuboverlay" / "settings.json"
+REFERENCES_DIR = Path.home() / ".epuboverlay" / "references"
+REFERENCES_METADATA_FILE = REFERENCES_DIR / "metadata.json"
 
 DEFAULT_SETTINGS = {
     "synthesizer": "f5-tts",
@@ -112,7 +114,7 @@ DEFAULT_SETTINGS = {
 
 def load_settings_data() -> dict:
     if not SETTINGS_FILE.exists():
-        return {"current_settings": DEFAULT_SETTINGS.copy(), "profiles": {}}
+        return {"current_settings": DEFAULT_SETTINGS.copy()}
     try:
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -122,16 +124,38 @@ def load_settings_data() -> dict:
                 for k, v in DEFAULT_SETTINGS.items():
                     if k not in data["current_settings"]:
                         data["current_settings"][k] = v
-            if "profiles" not in data:
-                data["profiles"] = {}
+            # Clean out profile keys
+            if "profiles" in data:
+                del data["profiles"]
             return data
     except Exception:
-        return {"current_settings": DEFAULT_SETTINGS.copy(), "profiles": {}}
+        return {"current_settings": DEFAULT_SETTINGS.copy()}
 
 def save_settings_data(data: dict) -> None:
+    # Filter profiles if somehow present
+    if "profiles" in data:
+        del data["profiles"]
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+def load_references() -> list[dict]:
+    if not REFERENCES_METADATA_FILE.exists():
+        return []
+    try:
+        with open(REFERENCES_METADATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_references(refs: list[dict]) -> None:
+    REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
+    with open(REFERENCES_METADATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(refs, f, indent=2, ensure_ascii=False)
+
+# Playground cache in RAM
+_PLAYGROUND_HISTORY: list[dict] = []
+
 
 
 @app.get("/api/config")
@@ -166,7 +190,7 @@ async def get_config():
 
 @app.get("/api/settings")
 async def get_settings():
-    """Get the current settings and profiles."""
+    """Get the current settings."""
     return load_settings_data()
 
 
@@ -181,32 +205,145 @@ async def save_settings(settings: dict = Body(...)):
     return {"status": "saved", "settings": data["current_settings"]}
 
 
-@app.post("/api/profiles")
-async def save_profile(profile_data: dict = Body(...)):
-    """Save a settings profile."""
-    name = profile_data.get("name", "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Profile name is required.")
+
+@app.get("/api/references")
+async def get_references():
+    """List all saved reference audio-text pairs."""
+    return load_references()
+
+
+@app.post("/api/references")
+async def create_reference(
+    name: str = Form(...),
+    text: str = Form(""),
+    audio: UploadFile = File(...),
+):
+    """Save a new reference audio-text pair."""
+    import time
+    ref_id = f"ref_{int(time.time() * 1000)}"
+    REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
     
-    settings = profile_data.get("settings", {})
-    if not settings:
-        raise HTTPException(status_code=400, detail="Profile settings are required.")
+    suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
+    audio_filename = f"{ref_id}{suffix}"
+    audio_path = REFERENCES_DIR / audio_filename
+    
+    audio_bytes = await audio.read()
+    with open(audio_path, "wb") as f:
+        f.write(audio_bytes)
         
-    data = load_settings_data()
-    data["profiles"][name] = settings
-    save_settings_data(data)
-    return {"status": "saved", "profiles": data["profiles"]}
+    refs = load_references()
+    new_ref = {
+        "id": ref_id,
+        "name": name,
+        "text": text,
+        "audio_filename": audio_filename,
+    }
+    refs.append(new_ref)
+    save_references(refs)
+    return new_ref
 
 
-@app.delete("/api/profiles/{name}")
-async def delete_profile(name: str):
-    """Delete a profile."""
-    data = load_settings_data()
-    if name in data["profiles"]:
-        del data["profiles"][name]
-        save_settings_data(data)
-        return {"status": "deleted", "profiles": data["profiles"]}
-    raise HTTPException(status_code=404, detail=f"Profile '{name}' not found.")
+@app.get("/api/references/{ref_id}/audio")
+async def get_reference_audio(ref_id: str):
+    """Retrieve the audio file for a reference voice."""
+    refs = load_references()
+    ref = next((r for r in refs if r["id"] == ref_id), None)
+    if not ref:
+        raise HTTPException(status_code=404, detail="Reference voice not found")
+    
+    audio_path = REFERENCES_DIR / ref["audio_filename"]
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="Reference audio file not found")
+        
+    ext = audio_path.suffix.lower()
+    media_type = "audio/wav"
+    if ext == ".mp3":
+        media_type = "audio/mpeg"
+    elif ext == ".ogg":
+        media_type = "audio/ogg"
+    elif ext in (".m4a", ".mp4"):
+        media_type = "audio/mp4"
+        
+    return FileResponse(path=str(audio_path), media_type=media_type)
+
+
+@app.put("/api/references/{ref_id}")
+async def update_reference(
+    ref_id: str,
+    name: str = Form(...),
+    text: str = Form(""),
+):
+    """Update name or transcript text of a saved reference voice."""
+    refs = load_references()
+    for ref in refs:
+        if ref["id"] == ref_id:
+            ref["name"] = name
+            ref["text"] = text
+            save_references(refs)
+            return ref
+    raise HTTPException(status_code=404, detail="Reference voice not found")
+
+
+@app.delete("/api/references/{ref_id}")
+async def delete_reference(ref_id: str):
+    """Delete a saved reference voice and its audio file."""
+    refs = load_references()
+    ref_to_delete = None
+    for ref in refs:
+        if ref["id"] == ref_id:
+            ref_to_delete = ref
+            break
+            
+    if not ref_to_delete:
+        raise HTTPException(status_code=404, detail="Reference voice not found")
+        
+    audio_path = REFERENCES_DIR / ref_to_delete["audio_filename"]
+    try:
+        audio_path.unlink(missing_ok=True)
+    except Exception:
+        pass
+        
+    refs = [r for r in refs if r["id"] != ref_id]
+    save_references(refs)
+    return {"status": "deleted"}
+
+
+@app.get("/api/playground/history")
+async def get_playground_history():
+    """Get metadata for recently synthesized audios in the playground."""
+    return [
+        {
+            "id": item["id"],
+            "timestamp": item["timestamp"],
+            "synthesizer": item["synthesizer"],
+            "text": item["text"],
+            "settings": item["settings"],
+        }
+        for item in _PLAYGROUND_HISTORY
+    ]
+
+
+@app.get("/api/playground/audio/{audio_id}")
+async def get_playground_audio(audio_id: str):
+    """Retrieve the audio bytes of a synthesized item in playground history."""
+    item = next((x for x in _PLAYGROUND_HISTORY if x["id"] == audio_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Audio item not found in playground RAM history.")
+    from fastapi import Response
+    return Response(content=item["audio_bytes"], media_type="audio/wav")
+
+
+@app.delete("/api/playground/cache")
+async def clear_playground_cache():
+    """Clear all playground history items from RAM cache."""
+    _PLAYGROUND_HISTORY.clear()
+    import gc
+    import torch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return {"status": "cleared"}
+
 
 
 
@@ -222,6 +359,7 @@ async def create_job(
     synthesizer: str = Form("f5-tts"),
     ref_audio: UploadFile | None = File(None),
     ref_text: str = Form(""),
+    ref_id: str = Form(""),
     device: str = Form(""),
     speed: float = Form(1.0),
     max_chars: int = Form(150),
@@ -244,16 +382,16 @@ async def create_job(
 
     # Validate based on selected synthesizer
     if synthesizer == "f5-tts":
-        if not ref_audio or not ref_text:
+        if not ref_id.strip() and (not ref_audio or not ref_text):
             raise HTTPException(
                 status_code=400,
-                detail="ref_audio and ref_text are required for f5-tts synthesizer.",
+                detail="ref_audio and ref_text (or saved ref_id) are required for f5-tts synthesizer.",
             )
     elif synthesizer == "pocket-tts":
-        if not ref_audio and not pocket_voice:
+        if not ref_id.strip() and not ref_audio and not pocket_voice:
             raise HTTPException(
                 status_code=400,
-                detail="Either ref_audio (clone mode) or pocket_voice (preset mode) is required for pocket-tts synthesizer.",
+                detail="Either ref_audio (or saved ref_id) or pocket_voice (preset mode) is required for pocket-tts synthesizer.",
             )
     elif synthesizer == "kokoro":
         if not voice and not voice_formula:
@@ -282,9 +420,30 @@ async def create_job(
 
     norm_settings = load_settings_data().get("current_settings", {})
 
+    # Save ref audio if provided (only for models that require voice cloning)
+    ref_audio_path = None
+    resolved_ref_text = ref_text
+    if ref_id.strip() and synthesizer in ("f5-tts", "pocket-tts"):
+        refs = load_references()
+        ref = next((r for r in refs if r["id"] == ref_id), None)
+        if not ref:
+            raise HTTPException(status_code=404, detail="Selected reference voice not found")
+        audio_file = REFERENCES_DIR / ref["audio_filename"]
+        if not audio_file.exists():
+            raise HTTPException(status_code=404, detail="Selected reference audio file not found")
+        ref_audio_path = audio_file
+        if synthesizer == "f5-tts" and not ref_text.strip():
+            resolved_ref_text = ref["text"]
+    elif ref_audio and synthesizer in ("f5-tts", "pocket-tts"):
+        ref_audio_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        ref_audio_content = await ref_audio.read()
+        ref_audio_tmp.write(ref_audio_content)
+        ref_audio_tmp.close()
+        ref_audio_path = Path(ref_audio_tmp.name)
+
     config = {
         "synthesizer": synthesizer,
-        "ref_text": ref_text,
+        "ref_text": resolved_ref_text,
         "device": device or None,
         "speed": speed,
         "max_chars": max_chars,
@@ -303,15 +462,7 @@ async def create_job(
         "harmonize_punctuation": norm_settings.get("harmonize_punctuation", True),
         "custom_lexicon": norm_settings.get("custom_lexicon", []),
     }
-
-    # Save ref audio if provided (only for models that require voice cloning)
-    ref_audio_path = None
-    if ref_audio and synthesizer in ("f5-tts", "pocket-tts"):
-        ref_audio_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        ref_audio_content = await ref_audio.read()
-        ref_audio_tmp.write(ref_audio_content)
-        ref_audio_tmp.close()
-        ref_audio_path = Path(ref_audio_tmp.name)
+    if ref_audio_path:
         config["ref_audio_path"] = str(ref_audio_path)
 
     try:
@@ -779,6 +930,7 @@ async def preview_voice(
     pocket_voice: str = Form(""),           # preset voice name
     ref_audio: UploadFile | None = File(None),  # for clone / F5-TTS
     ref_text: str = Form(""),               # F5-TTS only
+    ref_id: str = Form(""),                 # saved reference voice
     # Common
     speed: float = Form(1.0),
     device: str = Form(""),
@@ -790,10 +942,31 @@ async def preview_voice(
     if not text.strip():
         raise HTTPException(status_code=400, detail="Preview text cannot be empty.")
 
+    # 0. Resolve reference voice if ref_id is provided
+    resolved_ref_bytes = b""
+    resolved_ref_text = ""
+    if ref_id.strip() and synthesizer in ("f5-tts", "pocket-tts"):
+        refs = load_references()
+        ref = next((r for r in refs if r["id"] == ref_id), None)
+        if not ref:
+            raise HTTPException(status_code=404, detail="Selected reference voice not found")
+        audio_path = REFERENCES_DIR / ref["audio_filename"]
+        if not audio_path.exists():
+            raise HTTPException(status_code=404, detail="Selected reference audio file not found")
+        with open(audio_path, "rb") as f:
+            resolved_ref_bytes = f.read()
+        resolved_ref_text = ref["text"]
+
     # 1. Read ref_audio bytes to compute hash if present
     ref_audio_hash = None
     ref_audio_bytes = b""
-    if ref_audio and ref_audio.filename:
+    resolved_f5_ref_text = ref_text
+    if resolved_ref_bytes:
+        ref_audio_bytes = resolved_ref_bytes
+        ref_audio_hash = hashlib.md5(ref_audio_bytes).hexdigest()
+        if synthesizer == "f5-tts" and not ref_text.strip():
+            resolved_f5_ref_text = resolved_ref_text
+    elif ref_audio and ref_audio.filename:
         ref_audio_bytes = await ref_audio.read()
         ref_audio_hash = hashlib.md5(ref_audio_bytes).hexdigest()
 
@@ -807,7 +980,7 @@ async def preview_voice(
         else:
             cache_key = ("pocket-tts", "clone", ref_audio_hash, speed)
     elif synthesizer == "f5-tts":
-        ref_text_hash = hashlib.md5(ref_text.encode("utf-8")).hexdigest()
+        ref_text_hash = hashlib.md5(resolved_f5_ref_text.encode("utf-8")).hexdigest()
         cache_key = ("f5-tts", ref_audio_hash, ref_text_hash, speed, device or "cpu")
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported synthesizer: {synthesizer}")
@@ -864,7 +1037,7 @@ async def preview_voice(
                             status_code=400,
                             detail="ref_audio is required for F5-TTS preview.",
                         )
-                    if not ref_text.strip():
+                    if not resolved_f5_ref_text.strip():
                         raise HTTPException(
                             status_code=400,
                             detail="ref_text is required for F5-TTS preview.",
@@ -872,7 +1045,7 @@ async def preview_voice(
                     from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
                     synth = F5TTSSynthesizer(
                         ref_audio=tmp_ref_path,
-                        ref_text=ref_text,
+                        ref_text=resolved_f5_ref_text,
                         device=device or None,
                         speed=speed,
                     )
@@ -902,6 +1075,42 @@ async def preview_voice(
     # 4. Perform synthesis
     try:
         wav_bytes, _ = synth.synthesize(text)
+        
+        # Save to playground stack in RAM
+        import time
+        audio_id = f"pg_{int(time.time() * 1000)}"
+        
+        settings_dict = {
+            "speed": speed,
+            "device": device or "cpu",
+        }
+        if synthesizer == "kokoro":
+            settings_dict["voice"] = voice
+            settings_dict["voice_formula"] = voice_formula
+            settings_dict["lang_code"] = lang_code
+        elif synthesizer == "pocket-tts":
+            settings_dict["pocket_voice"] = pocket_voice
+            settings_dict["mode"] = "preset" if pocket_voice else "clone"
+            if ref_id:
+                settings_dict["ref_id"] = ref_id
+        elif synthesizer == "f5-tts":
+            settings_dict["mode"] = "clone"
+            if ref_id:
+                settings_dict["ref_id"] = ref_id
+                
+        _PLAYGROUND_HISTORY.insert(0, {
+            "id": audio_id,
+            "timestamp": time.time(),
+            "synthesizer": synthesizer,
+            "text": text,
+            "settings": settings_dict,
+            "audio_bytes": wav_bytes,
+        })
+        
+        # Cap stack size at 100
+        if len(_PLAYGROUND_HISTORY) > 100:
+            _PLAYGROUND_HISTORY.pop()
+
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:
         import traceback

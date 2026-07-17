@@ -45,7 +45,7 @@
                 </button>
                 <button class="nav-item" data-page="settings" id="nav-settings">
                     <span class="nav-item-icon">⚙️</span>
-                    <span class="nav-item-label">Settings &amp; Profiles</span>
+                    <span class="nav-item-label">Settings &amp; Voice Library</span>
                 </button>
             </nav>
 
@@ -174,7 +174,14 @@
                         <!-- Voice Cloning Options (F5-TTS clone mode) -->
                         <div id="cloning-options" class="ref-audio-fields" style="margin-top: 1rem;">
                             <div class="form-group">
-                                <label>Reference Audio</label>
+                                <label for="ref-voice-select">Reference Voice</label>
+                                <select id="ref-voice-select" name="ref_id" style="margin-bottom: 0.75rem;">
+                                    <option value="">-- Upload Custom Audio --</option>
+                                    <!-- Populated dynamically -->
+                                </select>
+                            </div>
+                            <div class="form-group" id="generate-f5-upload-group">
+                                <label>Reference Audio File</label>
                                 <div class="file-upload-zone" id="ref-audio-upload-zone" style="padding: 0.8rem;">
                                     <div class="upload-text" style="font-size: 0.8rem;">
                                         <strong>Upload</strong> voice clip (.wav, .mp3, etc.)
@@ -197,7 +204,7 @@
                                     <label for="compile-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">Compile Model (torch.compile)</label>
                                 </div>
                             </div>
-                            <div class="form-group" style="margin-top: 1rem;">
+                            <div class="form-group" style="margin-top: 1rem;" id="generate-f5-ref-text-group">
                                 <label for="ref-text-input">Reference Text</label>
                                 <textarea id="ref-text-input" name="ref_text" placeholder="Exact transcript of your reference audio clip..." rows="3"></textarea>
                             </div>
@@ -317,7 +324,14 @@
                             <!-- Clone sub-panel -->
                             <div id="pocket-clone-panel" style="margin-top: 1rem; display: none;">
                                 <div class="form-group">
-                                    <label>Reference Audio</label>
+                                    <label for="pocket-ref-voice-select">Reference Voice</label>
+                                    <select id="pocket-ref-voice-select" name="ref_id" style="margin-bottom: 0.75rem;">
+                                        <option value="">-- Upload Custom Audio --</option>
+                                        <!-- Populated dynamically -->
+                                    </select>
+                                </div>
+                                <div class="form-group" id="generate-pocket-upload-group">
+                                    <label>Reference Audio File</label>
                                     <div class="file-upload-zone" id="pocket-ref-audio-upload-zone" style="padding: 0.8rem;">
                                         <div class="upload-text" style="font-size: 0.8rem;">
                                             <strong>Upload</strong> voice clip for cloning (.wav, .mp3, etc.)
@@ -488,13 +502,46 @@
                         <!-- Clone sub-panel -->
                         <div id="pg-pocket-clone-panel" style="display: none;">
                             <div class="form-group">
-                                <label>Reference Audio (Clone)</label>
-                                <div class="file-upload-zone" id="pg-pocket-ref-audio-zone" style="padding: 0.8rem;">
-                                    <div class="upload-text" style="font-size: 0.8rem;">
-                                        <strong>Upload</strong> voice clip (.wav, .mp3, etc.)
+                                <label for="pg-pocket-ref-voice-select">Reference Voice</label>
+                                <select id="pg-pocket-ref-voice-select" style="margin-bottom: 0.75rem;">
+                                    <option value="">-- Upload Custom File / Record --</option>
+                                    <!-- Populated dynamically -->
+                                </select>
+                            </div>
+                            <div id="pg-pocket-custom-group">
+                                <div class="audio-source-switch" style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                    <button type="button" class="btn btn-xs active-source btn-primary" id="pg-pocket-source-upload" style="flex:1;">Upload File</button>
+                                    <button type="button" class="btn btn-xs btn-ghost" id="pg-pocket-source-record" style="flex:1;">🎤 Record Audio</button>
+                                </div>
+                                <div class="form-group" id="pg-pocket-upload-container">
+                                    <label>Reference Audio File</label>
+                                    <div class="file-upload-zone" id="pg-pocket-ref-audio-zone" style="padding: 0.8rem;">
+                                        <div class="upload-text" style="font-size: 0.8rem;">
+                                            <strong>Upload</strong> voice clip (.wav, .mp3, etc.)
+                                        </div>
+                                        <div class="file-name" id="pg-pocket-ref-audio-name" style="display: none;"></div>
+                                        <input type="file" id="pg-pocket-ref-audio" accept=".wav,.mp3,.flac,.ogg">
                                     </div>
-                                    <div class="file-name" id="pg-pocket-ref-audio-name" style="display: none;"></div>
-                                    <input type="file" id="pg-pocket-ref-audio" accept=".wav,.mp3,.flac,.ogg">
+                                </div>
+                                <div class="pg-recorder-container" id="pg-pocket-recorder-container" style="display: none; padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-top: 0.5rem;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <span class="rec-dot" style="display: inline-block; width: 8px; height: 8px; background: var(--accent-rose); border-radius: 50%;"></span>
+                                            <span class="rec-status" style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Ready to record</span>
+                                        </div>
+                                        <span class="rec-timer" style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">00:00</span>
+                                    </div>
+                                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                        <button type="button" class="btn btn-sm btn-danger rec-btn-start" style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; padding: 0.3rem 0.6rem;">🎙️ Start Recording</button>
+                                        <button type="button" class="btn btn-sm btn-ghost rec-btn-stop" disabled style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; padding: 0.3rem 0.6rem;">⏹️ Stop</button>
+                                    </div>
+                                    <div class="rec-preview-group" style="display: none; flex-direction: column; gap: 0.5rem;">
+                                        <audio class="rec-audio-preview" controls style="width: 100%; height: 32px;"></audio>
+                                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                            <input type="text" class="rec-voice-name" placeholder="Voice Label (e.g. My Recording 1)" style="flex: 1; font-size: 0.8rem; height: 32px; padding: 0.25rem 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: var(--radius-sm);">
+                                            <button type="button" class="btn btn-xs btn-primary rec-btn-save" style="font-size: 0.8rem; height: 32px; padding: 0 0.75rem;">💾 Save Voice</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -502,17 +549,50 @@
 
                     <!-- ── F5-TTS Panel ── -->
                     <div id="pg-f5-panel" style="display: none;">
-                        <div class="form-group" style="margin-bottom: 0.75rem;">
-                            <label>Reference Audio</label>
-                            <div class="file-upload-zone" id="pg-f5-ref-audio-zone" style="padding: 0.8rem;">
-                                <div class="upload-text" style="font-size: 0.8rem;">
-                                    <strong>Upload</strong> voice clip (.wav, .mp3, etc.)
+                        <div class="form-group">
+                            <label for="pg-f5-ref-voice-select">Reference Voice</label>
+                            <select id="pg-f5-ref-voice-select" style="margin-bottom: 0.75rem;">
+                                <option value="">-- Upload Custom File / Record --</option>
+                                <!-- Populated dynamically -->
+                            </select>
+                        </div>
+                        <div id="pg-f5-custom-group">
+                            <div class="audio-source-switch" style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                <button type="button" class="btn btn-xs active-source btn-primary" id="pg-f5-source-upload" style="flex:1;">Upload File</button>
+                                <button type="button" class="btn btn-xs btn-ghost" id="pg-f5-source-record" style="flex:1;">🎤 Record Audio</button>
+                            </div>
+                            <div class="form-group" id="pg-f5-upload-container" style="margin-bottom: 0.75rem;">
+                                <label>Reference Audio</label>
+                                <div class="file-upload-zone" id="pg-f5-ref-audio-zone" style="padding: 0.8rem;">
+                                    <div class="upload-text" style="font-size: 0.8rem;">
+                                        <strong>Upload</strong> voice clip (.wav, .mp3, etc.)
+                                    </div>
+                                    <div class="file-name" id="pg-f5-ref-audio-name" style="display: none;"></div>
+                                    <input type="file" id="pg-f5-ref-audio" accept=".wav,.mp3,.flac,.ogg">
                                 </div>
-                                <div class="file-name" id="pg-f5-ref-audio-name" style="display: none;"></div>
-                                <input type="file" id="pg-f5-ref-audio" accept=".wav,.mp3,.flac,.ogg">
+                            </div>
+                            <div class="pg-recorder-container" id="pg-f5-recorder-container" style="display: none; padding: 1rem; background: var(--bg-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-top: 0.5rem; margin-bottom: 0.75rem;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <span class="rec-dot" style="display: inline-block; width: 8px; height: 8px; background: var(--accent-rose); border-radius: 50%;"></span>
+                                        <span class="rec-status" style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Ready to record</span>
+                                    </div>
+                                    <span class="rec-timer" style="font-family: monospace; font-size: 0.85rem; color: var(--text-secondary);">00:00</span>
+                                </div>
+                                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                    <button type="button" class="btn btn-sm btn-danger rec-btn-start" style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; padding: 0.3rem 0.6rem;">🎙️ Start Recording</button>
+                                    <button type="button" class="btn btn-sm btn-ghost rec-btn-stop" disabled style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; padding: 0.3rem 0.6rem;">⏹️ Stop</button>
+                                </div>
+                                <div class="rec-preview-group" style="display: none; flex-direction: column; gap: 0.5rem;">
+                                    <audio class="rec-audio-preview" controls style="width: 100%; height: 32px;"></audio>
+                                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                        <input type="text" class="rec-voice-name" placeholder="Voice Label (e.g. My Recording 1)" style="flex: 1; font-size: 0.8rem; height: 32px; padding: 0.25rem 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: var(--radius-sm);">
+                                        <button type="button" class="btn btn-xs btn-primary rec-btn-save" style="font-size: 0.8rem; height: 32px; padding: 0 0.75rem;">💾 Save Voice</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" id="pg-f5-ref-text-group">
                             <label for="pg-f5-ref-text">Reference Text (exact transcript of clip)</label>
                             <textarea id="pg-f5-ref-text" placeholder="Type the exact words spoken in the reference audio..." rows="3"></textarea>
                         </div>
@@ -553,18 +633,19 @@
                         ▶ Synthesize &amp; Play
                     </button>
 
-                    <!-- Audio Player (hidden until first synthesis) -->
-                    <div class="pg-player" id="pg-player-section">
+                    <!-- Audio Player (hidden for compatibility) -->
+                    <div class="pg-player" id="pg-player-section" style="display:none !important;">
                         <audio id="pg-audio" preload="auto" style="display:none;"></audio>
-                        <div class="pg-player-top">
-                            <button class="pg-play-pause" id="pg-play-pause-btn" title="Play / Pause">⏸</button>
-                            <span class="pg-time" id="pg-current-time">0:00</span>
-                            <span class="pg-time"> / </span>
-                            <span class="pg-time" id="pg-duration">0:00</span>
-                            <span class="pg-latency" id="pg-latency-badge"></span>
+                    </div>
+
+                    <!-- Synthesized Audios Stack -->
+                    <div class="pg-history-section" id="pg-history-section" style="margin-top: 1.5rem; display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-subtle);">
+                            <h3 style="font-size: 1.05rem; color: var(--text-primary); font-weight: 600; margin: 0;">📋 Recent Synthesized Audios</h3>
+                            <button type="button" class="btn btn-danger btn-xs" id="pg-clear-history-btn" style="padding: 0.2rem 0.6rem; font-size: 0.8rem; height: 28px; line-height: 1; border-radius: var(--radius-sm); border: none; font-weight: 500; cursor: pointer; background: var(--accent-rose); color: #fff;">🧹 Clear Cache</button>
                         </div>
-                        <div class="pg-progress-track" id="pg-progress-bar">
-                            <div class="pg-progress-fill" id="pg-progress-fill"></div>
+                        <div class="pg-history-list" id="pg-history-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <!-- Dynamic stack elements populated via JS -->
                         </div>
                     </div>
                 </div>
@@ -718,156 +799,224 @@
             <!-- ═══════════════════════════════════════ -->
             <div class="content-page" id="page-settings" style="display: none;">
                 <div class="page-heading">
-                    <h2>⚙️ Settings &amp; Profiles</h2>
-                    <p>Manage defaults for text normalization, synthesizers, and save/load configuration profiles.</p>
+                    <h2>⚙️ Settings &amp; Voice Library</h2>
+                    <p>Configure text normalization, default generators, and record/manage reference voices for cloning.</p>
                 </div>
 
-                <div class="card">
-                    <!-- Profile Management -->
-                    <div class="settings-section" style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle);">
-                        <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">👤 Profiles</h3>
-                        <div class="form-grid" style="grid-template-columns: 1fr auto auto; align-items: flex-end; gap: 0.75rem;">
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="profile-select">Saved Profiles</label>
-                                <select id="profile-select">
-                                    <option value="">-- Load a Profile --</option>
-                                </select>
-                            </div>
-                            <button type="button" class="btn" id="load-profile-btn" style="height: 38px;">Load</button>
-                            <button type="button" class="btn btn-danger" id="delete-profile-btn" style="height: 38px;">Delete</button>
-                        </div>
-                        <div class="form-grid" style="grid-template-columns: 1fr auto; align-items: flex-end; gap: 0.75rem; margin-top: 1rem;">
-                            <div class="form-group" style="margin-bottom: 0;">
-                                <label for="new-profile-name">Save Current Configuration as Profile</label>
-                                <input type="text" id="new-profile-name" placeholder="Profile name (e.g. US Male Narrator)...">
-                            </div>
-                            <button type="button" class="btn btn-primary" id="save-profile-btn" style="height: 38px;">Save Profile</button>
-                        </div>
-                    </div>
+                <!-- Secondary Sub-tabs Bar -->
+                <div class="settings-tabs-bar" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.75rem;">
+                    <button type="button" class="btn btn-sm settings-tab-btn active" data-tab="voice-library" style="border: none; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;">🎙️ Voice Library</button>
+                    <button type="button" class="btn btn-sm btn-ghost settings-tab-btn" data-tab="normalization" style="border: none; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;">📖 Text Normalization</button>
+                    <button type="button" class="btn btn-sm btn-ghost settings-tab-btn" data-tab="generator-defaults" style="border: none; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;">⚙️ Generator Defaults</button>
+                </div>
 
-                    <!-- Text Normalization Settings -->
-                    <div class="settings-section" style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle);">
-                        <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">📖 Text Normalization (Pronunciation Tweaks)</h3>
-                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
-                            These rules run on CPU before synthesis, adjusting pronunciation without changing the final EPUB text or LRC files.
-                        </p>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
-                            <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
-                                <input type="checkbox" id="setting-expand-numerals" style="width: auto; margin: 0; cursor: pointer;">
-                                <label for="setting-expand-numerals" style="margin: 0; cursor: pointer; user-select: none;">
-                                    <strong>Numeral Expansion</strong> (e.g. 2026 ➔ twenty twenty-six)
-                                </label>
-                            </div>
-                            <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
-                                <input type="checkbox" id="setting-resolve-contractions" style="width: auto; margin: 0; cursor: pointer;">
-                                <label for="setting-resolve-contractions" style="margin: 0; cursor: pointer; user-select: none;">
-                                    <strong>Contraction Expansion</strong> (e.g. won't ➔ will not)
-                                </label>
-                            </div>
-                            <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
-                                <input type="checkbox" id="setting-resolve-heteronyms" style="width: auto; margin: 0; cursor: pointer;">
-                                <label for="setting-resolve-heteronyms" style="margin: 0; cursor: pointer; user-select: none;">
-                                    <strong>Heteronym Resolution</strong> (e.g. read ➔ reed/red)
-                                </label>
-                            </div>
-                            <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
-                                <input type="checkbox" id="setting-harmonize-punctuation" style="width: auto; margin: 0; cursor: pointer;">
-                                <label for="setting-harmonize-punctuation" style="margin: 0; cursor: pointer; user-select: none;">
-                                    <strong>Punctuation Harmonization</strong> (smart quotes, dashes)
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- Custom Lexicon -->
-                        <div class="form-group">
-                            <label style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Custom Lexicon (Word Substitutions)</label>
-                            <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-                                Define phonetic spelling overrides for acronyms, jargon, or non-English words. Match is case-insensitive.
-                            </p>
+                <!-- Card Wrapper -->
+                <div class="card" style="padding: 1.5rem;">
+                    
+                    <!-- Tab 1: Voice Library -->
+                    <div class="settings-tab-content" id="settings-tab-content-voice-library">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">
                             
-                            <div id="lexicon-table-container" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-secondary); margin-bottom: 0.75rem;">
-                                <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;" id="lexicon-table">
-                                    <thead>
-                                        <tr style="border-bottom: 1px solid var(--border-subtle); background: var(--bg-primary);">
-                                            <th style="padding: 0.6rem 0.8rem; font-weight: 600;">Original Word / Pattern</th>
-                                            <th style="padding: 0.6rem 0.8rem; font-weight: 600;">Replacement Pronunciation</th>
-                                            <th style="padding: 0.6rem 0.8rem; font-weight: 600; width: 60px; text-align: center;">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <!-- Dynamic rows -->
-                                    </tbody>
-                                </table>
-                            </div>
+                            <!-- Left: Save Voice Form & Recorder -->
+                            <div class="settings-section" style="padding-right: 1.5rem; border-right: 1px solid var(--border-subtle);">
+                                <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.4rem;">🎙️ Create Reference Voice</h3>
+                                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                                    Record your voice or upload an existing clip. This voice will be available for cloning in PocketTTS and F5-TTS.
+                                </p>
+                                
+                                <div class="audio-source-switch" style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                                    <button type="button" class="btn btn-xs active-source btn-primary" id="library-source-upload" style="flex:1;">Upload File</button>
+                                    <button type="button" class="btn btn-xs btn-ghost" id="library-source-record" style="flex:1;">🎤 Record Audio</button>
+                                </div>
 
-                            <!-- Add Word Row -->
-                            <div class="form-grid" style="grid-template-columns: 1fr 1fr auto; align-items: flex-end; gap: 0.75rem;">
-                                <div class="form-group" style="margin-bottom: 0;">
-                                    <input type="text" id="lexicon-add-word" placeholder="e.g. LLaMA">
+                                <!-- Upload Interface -->
+                                <div class="form-group" id="library-upload-container" style="margin-bottom: 1rem;">
+                                    <label>Voice Clip File</label>
+                                    <div class="file-upload-zone" id="library-audio-zone" style="padding: 1.25rem;">
+                                        <div class="upload-text">
+                                            <strong>Browse</strong> or drag &amp; drop voice clip (.wav, .mp3, etc.)
+                                        </div>
+                                        <div class="file-name" id="library-audio-name" style="display: none;"></div>
+                                        <input type="file" id="library-audio-file" accept=".wav,.mp3,.flac,.ogg">
+                                    </div>
                                 </div>
-                                <div class="form-group" style="margin-bottom: 0;">
-                                    <input type="text" id="lexicon-add-replacement" placeholder="e.g. lama">
+
+                                <!-- Recording Interface -->
+                                <div class="pg-recorder-container" id="library-recorder-container" style="display: none; padding: 1.25rem; background: var(--bg-secondary); border-radius: var(--radius-md); border: 1px solid var(--border-subtle); margin-bottom: 1rem;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <span class="rec-dot" style="display: inline-block; width: 10px; height: 10px; background: var(--accent-rose); border-radius: 50%;"></span>
+                                            <span class="rec-status" style="font-size: 0.9rem; font-weight: 500; color: var(--text-secondary);">Ready to record</span>
+                                        </div>
+                                        <span class="rec-timer" style="font-family: monospace; font-size: 1rem; color: var(--text-secondary);">00:00</span>
+                                    </div>
+                                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                                        <button type="button" class="btn btn-sm btn-danger rec-btn-start">🎙️ Start Recording</button>
+                                        <button type="button" class="btn btn-sm btn-ghost rec-btn-stop" disabled>⏹️ Stop</button>
+                                    </div>
+                                    <audio class="rec-audio-preview" controls style="width: 100%; display: none; margin-top: 0.5rem; height: 40px;"></audio>
                                 </div>
-                                <button type="button" class="btn" id="lexicon-add-btn" style="height: 38px;">➕ Add Word</button>
+
+                                <div class="form-group" style="margin-bottom: 1rem;">
+                                    <label for="library-voice-name">Voice Name / Label</label>
+                                    <input type="text" id="library-voice-name" placeholder="e.g. Alex Narrator - Friendly" style="width:100%;">
+                                </div>
+
+                                <div class="form-group" style="margin-bottom: 1.25rem;">
+                                    <label for="library-voice-text">Voice Transcript (Reference Text)</label>
+                                    <textarea id="library-voice-text" placeholder="Type the exact transcript of what is spoken in the audio clip. (Highly recommended for F5-TTS)" rows="3" style="width:100%; resize:vertical;"></textarea>
+                                </div>
+
+                                <button type="button" class="btn btn-primary" id="library-voice-save-btn" style="width: 100%;">💾 Save to Voice Library</button>
+                            </div>
+                            
+                            <!-- Right: Saved Voices List -->
+                            <div class="settings-section">
+                                <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">👤 Saved Voices</h3>
+                                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                                    Manage your reference library. Download files or update transcripts below.
+                                </p>
+                                
+                                <div id="library-voices-grid" style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 480px; overflow-y: auto; padding-right: 0.25rem;">
+                                    <!-- Populated dynamically via JS -->
+                                </div>
                             </div>
                         </div>
                     </div>
-
-                    <!-- Default Generator Settings -->
-                    <div class="settings-section" style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle);">
-                        <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">🎙️ Default Generator Settings</h3>
-                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
-                            These values will auto-populate the "New Job" form when launching dashboard overlays.
-                        </p>
-                        <form id="settings-default-form">
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label for="default-synthesizer">Synthesizer</label>
-                                    <select id="default-synthesizer">
-                                        <option value="f5-tts">F5-TTS (Voice Cloning)</option>
-                                        <option value="kokoro">Kokoro-82M (Built-in Voices / Formulas)</option>
-                                        <option value="pocket-tts">PocketTTS (Preset &amp; Lightweight Cloning)</option>
-                                        <option value="dummy">Dummy (Silent / Testing)</option>
-                                    </select>
+                    
+                    <!-- Tab 2: Text Normalization -->
+                    <div class="settings-tab-content" id="settings-tab-content-normalization" style="display: none;">
+                        <div class="settings-section" style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle);">
+                            <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">📖 Text Normalization (Pronunciation Tweaks)</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                                These rules run on CPU before synthesis, adjusting pronunciation without changing the final EPUB text or LRC files.
+                            </p>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                                <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                                    <input type="checkbox" id="setting-expand-numerals" style="width: auto; margin: 0; cursor: pointer;">
+                                    <label for="setting-expand-numerals" style="margin: 0; cursor: pointer; user-select: none;">
+                                        <strong>Numeral Expansion</strong> (e.g. 2026 ➔ twenty twenty-six)
+                                    </label>
                                 </div>
-
-                                <div class="form-group">
-                                    <label for="default-device">Device</label>
-                                    <select id="default-device">
-                                        <option value="">Auto</option>
-                                        <option value="cuda">CUDA (GPU)</option>
-                                        <option value="cpu">CPU</option>
-                                        <option value="mps">MPS (Apple Silicon)</option>
-                                    </select>
+                                <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                                    <input type="checkbox" id="setting-resolve-contractions" style="width: auto; margin: 0; cursor: pointer;">
+                                    <label for="setting-resolve-contractions" style="margin: 0; cursor: pointer; user-select: none;">
+                                        <strong>Contraction Expansion</strong> (e.g. won't ➔ will not)
+                                    </label>
                                 </div>
-
-                                <div class="form-group">
-                                    <label for="default-speed">Speed</label>
-                                    <input type="number" id="default-speed" value="1.0" min="0.1" max="3.0" step="0.1">
+                                <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                                    <input type="checkbox" id="setting-resolve-heteronyms" style="width: auto; margin: 0; cursor: pointer;">
+                                    <label for="setting-resolve-heteronyms" style="margin: 0; cursor: pointer; user-select: none;">
+                                        <strong>Heteronym Resolution</strong> (e.g. read ➔ reed/red)
+                                    </label>
                                 </div>
-
-                                <div class="form-group">
-                                    <label for="default-max-chars">Max Chars/Chunk</label>
-                                    <input type="number" id="default-max-chars" value="150" min="50" max="500" step="10">
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="default-concurrency">Concurrency</label>
-                                    <input type="number" id="default-concurrency" value="2" min="1" max="16" step="1">
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label for="default-frame-rate">Frame Rate (Hz)</label>
-                                    <input type="number" id="default-frame-rate" value="24000.0" min="8000" max="48000" step="1000">
+                                <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; margin-bottom: 0;">
+                                    <input type="checkbox" id="setting-harmonize-punctuation" style="width: auto; margin: 0; cursor: pointer;">
+                                    <label for="setting-harmonize-punctuation" style="margin: 0; cursor: pointer; user-select: none;">
+                                        <strong>Punctuation Harmonization</strong> (smart quotes, dashes)
+                                    </label>
                                 </div>
                             </div>
-                        </form>
+
+                            <!-- Custom Lexicon -->
+                            <div class="form-group">
+                                <label style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Custom Lexicon (Word Substitutions)</label>
+                                <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                                    Define phonetic spelling overrides for acronyms, jargon, or non-English words. Match is case-insensitive.
+                                </p>
+                                
+                                <div id="lexicon-table-container" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-secondary); margin-bottom: 0.75rem;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem; text-align: left;" id="lexicon-table">
+                                        <thead>
+                                            <tr style="border-bottom: 1px solid var(--border-subtle); background: var(--bg-primary);">
+                                                <th style="padding: 0.6rem 0.8rem; font-weight: 600;">Original Word / Pattern</th>
+                                                <th style="padding: 0.6rem 0.8rem; font-weight: 600;">Replacement Pronunciation</th>
+                                                <th style="padding: 0.6rem 0.8rem; font-weight: 600; width: 60px; text-align: center;">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Dynamic rows -->
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Add Word Row -->
+                                <div class="form-grid" style="grid-template-columns: 1fr 1fr auto; align-items: flex-end; gap: 0.75rem;">
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <input type="text" id="lexicon-add-word" placeholder="e.g. LLaMA">
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <input type="text" id="lexicon-add-replacement" placeholder="e.g. lama">
+                                    </div>
+                                    <button type="button" class="btn" id="lexicon-add-btn" style="height: 38px;">➕ Add Word</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                            <button type="button" class="btn btn-ghost settings-reset-btn">Reset to Defaults</button>
+                            <button type="button" class="btn btn-primary settings-save-btn">💾 Save Normalization Settings</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Tab 3: Generator Defaults -->
+                    <div class="settings-tab-content" id="settings-tab-content-generator-defaults" style="display: none;">
+                        <div class="settings-section" style="margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border-subtle);">
+                            <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; color: var(--text-primary);">🎙️ Default Generator Settings</h3>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                                These values will auto-populate the "New Job" form when launching dashboard overlays.
+                            </p>
+                            <form class="settings-default-form">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="default-synthesizer">Synthesizer</label>
+                                        <select id="default-synthesizer">
+                                            <option value="f5-tts">F5-TTS (Voice Cloning)</option>
+                                            <option value="kokoro">Kokoro-82M (Built-in Voices / Formulas)</option>
+                                            <option value="pocket-tts">PocketTTS (Preset &amp; Lightweight Cloning)</option>
+                                            <option value="dummy">Dummy (Silent / Testing)</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-device">Device</label>
+                                        <select id="default-device">
+                                            <option value="">Auto</option>
+                                            <option value="cuda">CUDA (GPU)</option>
+                                            <option value="cpu">CPU</option>
+                                            <option value="mps">MPS (Apple Silicon)</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-speed">Speed</label>
+                                        <input type="number" id="default-speed" value="1.0" min="0.1" max="3.0" step="0.1">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-max-chars">Max Chars/Chunk</label>
+                                        <input type="number" id="default-max-chars" value="150" min="50" max="500" step="10">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="default-concurrency">Concurrency</label>
+                                        <input type="number" id="default-concurrency" value="2" min="1" max="16" step="1">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="default-frame-rate">Frame Rate (Hz)</label>
+                                        <input type="number" id="default-frame-rate" value="24000.0" min="8000" max="48000" step="1000">
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                            <button type="button" class="btn btn-ghost settings-reset-btn">Reset to Defaults</button>
+                            <button type="button" class="btn btn-primary settings-save-btn">💾 Save Generator Defaults</button>
+                        </div>
                     </div>
 
-                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
-                        <button type="button" class="btn btn-ghost" id="settings-reset-btn">Reset to Defaults</button>
-                        <button type="button" class="btn btn-primary" id="settings-save-btn">💾 Save All Settings</button>
-                    </div>
                 </div>
             </div>
 

@@ -115,31 +115,67 @@ export async function saveSettings(settings) {
     return await resp.json();
 }
 
-export async function saveProfile(name, settings) {
-    const resp = await fetch('/api/profiles', {
+export async function fetchReferences() {
+    const resp = await fetch('/api/references');
+    if (!resp.ok) throw new Error('Failed to fetch references');
+    return await resp.json();
+}
+
+export async function saveReference(formData) {
+    const resp = await fetch('/api/references', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ name, settings })
+        body: formData
     });
     if (!resp.ok) {
         const err = await resp.json();
-        throw new Error(err.detail || 'Failed to save profile');
+        throw new Error(err.detail || 'Failed to save reference voice');
     }
     return await resp.json();
 }
 
-export async function deleteProfile(name) {
-    const resp = await fetch(`/api/profiles/${encodeURIComponent(name)}`, {
+export async function updateReference(refId, name, text) {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('text', text);
+    const resp = await fetch(`/api/references/${encodeURIComponent(refId)}`, {
+        method: 'PUT',
+        body: formData
+    });
+    if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || 'Failed to update reference voice');
+    }
+    return await resp.json();
+}
+
+export async function deleteReference(refId) {
+    const resp = await fetch(`/api/references/${encodeURIComponent(refId)}`, {
         method: 'DELETE'
     });
     if (!resp.ok) {
         const err = await resp.json();
-        throw new Error(err.detail || 'Failed to delete profile');
+        throw new Error(err.detail || 'Failed to delete reference voice');
     }
     return await resp.json();
 }
+
+export async function fetchPlaygroundHistory() {
+    const resp = await fetch('/api/playground/history');
+    if (!resp.ok) throw new Error('Failed to fetch playground history');
+    return await resp.json();
+}
+
+export async function clearPlaygroundCache() {
+    const resp = await fetch('/api/playground/cache', {
+        method: 'DELETE'
+    });
+    if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || 'Failed to clear playground cache');
+    }
+    return await resp.json();
+}
+
 
 export async function convertJobToAudio(jobId, merge, formats, center, mp4Video, embedSubtitles, includeAudio, coverArtFile) {
     const formData = new FormData();

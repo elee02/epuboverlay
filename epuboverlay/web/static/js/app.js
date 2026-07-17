@@ -1,4 +1,4 @@
-import { fetchConfig, fetchChapters, purgeAllCache } from './api.js';
+import { fetchConfig, fetchChapters, purgeAllCache, fetchReferences } from './api.js';
 import { showToast } from './utils.js';
 import { startStatsPolling } from './stats.js';
 import { setupKokoroMixer, updateFilteredVoices, setKokoroVoices } from './kokoro.js';
@@ -7,6 +7,40 @@ import { initSettings } from './settings.js';
 import { showConfirmModal } from './modal.js';
 import { initPlayground } from './playground.js';
 import { setupPocketModeToggle, setPocketVoices } from './pocket.js';
+
+export let savedReferences = [];
+
+export async function loadSavedReferencesGlobal() {
+    try {
+        savedReferences = await fetchReferences();
+        populateReferencesDropdowns();
+    } catch (err) {
+        showToast('Failed to load reference voices: ' + err.message, 'error');
+    }
+}
+
+function populateReferencesDropdowns() {
+    const selects = [
+        { el: document.getElementById('ref-voice-select'), type: 'f5' },
+        { el: document.getElementById('pocket-ref-voice-select'), type: 'pocket' },
+        { el: document.getElementById('pg-f5-ref-voice-select'), type: 'f5' },
+        { el: document.getElementById('pg-pocket-ref-voice-select'), type: 'pocket' }
+    ];
+    selects.forEach(({ el, type }) => {
+        if (!el) return;
+        const firstOpt = el.options[0] || new Option('-- Upload Custom Audio --', '');
+        el.innerHTML = '';
+        el.appendChild(firstOpt);
+        
+        savedReferences.forEach(ref => {
+            const opt = document.createElement('option');
+            opt.value = ref.id;
+            opt.textContent = ref.name;
+            el.appendChild(opt);
+        });
+    });
+}
+
 
 // ── DOM References ──────────────────────────────────────────────────────────
 
@@ -50,6 +84,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('Failed to fetch config: ' + err.message, 'error');
     }
 
+    // Load saved reference voices
+    await loadSavedReferencesGlobal();
+
     // 2. Setup systems
     setupSidebarNav();
     setupFileUploads();
@@ -59,6 +96,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupExtractForm();
     setupKokoroMixer();
     setupPocketFormPanel();
+    setupGenerateRefSelectors();
 
     // Voice Playground
     initPlayground();
@@ -350,6 +388,7 @@ function setupForm() {
 
         // Adjust parameters based on active synthesizer and clear unrelated fields
         formData.delete('ref_audio');
+        formData.delete('ref_id');
 
         if (synthSelect.value === 'kokoro') {
             const currentMode = document.getElementById('voice-mode-selector').querySelector('.mode-pill.active').getAttribute('data-mode');
@@ -376,9 +415,14 @@ function setupForm() {
                 formData.set('pocket_voice', pocketVoiceSelect ? pocketVoiceSelect.value : '');
             } else {
                 formData.set('pocket_voice', '');
-                const pocketRefAudio = document.getElementById('pocket-ref-audio-file');
-                if (pocketRefAudio && pocketRefAudio.files.length > 0) {
-                    formData.set('ref_audio', pocketRefAudio.files[0]);
+                const pocketRefVoiceSelect = document.getElementById('pocket-ref-voice-select');
+                if (pocketRefVoiceSelect && pocketRefVoiceSelect.value) {
+                    formData.set('ref_id', pocketRefVoiceSelect.value);
+                } else {
+                    const pocketRefAudio = document.getElementById('pocket-ref-audio-file');
+                    if (pocketRefAudio && pocketRefAudio.files.length > 0) {
+                        formData.set('ref_audio', pocketRefAudio.files[0]);
+                    }
                 }
             }
         } else if (synthSelect.value === 'f5-tts') {
@@ -386,9 +430,14 @@ function setupForm() {
             formData.set('voice_formula', '');
             formData.set('pocket_voice', '');
 
-            const refAudioFile = document.getElementById('ref-audio-file');
-            if (refAudioFile && refAudioFile.files.length > 0) {
-                formData.set('ref_audio', refAudioFile.files[0]);
+            const refVoiceSelect = document.getElementById('ref-voice-select');
+            if (refVoiceSelect && refVoiceSelect.value) {
+                formData.set('ref_id', refVoiceSelect.value);
+            } else {
+                const refAudioFile = document.getElementById('ref-audio-file');
+                if (refAudioFile && refAudioFile.files.length > 0) {
+                    formData.set('ref_audio', refAudioFile.files[0]);
+                }
             }
         } else {
             // dummy or any other
@@ -405,11 +454,13 @@ function setupForm() {
 
         const selectedSynth = synthSelect.value;
         if (selectedSynth === 'f5-tts') {
-            if (!refAudioFile.files.length) {
+            const hasSavedRef = formData.get('ref_id');
+            const refAudioFile = document.getElementById('ref-audio-file');
+            if (!hasSavedRef && (!refAudioFile || !refAudioFile.files.length)) {
                 showToast('Reference audio is required for F5-TTS.', 'error');
                 return;
             }
-            if (!formData.get('ref_text')?.trim()) {
+            if (!hasSavedRef && !formData.get('ref_text')?.trim()) {
                 showToast('Reference text is required for F5-TTS.', 'error');
                 return;
             }
@@ -417,8 +468,9 @@ function setupForm() {
             const activePocketMode = document.getElementById('pocket-voice-mode-selector')
                 .querySelector('.mode-pill.active').getAttribute('data-mode');
             if (activePocketMode === 'clone') {
+                const hasSavedRef = formData.get('ref_id');
                 const pocketRefAudio = document.getElementById('pocket-ref-audio-file');
-                if (!pocketRefAudio || !pocketRefAudio.files.length) {
+                if (!hasSavedRef && (!pocketRefAudio || !pocketRefAudio.files.length)) {
                     showToast('Reference audio is required for PocketTTS clone mode.', 'error');
                     return;
                 }
@@ -702,3 +754,45 @@ function setupExtractForm() {
         }
     });
 }
+
+function setupGenerateRefSelectors() {
+    const f5VoiceSelect = document.getElementById('ref-voice-select');
+    const f5UploadGroup = document.getElementById('generate-f5-upload-group');
+    const f5RefTextGroup = document.getElementById('generate-f5-ref-text-group');
+    const f5RefTextInput = document.getElementById('ref-text-input');
+
+    if (f5VoiceSelect && f5UploadGroup) {
+        f5VoiceSelect.addEventListener('change', () => {
+            const val = f5VoiceSelect.value;
+            if (val) {
+                f5UploadGroup.style.display = 'none';
+                // Find saved voice transcript text
+                const ref = savedReferences.find(r => r.id === val);
+                if (ref) {
+                    f5RefTextInput.value = ref.text || '';
+                    f5RefTextInput.readOnly = true;
+                    f5RefTextInput.style.background = 'var(--bg-secondary)';
+                }
+            } else {
+                f5UploadGroup.style.display = 'block';
+                f5RefTextInput.value = '';
+                f5RefTextInput.readOnly = false;
+                f5RefTextInput.style.background = '';
+            }
+        });
+    }
+
+    const pocketVoiceSelect = document.getElementById('pocket-ref-voice-select');
+    const pocketUploadGroup = document.getElementById('generate-pocket-upload-group');
+
+    if (pocketVoiceSelect && pocketUploadGroup) {
+        pocketVoiceSelect.addEventListener('change', () => {
+            if (pocketVoiceSelect.value) {
+                pocketUploadGroup.style.display = 'none';
+            } else {
+                pocketUploadGroup.style.display = 'block';
+            }
+        });
+    }
+}
+
