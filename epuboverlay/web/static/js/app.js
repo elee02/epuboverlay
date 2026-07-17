@@ -348,7 +348,9 @@ function setupForm() {
 
         const formData = new FormData(jobForm);
 
-        // Adjust Kokoro parameters based on active voice mode
+        // Adjust parameters based on active synthesizer and clear unrelated fields
+        formData.delete('ref_audio');
+
         if (synthSelect.value === 'kokoro') {
             const currentMode = document.getElementById('voice-mode-selector').querySelector('.mode-pill.active').getAttribute('data-mode');
             if (currentMode === 'single') {
@@ -360,20 +362,40 @@ function setupForm() {
                 const vfi = document.getElementById('voice-formula-input');
                 formData.set('voice_formula', vfi ? vfi.value : '');
             }
-        }
+            formData.set('pocket_voice', '');
+            formData.set('ref_text', '');
+        } else if (synthSelect.value === 'pocket-tts') {
+            formData.set('voice', '');
+            formData.set('voice_formula', '');
+            formData.set('ref_text', '');
 
-        // Adjust PocketTTS parameters
-        if (synthSelect.value === 'pocket-tts') {
             const activePocketMode = document.getElementById('pocket-voice-mode-selector')
                 .querySelector('.mode-pill.active').getAttribute('data-mode');
             if (activePocketMode === 'preset') {
                 const pocketVoiceSelect = document.getElementById('pocket-voice-select');
                 formData.set('pocket_voice', pocketVoiceSelect ? pocketVoiceSelect.value : '');
-                // Remove ref_audio if present (not needed in preset mode)
-                formData.delete('ref_audio');
             } else {
                 formData.set('pocket_voice', '');
+                const pocketRefAudio = document.getElementById('pocket-ref-audio-file');
+                if (pocketRefAudio && pocketRefAudio.files.length > 0) {
+                    formData.set('ref_audio', pocketRefAudio.files[0]);
+                }
             }
+        } else if (synthSelect.value === 'f5-tts') {
+            formData.set('voice', '');
+            formData.set('voice_formula', '');
+            formData.set('pocket_voice', '');
+
+            const refAudioFile = document.getElementById('ref-audio-file');
+            if (refAudioFile && refAudioFile.files.length > 0) {
+                formData.set('ref_audio', refAudioFile.files[0]);
+            }
+        } else {
+            // dummy or any other
+            formData.set('voice', '');
+            formData.set('voice_formula', '');
+            formData.set('pocket_voice', '');
+            formData.set('ref_text', '');
         }
 
         if (!epubFile.files.length) {
