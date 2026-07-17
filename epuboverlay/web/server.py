@@ -1074,7 +1074,11 @@ async def preview_voice(
 
     # 4. Perform synthesis
     try:
-        wav_bytes, _ = synth.synthesize(text)
+        from epuboverlay.normalization import normalize_text
+        norm_settings = load_settings_data().get("current_settings", {})
+        normalized_text = normalize_text(text, norm_settings)
+        
+        wav_bytes, _ = synth.synthesize(normalized_text)
         
         # Save to playground stack in RAM
         import time
