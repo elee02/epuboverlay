@@ -135,6 +135,78 @@ class _HTMLChapterInfoExtractor(HTMLParser):
         return ""
 
 
+def parse_epub_toc(zf: zipfile.ZipFile, opf_path: str, opf_root: ET.Element) -> dict[str, str]:
+    """Parse EPUB 3 Navigation Document (nav) or EPUB 2 NCX to map XHTML zip paths to titles."""
+    toc_map: dict[str, str] = {}
+    opf_dir = Path(opf_path).parent
+
+    def _normalize(base: Path, href: str) -> str:
+        combined = (base / href).as_posix()
+        normalized = os.path.normpath(combined).replace("\\", "/")
+        return normalized.lstrip("./").lstrip("/")
+
+    # 1. Try EPUB 3 Navigation Document (nav)
+    nav_href = None
+    manifest_items = opf_root.findall(".//{*}manifest/{*}item")
+    for item in manifest_items:
+        properties = item.attrib.get("properties", "")
+        if "nav" in properties.split():
+            nav_href = item.attrib.get("href")
+            break
+
+    if nav_href:
+        try:
+            nav_zip_path = _normalize(opf_dir, nav_href)
+            nav_content = zf.read(nav_zip_path)
+            nav_root = ET.fromstring(nav_content)
+
+            # Find all <a> tags inside <nav epub:type="toc"> or any <nav>
+            for a_el in nav_root.findall(".//{*}a"):
+                href = a_el.attrib.get("href", "").strip()
+                if href:
+                    clean_href = href.split("#")[0]
+                    nav_dir = Path(nav_zip_path).parent
+                    resolved_href = _normalize(nav_dir, clean_href)
+                    
+                    text = "".join(a_el.itertext()).strip()
+                    if text and resolved_href not in toc_map:
+                        toc_map[resolved_href] = text
+        except Exception:
+            pass
+
+    # 2. Try EPUB 2 NCX file if EPUB 3 nav didn't yield anything
+    if not toc_map:
+        ncx_href = None
+        for item in manifest_items:
+            media_type = item.attrib.get("media-type", "")
+            if media_type == "application/x-dtbncx+xml":
+                ncx_href = item.attrib.get("href")
+                break
+        
+        if ncx_href:
+            try:
+                ncx_zip_path = _normalize(opf_dir, ncx_href)
+                ncx_content = zf.read(ncx_zip_path)
+                ncx_root = ET.fromstring(ncx_content)
+                
+                for nav_point in ncx_root.findall(".//{*}navPoint"):
+                    content_el = nav_point.find("{*}content")
+                    label_el = nav_point.find(".//{*}navLabel/{*}text")
+                    if content_el is not None and label_el is not None:
+                        src = content_el.attrib.get("src", "").strip()
+                        text = (label_el.text or "").strip()
+                        if src and text:
+                            clean_src = src.split("#")[0]
+                            ncx_dir = Path(ncx_zip_path).parent
+                            resolved_src = _normalize(ncx_dir, clean_src)
+                            if resolved_src not in toc_map:
+                                toc_map[resolved_src] = text
+            except Exception:
+                pass
+
+    return toc_map
+
+
 def extract_chapter_previews(epub_path: str | Path) -> list[dict]:
     """Extract ordered chapter metadata and previews for UI filtering."""
     epub_path = Path(epub_path)
@@ -151,6 +223,7 @@ def extract_chapter_previews(epub_path: str | Path) -> list[dict]:
             raise ValueError("EPUB rootfile entry is missing full-path")
 
         opf_root = ET.fromstring(zf.read(opf_path))
+        toc_map = parse_epub_toc(zf, opf_path, opf_root)
 
         manifest: dict[str, str] = {}
         for item in opf_root.findall(".//{*}manifest/{*}item"):
@@ -174,12 +247,20 @@ def extract_chapter_previews(epub_path: str | Path) -> list[dict]:
                     continue
 
             html_path = str((base_dir / href).as_posix())
+            normalized_html_path = os.path.normpath(html_path).replace("\\", "/").lstrip("./").lstrip("/")
             if html_path not in zf.namelist():
-                continue
+                if normalized_html_path in zf.namelist():
+                    html_path = normalized_html_path
+                else:
+                    continue
+
             extractor = _HTMLChapterInfoExtractor()
             extractor.feed(zf.read(html_path).decode("utf-8", errors="ignore"))
             text = extractor.text()
-            title = extractor.get_title() or idref or "Untitled Chapter"
+            
+            title = toc_map.get(normalized_html_path)
+            if not title:
+                title = extractor.get_title() or idref or "Untitled Chapter"
 
             results.append({
                 "idref": idref,

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
+from epuboverlay.pipeline import parse_epub_toc
 
 
 @dataclass
@@ -29,14 +30,18 @@ class ChapterOverlay:
 
 
 class _IDTextExtractor(HTMLParser):
-    """Extract text content from elements with id attributes in XHTML."""
+    """Extract text content from elements with id attributes in XHTML, plus title/headings."""
     def __init__(self) -> None:
         super().__init__()
         self._id_stack: list[str | None] = []
         self._current_id: str | None = None
         self._results: dict[str, list[str]] = {}
+        self._current_tag: str | None = None
+        self._title: str | None = None
+        self._heading: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._current_tag = tag.lower()
         attr_dict = dict(attrs)
         elem_id = attr_dict.get("id")
         self._id_stack.append(elem_id)
@@ -46,6 +51,8 @@ class _IDTextExtractor(HTMLParser):
                 self._results[elem_id] = []
 
     def handle_endtag(self, tag: str) -> None:
+        if self._current_tag == tag.lower():
+            self._current_tag = None
         if self._id_stack:
             popped = self._id_stack.pop()
             if popped == self._current_id:
@@ -58,8 +65,13 @@ class _IDTextExtractor(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         stripped = data.strip()
-        if stripped and self._current_id and self._current_id in self._results:
-            self._results[self._current_id].append(stripped)
+        if stripped:
+            if self._current_id and self._current_id in self._results:
+                self._results[self._current_id].append(stripped)
+            if self._current_tag == "title" and not self._title:
+                self._title = stripped
+            elif self._current_tag in ("h1", "h2") and not self._heading:
+                self._heading = stripped
 
     def get_id_texts(self) -> dict[str, str]:
         return {
@@ -67,6 +79,13 @@ class _IDTextExtractor(HTMLParser):
             for eid, parts in self._results.items()
             if parts
         }
+
+    def get_title(self) -> str:
+        if self._heading:
+            return self._heading
+        if self._title:
+            return self._title
+        return ""
 
 
 def _parse_smil_time(time_str: str) -> float:
@@ -107,6 +126,9 @@ def parse_epub_overlays(epub_path: str | Path) -> list[ChapterOverlay]:
 
         opf_root = ET.fromstring(zf.read(opf_path))
         opf_dir = Path(opf_path).parent
+
+        # Build TOC map
+        toc_map = parse_epub_toc(zf, opf_path, opf_root)
 
         # Build manifest map: id -> {href, media-type, media-overlay}
         manifest_items: dict[str, dict[str, str]] = {}
@@ -200,9 +222,17 @@ def parse_epub_overlays(epub_path: str | Path) -> list[ChapterOverlay]:
             extractor.feed(xhtml_content)
             id_to_text = extractor.get_id_texts()
 
+            # Retrieve clean title from TOC, falling back to html headers or Chapter X
+            normalized_xhtml_path = os.path.normpath(xhtml_zip_path).replace("\\", "/").lstrip("./").lstrip("/")
+            extracted_title = toc_map.get(normalized_xhtml_path)
+            if not extracted_title:
+                extracted_title = extractor.get_title().strip()
+            
+            chapter_title = extracted_title if extracted_title else f"Chapter {chapter_idx}"
+
             chapter = ChapterOverlay(
                 idref=idref,
-                title=f"Chapter {chapter_idx}",
+                title=chapter_title,
                 xhtml_href=xhtml_href,
                 smil_href=smil_href,
                 audio_href=audio_href,
@@ -779,7 +809,7 @@ def epub_to_audio_subtitles(
     if mp4_video and not include_audio:
         raise ValueError("Cannot convert to MP4 video without including the audio.")
 
-    if not formats:
+    if formats is None:
         formats = ["ass"]
 
     # Canonicalize formats
@@ -1214,6 +1244,8 @@ def _audio_to_mp4_video(audio_path: Path, output_path: Path, subtitle_path: Path
             "-map", "1:a",
             "-map", "1:v?",
             "-c:v:0", "libx264",
+            "-preset", "veryfast",
+            "-crf", "32",
             "-tune", "stillimage",
             "-pix_fmt", "yuv420p",
             "-c:a", "copy",

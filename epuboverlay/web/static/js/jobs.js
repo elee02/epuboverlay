@@ -379,7 +379,7 @@ export function renderCompletedJobs(completedJobs) {
                             <span>🎧</span> Export Audiobook + Subtitles
                         </span>
                         <button class="btn btn-audio btn-sm convert-audio-btn" style="margin: 0; padding: 0.4rem 0.85rem; font-size: 0.78rem;">
-                            🎵 Export Audiobook &amp; Subtitles
+                            Export
                         </button>
                     </div>
 
@@ -459,12 +459,24 @@ export function renderCompletedJobs(completedJobs) {
             </div>
         `;
 
-        // Setup checkbox dependencies
+                // Setup checkbox dependencies
         const audioCb = card.querySelector(`.include-audio-cb`);
         const mp4Cb = card.querySelector(`.mp4-video-cb`);
         const embedSubsCb = card.querySelector(`.embed-subtitles-cb`);
         const mp4Group = card.querySelector(`#mp4-group-${job.id}`);
         const embedSubsGroup = card.querySelector(`#embed-subs-group-${job.id}`);
+
+        const fmtAss = card.querySelector(`.fmt-cb-ass`);
+        const fmtSrt = card.querySelector(`.fmt-cb-srt`);
+        const fmtVtt = card.querySelector(`.fmt-cb-vtt`);
+        const fmtTtml = card.querySelector(`.fmt-cb-ttml`);
+        const fmtSbv = card.querySelector(`.fmt-cb-sbv`);
+        const fmtLrc = card.querySelector(`.fmt-cb-lrc`);
+        const fmtTxt = card.querySelector(`.fmt-cb-txt`);
+
+        const mergeCb = card.querySelector(`.merge-chapters-cb`);
+        const centerCb = card.querySelector(`.center-subtitles-cb`);
+        const convertBtn = card.querySelector(`.convert-audio-btn`);
 
         function updateCardCheckboxDependencies() {
             const audioChecked = audioCb.checked;
@@ -488,11 +500,94 @@ export function renderCompletedJobs(completedJobs) {
                 embedSubsCb.checked = false;
                 if (embedSubsGroup) embedSubsGroup.style.opacity = '0.5';
             }
+
+            const isMp4 = mp4Cb.checked;
+            const isEmbed = embedSubsCb.checked;
+
+            function setFmtState(el, enabled) {
+                if (!el) return;
+                el.disabled = !enabled;
+                const parentLabel = el.closest('label');
+                if (parentLabel) {
+                    parentLabel.style.opacity = enabled ? '1' : '0.5';
+                }
+                if (!enabled) {
+                    el.checked = false;
+                }
+            }
+
+            setFmtState(fmtTxt, true);
+
+            if (isEmbed) {
+                setFmtState(fmtAss, false);
+                setFmtState(fmtSrt, false);
+                setFmtState(fmtVtt, false);
+                setFmtState(fmtTtml, false);
+                setFmtState(fmtSbv, false);
+                setFmtState(fmtLrc, false);
+            } else {
+                if (isMp4) {
+                    setFmtState(fmtAss, true);
+                    setFmtState(fmtSrt, true);
+                    setFmtState(fmtVtt, true);
+                    setFmtState(fmtTtml, true);
+                    setFmtState(fmtSbv, true);
+                    setFmtState(fmtLrc, false);
+                } else {
+                    setFmtState(fmtAss, false);
+                    setFmtState(fmtSrt, false);
+                    setFmtState(fmtVtt, false);
+                    setFmtState(fmtTtml, false);
+                    setFmtState(fmtSbv, false);
+                    setFmtState(fmtLrc, true);
+                }
+            }
+
+            const anyFmtChecked = [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].some(el => el && el.checked);
+            const audioOrAnyFmtSelected = audioChecked || anyFmtChecked;
+
+            if (mergeCb) {
+                mergeCb.disabled = !audioOrAnyFmtSelected;
+                const mergeLabel = mergeCb.closest('label');
+                if (mergeLabel) {
+                    mergeLabel.style.opacity = audioOrAnyFmtSelected ? '1' : '0.5';
+                }
+                if (!audioOrAnyFmtSelected) {
+                    mergeCb.checked = false;
+                }
+            }
+
+            const centerApplicableChecked = isEmbed || [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv].some(el => el && el.checked && !el.disabled);
+            if (centerCb) {
+                centerCb.disabled = !centerApplicableChecked;
+                const centerLabel = centerCb.closest('label');
+                if (centerLabel) {
+                    centerLabel.style.opacity = centerApplicableChecked ? '1' : '0.5';
+                }
+                if (!centerApplicableChecked) {
+                    centerCb.checked = false;
+                }
+            }
+
+            if (convertBtn) {
+                convertBtn.disabled = !audioOrAnyFmtSelected;
+            }
         }
 
         if (audioCb && mp4Cb) {
             audioCb.addEventListener('change', updateCardCheckboxDependencies);
             mp4Cb.addEventListener('change', updateCardCheckboxDependencies);
+            if (embedSubsCb) {
+                embedSubsCb.addEventListener('change', () => {
+                    if (embedSubsCb.checked) {
+                        if (centerCb) centerCb.checked = true;
+                    }
+                    updateCardCheckboxDependencies();
+                });
+            }
+            [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].forEach(el => {
+                if (el) el.addEventListener('change', updateCardCheckboxDependencies);
+            });
             updateCardCheckboxDependencies();
         }
 
@@ -537,12 +632,12 @@ export function renderCompletedJobs(completedJobs) {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                showToast('🎵 Audiobook + Subtitles exported successfully!', 'success');
+                showToast('Audiobook + Subtitles exported successfully!', 'success');
             } catch (err) {
                 showToast('Export failed: ' + err.message, 'error');
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '🎵 Export Audiobook &amp; Subtitles';
+                btn.innerHTML = 'Export';
             }
         });
 

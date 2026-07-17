@@ -472,6 +472,7 @@ function setupExtractForm() {
     function updateCheckboxDependencies() {
         const audioChecked = extractAudioCheckbox.checked;
         const mp4Checked = extractMp4Checkbox.checked;
+        const embedSubsChecked = extractEmbedSubsCheckbox.checked;
         const mp4Label = extractMp4Checkbox.closest('label');
         
         if (audioChecked) {
@@ -490,11 +491,108 @@ function setupExtractForm() {
             extractEmbedSubsCheckbox.checked = false;
             extractEmbedSubsGroup.style.opacity = '0.5';
         }
+
+        const isMp4 = extractMp4Checkbox.checked;
+        const isEmbed = extractEmbedSubsCheckbox.checked;
+
+        const fmtAss = document.getElementById('extract-fmt-ass');
+        const fmtSrt = document.getElementById('extract-fmt-srt');
+        const fmtVtt = document.getElementById('extract-fmt-vtt');
+        const fmtTtml = document.getElementById('extract-fmt-ttml');
+        const fmtSbv = document.getElementById('extract-fmt-sbv');
+        const fmtLrc = document.getElementById('extract-fmt-lrc');
+        const fmtTxt = document.getElementById('extract-fmt-txt');
+
+        function setFmtState(el, enabled) {
+            if (!el) return;
+            el.disabled = !enabled;
+            const parentLabel = el.closest('label');
+            if (parentLabel) {
+                parentLabel.style.opacity = enabled ? '1' : '0.5';
+            }
+            if (!enabled) {
+                el.checked = false;
+            }
+        }
+
+        setFmtState(fmtTxt, true);
+
+        if (isEmbed) {
+            setFmtState(fmtAss, false);
+            setFmtState(fmtSrt, false);
+            setFmtState(fmtVtt, false);
+            setFmtState(fmtTtml, false);
+            setFmtState(fmtSbv, false);
+            setFmtState(fmtLrc, false);
+        } else {
+            if (isMp4) {
+                setFmtState(fmtAss, true);
+                setFmtState(fmtSrt, true);
+                setFmtState(fmtVtt, true);
+                setFmtState(fmtTtml, true);
+                setFmtState(fmtSbv, true);
+                setFmtState(fmtLrc, false);
+            } else {
+                setFmtState(fmtAss, false);
+                setFmtState(fmtSrt, false);
+                setFmtState(fmtVtt, false);
+                setFmtState(fmtTtml, false);
+                setFmtState(fmtSbv, false);
+                setFmtState(fmtLrc, true);
+            }
+        }
+
+        const anyFmtChecked = [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].some(el => el && el.checked);
+        const audioOrAnyFmtSelected = audioChecked || anyFmtChecked;
+
+        const mergeCb = document.getElementById('extract-merge-checkbox');
+        if (mergeCb) {
+            mergeCb.disabled = !audioOrAnyFmtSelected;
+            const mergeLabel = mergeCb.closest('label');
+            if (mergeLabel) {
+                mergeLabel.style.opacity = audioOrAnyFmtSelected ? '1' : '0.5';
+            }
+            if (!audioOrAnyFmtSelected) {
+                mergeCb.checked = false;
+            }
+        }
+
+        const centerApplicableChecked = isEmbed || [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv].some(el => el && el.checked && !el.disabled);
+        const centerCb = document.getElementById('extract-center-checkbox');
+        if (centerCb) {
+            centerCb.disabled = !centerApplicableChecked;
+            const centerLabel = centerCb.closest('label');
+            if (centerLabel) {
+                centerLabel.style.opacity = centerApplicableChecked ? '1' : '0.5';
+            }
+            if (!centerApplicableChecked) {
+                centerCb.checked = false;
+            }
+        }
+
+        if (extractSubmitBtn) {
+            extractSubmitBtn.disabled = !audioOrAnyFmtSelected;
+        }
     }
 
     if (extractAudioCheckbox && extractMp4Checkbox) {
         extractAudioCheckbox.addEventListener('change', updateCheckboxDependencies);
         extractMp4Checkbox.addEventListener('change', updateCheckboxDependencies);
+        if (extractEmbedSubsCheckbox) {
+            extractEmbedSubsCheckbox.addEventListener('change', () => {
+                if (extractEmbedSubsCheckbox.checked) {
+                    const centerCb = document.getElementById('extract-center-checkbox');
+                    if (centerCb) centerCb.checked = true;
+                }
+                updateCheckboxDependencies();
+            });
+        }
+        ['ass', 'srt', 'vtt', 'ttml', 'sbv', 'lrc', 'txt'].forEach(fmt => {
+            const el = document.getElementById(`extract-fmt-${fmt}`);
+            if (el) {
+                el.addEventListener('change', updateCheckboxDependencies);
+            }
+        });
         updateCheckboxDependencies();
     }
 
@@ -527,7 +625,7 @@ function setupExtractForm() {
         if (formats.length === 0 && !extractAudioCheckbox.checked) {
             showToast('Please select at least one format (Audiobook or a subtitle format) to export.', 'error');
             extractSubmitBtn.disabled = false;
-            extractSubmitBtn.innerHTML = '📤 Export Audiobook + Subtitles';
+            extractSubmitBtn.innerHTML = 'Export';
             extractStatus.style.display = 'none';
             return;
         }
@@ -587,7 +685,7 @@ function setupExtractForm() {
             showToast(err.message, 'error');
         } finally {
             extractSubmitBtn.disabled = false;
-            extractSubmitBtn.innerHTML = '📤 Export Audiobook + Subtitles';
+            extractSubmitBtn.innerHTML = 'Export';
         }
     });
 }
