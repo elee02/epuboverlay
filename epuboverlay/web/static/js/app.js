@@ -517,29 +517,20 @@ function setupExtractForm() {
 
         setFmtState(fmtTxt, true);
 
-        if (isEmbed) {
+        if (isMp4) {
+            setFmtState(fmtAss, true);
+            setFmtState(fmtSrt, true);
+            setFmtState(fmtVtt, true);
+            setFmtState(fmtTtml, true);
+            setFmtState(fmtSbv, true);
+            setFmtState(fmtLrc, false);
+        } else {
             setFmtState(fmtAss, false);
             setFmtState(fmtSrt, false);
             setFmtState(fmtVtt, false);
             setFmtState(fmtTtml, false);
             setFmtState(fmtSbv, false);
-            setFmtState(fmtLrc, false);
-        } else {
-            if (isMp4) {
-                setFmtState(fmtAss, true);
-                setFmtState(fmtSrt, true);
-                setFmtState(fmtVtt, true);
-                setFmtState(fmtTtml, true);
-                setFmtState(fmtSbv, true);
-                setFmtState(fmtLrc, false);
-            } else {
-                setFmtState(fmtAss, false);
-                setFmtState(fmtSrt, false);
-                setFmtState(fmtVtt, false);
-                setFmtState(fmtTtml, false);
-                setFmtState(fmtSbv, false);
-                setFmtState(fmtLrc, true);
-            }
+            setFmtState(fmtLrc, true);
         }
 
         const anyFmtChecked = [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].some(el => el && el.checked);
@@ -633,7 +624,7 @@ function setupExtractForm() {
         const formData = new FormData();
         formData.append('epub', extractEpubFile.files[0]);
         formData.append('merge', document.getElementById('extract-merge-checkbox').checked);
-        formData.append('formats', formats.join(','));
+        formData.append('formats', formats.length > 0 ? formats.join(',') : 'none');
         formData.append('center', document.getElementById('extract-center-checkbox').checked ? 'true' : 'false');
         formData.append('mp4_video', extractMp4Checkbox.checked ? 'true' : 'false');
         formData.append('embed_subtitles', extractEmbedSubsCheckbox.checked ? 'true' : 'false');

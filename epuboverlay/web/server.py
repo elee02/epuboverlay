@@ -521,7 +521,10 @@ async def convert_job_to_audio(
             tmp_cover.close()
             tmp_cover_path = Path(tmp_cover.name)
 
-        formats_list = [f.strip() for f in formats.split(",") if f.strip()]
+        if not formats or formats.lower().strip() == "none":
+            formats_list = []
+        else:
+            formats_list = [f.strip() for f in formats.split(",") if f.strip()]
         results = epub_to_audio_subtitles(
             epub_path=job.output_epub_path,
             output_dir=output_dir,
@@ -699,7 +702,10 @@ async def extract_audio_lrc(
             tmp_cover.close()
             tmp_cover_path = Path(tmp_cover.name)
 
-        formats_list = [f.strip() for f in formats.split(",") if f.strip()]
+        if not formats or formats.lower().strip() == "none":
+            formats_list = []
+        else:
+            formats_list = [f.strip() for f in formats.split(",") if f.strip()]
         results = epub_to_audio_subtitles(
             epub_path=Path(tmp_epub.name),
             output_dir=output_dir,

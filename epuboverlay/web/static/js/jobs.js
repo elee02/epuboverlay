@@ -518,29 +518,20 @@ export function renderCompletedJobs(completedJobs) {
 
             setFmtState(fmtTxt, true);
 
-            if (isEmbed) {
+            if (isMp4) {
+                setFmtState(fmtAss, true);
+                setFmtState(fmtSrt, true);
+                setFmtState(fmtVtt, true);
+                setFmtState(fmtTtml, true);
+                setFmtState(fmtSbv, true);
+                setFmtState(fmtLrc, false);
+            } else {
                 setFmtState(fmtAss, false);
                 setFmtState(fmtSrt, false);
                 setFmtState(fmtVtt, false);
                 setFmtState(fmtTtml, false);
                 setFmtState(fmtSbv, false);
-                setFmtState(fmtLrc, false);
-            } else {
-                if (isMp4) {
-                    setFmtState(fmtAss, true);
-                    setFmtState(fmtSrt, true);
-                    setFmtState(fmtVtt, true);
-                    setFmtState(fmtTtml, true);
-                    setFmtState(fmtSbv, true);
-                    setFmtState(fmtLrc, false);
-                } else {
-                    setFmtState(fmtAss, false);
-                    setFmtState(fmtSrt, false);
-                    setFmtState(fmtVtt, false);
-                    setFmtState(fmtTtml, false);
-                    setFmtState(fmtSbv, false);
-                    setFmtState(fmtLrc, true);
-                }
+                setFmtState(fmtLrc, true);
             }
 
             const anyFmtChecked = [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].some(el => el && el.checked);

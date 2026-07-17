@@ -144,9 +144,7 @@ export async function deleteProfile(name) {
 export async function convertJobToAudio(jobId, merge, formats, center, mp4Video, embedSubtitles, includeAudio, coverArtFile) {
     const formData = new FormData();
     formData.append('merge', merge ? 'true' : 'false');
-    if (formats && formats.length > 0) {
-        formData.append('formats', formats.join(','));
-    }
+    formData.append('formats', (formats && formats.length > 0) ? formats.join(',') : 'none');
     formData.append('center', center ? 'true' : 'false');
     formData.append('mp4_video', mp4Video ? 'true' : 'false');
     formData.append('embed_subtitles', embedSubtitles ? 'true' : 'false');
