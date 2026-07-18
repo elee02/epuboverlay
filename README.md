@@ -1,10 +1,10 @@
 # epuboverlay
 
-`epuboverlay` is a dual-purpose tool designed to generate narrated **EPUB 3 files with Media Overlays** using F5-TTS, Kokoro, or Pocket-TTS, and to extract synchronized audio tracks (M4A/MP3) and standard `.lrc` files from narrated e-books.
+`epuboverlay` is a powerful tool designed to generate narrated **EPUB 3 files with Media Overlays** using F5-TTS, Kokoro, or Pocket-TTS, and to extract synchronized audio tracks (M4B/M4A/MP3) and standard subtitle files (ASS, SRT, VTT, etc.) from narrated e-books. It also includes capabilities to parse and extract chapters/previews from other document formats like PDF, DOCX, Markdown, and TXT.
 
 Instead of restricting you to one format, `epuboverlay` bridges the gap between interactive e-book reading and standalone audio listening:
 - 📖 **Generation (EPUB Enhancement)**: It segments XHTML text into sentences/clauses, wraps them in visual `<span id="...">` tags, synthesizes matching spoken narration in your chosen voice, generates standard W3C SMIL sync maps, and packages everything back into a fully validated EPUB 3 container. This allows modern e-readers (such as Apple Books, Kobo, or Thorium Reader) to highlight sentences in real-time sync with the audio.
-- 🎵 **Extraction (Standalone Playback)**: It unpacks existing narrated EPUBs, extracts their audio tracks, and generates matching `.lrc` sync files (with optional chapter merging) for playback on standard media/music players (e.g. Poweramp).
+- 🎵 **Extraction (Standalone Playback)**: It unpacks existing narrated EPUBs, extracts their audio tracks, and generates matching subtitle sync files (with options like chapter merging, custom cover art, and subtitle centering/burning) for playback on standard media/music/video players (e.g. Poweramp).
 
 ---
 
@@ -63,11 +63,14 @@ flowchart TD
 - 🎭 **AI Voice Cloning & Blending**: 
   - Zero-shot voice cloning using F5-TTS or Pocket-TTS (Kyutai Labs). Provide a short reference audio clip (.wav) to clone your own voice.
   - Voice formula blending using Kokoro (e.g. `af_heart*0.6+af_sky*0.4`) with slider controls, presets, and real-time voice previews.
+- 🎙️ **Voice Playground & Voice Library**: Integrated voice testing area with text normalization and real-time playback, paired with a multi-tab voice library to upload, record, and preview reference audio clips.
 - 📝 **Advanced Text Normalization**: Built-in pipeline with customizable settings for numeral expansion, contraction resolution, heteronym resolution, punctuation harmonization, and custom lexicons.
+- 📂 **Multi-Format Preprocessors**: Built-in document preprocessor factory to extract chapter structure, previews, and character counts from EPUB, PDF, DOCX, Markdown, and TXT files.
 - ⚡ **Parallel Synthesis & Multiprocessing**: Utilizes a multiprocessing backend to process text segments in parallel, saturating modern GPUs and speeding up narration generation by up to 2x–3x compared to sequential inference.
 - 💾 **Persistent & Scoped Cache**: Hashes input EPUB content and synthesizer configurations, caching assets in structured subdirectories. Features automated legacy cache migration to gracefully move older flat structure caches.
 - 🔄 **Job Resumption with Config Editing**: Failed or cancelled generation jobs can be resumed from the Web UI or via the REST API, with the option to update execution parameters (like device, speed, concurrency, NFE, or model compilation) without starting over.
-- 📤 **EPUB Media Overlay Extraction**: Extract high-quality M4A/MP3 tracks and matching `.lrc` sync lyric files from EPUB3 files with media overlays, with optional chapter merging into a single audio/LRC file pair for playback on portable players (e.g. Poweramp).
+- 📤 **Extensible Media Overlay Extraction**: Extract audio tracks as M4B (with metadata, chapter markers, and custom cover art) or M4A (without chapters), and subtitles in multiple formats (ASS, SRT, VTT, TTML, SBV, LRC, TXT) with options to center or burn subtitles directly into generated MP4 video tracks.
+- 📖 **Table of Contents (TOC) Rebuilding**: Dynamic reconstruction of NAV (XHTML) and NCX (XML) Table of Contents when flat EPUBs undergo heuristic splitting during media overlay generation.
 - 🖥️ **Interactive Web Dashboard**: A premium dark-mode SPA featuring drag-and-drop uploads for both generation and extraction, live system hardware metrics (CPU, RAM, Disk, GPU/VRAM), chapter-by-chapter progress visualizers, active job control (cancellation, resumption), streaming audio previews, and direct download links.
 - 📊 **CLI Progress Tracking**: Detailed CLI output with subcommands, progress bar, chapter/chunk indices, elapsed time, characters processed, and live ETA calculations.
 - 🔄 **CLI & Web Syncing**: The Web Dashboard detects and monitors background CLI execution jobs in real-time, allowing you to run jobs on headless servers and monitor them via the web interface.
@@ -93,8 +96,12 @@ flowchart TD
 ### 2. Synthesizer Dependencies
 - **Dummy Mode**: Requires zero machine learning libraries and generates silent placeholders instantaneously. Great for debugging and validating EPUB packaging.
 - **F5-TTS Mode**: Requires `f5-tts`, PyTorch, and a compatible backend (CUDA for Nvidia GPUs, MPS for Apple Silicon, or CPU fallback).
-- **Kokoro Mode**: Requires `kokoro>=0.9.4` (Hexgrad Kokoro-82M), PyTorch, and a compatible backend (CPU/GPU).
+- **Kokoro Mode**: Requires `kokoro>=0.7.16` (Hexgrad Kokoro-82M), PyTorch, and a compatible backend (CPU/GPU).
 - **Pocket-TTS Mode**: Requires `pocket-tts`, `scipy`, and `numpy` for CPU-efficient local zero-shot voice cloning.
+
+### 3. Optional Document Preprocessor Dependencies
+- **DOCX Mode**: Requires `python-docx` to extract chapters and text from Microsoft Word documents.
+- **PDF Mode**: Requires `pypdf` to extract page-by-page text from PDF documents.
 
 ---
 
@@ -116,6 +123,9 @@ flowchart TD
    ```bash
    # Install the package and all its synthesizer backend dependencies (f5-tts, kokoro, pocket-tts)
    pip install -e .
+
+   # (Optional) Install document preprocessor dependencies (python-docx, pypdf)
+   pip install -e .[all]
    ```
 
 ---
@@ -209,15 +219,21 @@ Concurrency: 2
 [Chapter 1/14] [Chunk 4/30] |████░░░░░░░░░░░░░░░░| 20.3% Elapsed: 1m14.2s ETA: ~4m51.8s (chapter_01)
 ```
 
-#### B. Extracting MP3 + LRC (`extract` subcommand)
+#### B. Extracting Audio & Subtitles (`extract` subcommand)
 
-Extract audio tracks and `.lrc` lyric files from an EPUB that already has Media Overlays:
+Extract audio tracks (M4B, M4A) and subtitle files (ASS, SRT, VTT, etc.) from an EPUB that already has Media Overlays:
 ```bash
-# Extract separate audio + LRC pairs for each chapter (auto-detects M4A/MP3)
+# Extract separate M4B chapter audio and ASS subtitles (default)
 epuboverlay extract --epub my_book_narrated.epub -o output_dir/
 
-# Extract and merge all chapters into a single audio + LRC pair
-epuboverlay extract --epub my_book_narrated.epub -o output_dir/ --merge
+# Extract and merge all chapters into a single M4B audiobook file with chapter markers, metadata, and custom cover art
+epuboverlay extract --epub my_book_narrated.epub -o output_dir/ --merge --cover-art path/to/cover.jpg
+
+# Export to SRT and VTT formats, center subtitles, and convert to MP4 video with embedded subtitles
+epuboverlay extract --epub my_book_narrated.epub -o output_dir/ --formats "srt,vtt" --center --mp4-video --embed-subtitles
+
+# Extract only subtitles (LRC, SRT) without extracting/encoding audio
+epuboverlay extract --epub my_book_narrated.epub -o output_dir/ --formats "lrc,srt" --no-audio
 ```
 
 ---
@@ -245,6 +261,23 @@ The following table lists the settings available in the generation CLI/Web API:
 | `--cache-dir` | | Custom folder path for intermediate chapter audio/SMIL caching. | `~/.epuboverlay/cache/...` | CLI Only |
 | `nfe_step` | | Number of inference steps for F5-TTS model (min: 10, max: 64). | `32` | Web API Only |
 | `compile` | | Optimize inference speed by compiling the model via `torch.compile` (the first chunk takes 1-2 minutes). | `False` | Web API Only |
+| `pocket_voice` | | PocketTTS preset voice name (optional). | `""` | Web API Only |
+| `selected_chapters` | | JSON list of chapter `idref` strings to selectively process (optional). | `""` | Web API Only |
+
+### Subcommand `extract` Options
+
+| Option | Shortcut | Description | Default | Availability |
+| :--- | :--- | :--- | :--- | :--- |
+| `--epub` | | **[Required]** Path to the input EPUB 3 file with media overlays. | | CLI & Web |
+| `-o`, `--output` | | **[Required]** Output directory for extracted audio and subtitle files. | | CLI Only |
+| `--merge` | | Merge all chapters into a single audio + subtitle set. | `False` | CLI & Web |
+| `--formats` | | Comma-separated list of subtitle formats to export (choices: `ass`, `srt`, `vtt`, `ttml`, `sbv`, `lrc`, `txt`, or `none`). | `ass` | CLI & Web |
+| `--center` | | Center subtitles horizontally and vertically. | `False` | CLI & Web |
+| `--mp4-video` | | Convert the extracted audio to an MP4 video using an ultra-low-bitrate static black video. | `False` | CLI & Web |
+| `--no-audio` | | Do not extract/generate audio files, only extract subtitles. | `False` | CLI & Web |
+| `--embed-subtitles`| | Embed/burn subtitles into the MP4 video (only if `--mp4-video` is specified). | `False` | CLI & Web |
+| `--cover-art` | | Path to an optional cover art image to embed in the audiobook (.m4b). | | CLI & Web |
+| `audio_format` | | Audio container format — `m4b` (with chapters) or `m4a` (without chapters). | `m4b` | Web API Only |
 
 ---
 
@@ -255,7 +288,7 @@ The pipeline decompresses the input EPUB ZIP archive into a temporary folder str
 
 ### Phase 2: Segmentation & HTML Spanning
 To map audio to text elements, the raw XHTML document is parsed using python's `xml.etree.ElementTree`.
-1. **Block Element Extraction**: The parser identifies structural blocks (`<p>`, `<li>`, `<h1>` to `<h6>`, `<blockquote>`, etc.).
+1. **Block Element Extraction & Preprocessing**: The parser identifies structural blocks (`<p>`, `<li>`, `<h1>` to `<h6>`, `<blockquote>`, etc.). If heuristic splitting is used for flat EPUBs, it runs paragraph line-wrap merging and scans for heuristic anchors to segment the document, rebuilding the NAV (XHTML) and NCX (XML) Table of Contents.
 2. **Abbreviation Protection**: Sentence parsing ([split_into_sentences](file:///home/rasulovelyor/Projects/epuboverlay/epuboverlay/pipeline.py#L235)) protects common abbreviation suffixes (e.g., `Mr.`, `Dr.`, `vs.`, initials like `A.`) to prevent premature splits.
 3. **Clause Splitting**: If a sentence exceeds the `--max-chars` limit (150 chars), it is split on punctuation marks (`,`, `;`, `:`, `—`) using [chunk_text](file:///home/rasulovelyor/Projects/epuboverlay/epuboverlay/pipeline.py#L262) to keep synthesis chunks natural and brief.
 4. **Spanning**: The original text content inside each HTML block is replaced with `<span id="epuboverlay-s-N">` tags wrapped around each chunk.
@@ -273,7 +306,7 @@ To map audio to text elements, the raw XHTML document is parsed using python's `
    $$\text{Duration (seconds)} = \frac{\text{Generated Audio Frames}}{\text{Frame Rate (Hz)}}$$
    The start and end times for each span ID are compiled sequentially by accumulating these durations.
 2. **Audio Concatenation**: Individual WAV chunks are merged in memory or compiled via temporary files to form a continuous chapter-length audio stream.
-3. **M4A/AAC Compression**: The concatenated WAV is processed and compressed to standard M4A (AAC-LC) using `ffmpeg` to reduce package file sizes while complying with EPUB 3 audio recommendations (with MP3 fallbacks supported).
+3. **M4A/AAC Compression & Audiobook Export**: The concatenated WAV is processed and compressed to standard M4A (AAC-LC) using `ffmpeg` to reduce package file sizes. It also supports packaging into an M4B audiobook container complete with metadata, chapter designations, and custom cover art.
 
 ### Phase 5: Packaging (Metadata & Rebuild)
 1. **SMIL Sync Maps**: For each chapter, a W3C SMIL document (`smil_c1.smil`) is generated mapping each visual span ID to its exact beginning/end time offset inside the chapter's M4A/MP3 file.
@@ -316,9 +349,11 @@ The FastAPI backend exposes the following REST endpoints:
   - `synthesizer`: String (`f5-tts`, `kokoro`, `pocket-tts`, or `dummy`, default `f5-tts`)
   - `ref_audio`: File (WAV/MP3/M4A reference sample, required for `f5-tts` and `pocket-tts`)
   - `ref_text`: String (reference text transcript, required for `f5-tts`)
+  - `ref_id`: String (saved reference voice ID, optional)
   - `voice`: String (name of Kokoro voice, e.g. `af_heart`)
   - `voice_formula`: String (Kokoro voice mix formula, e.g. `af_heart*0.6+af_sky*0.4`)
   - `lang_code`: String (Kokoro language code, default `a`)
+  - `pocket_voice`: String (PocketTTS preset voice name, optional)
   - `device`: String (`cuda`, `cpu`, `mps`, or empty)
   - `speed`: Float (default `1.0`)
   - `max_chars`: Integer (default `150`)
@@ -326,6 +361,7 @@ The FastAPI backend exposes the following REST endpoints:
   - `concurrency`: Integer (default `2`)
   - `nfe_step`: Integer (default `32`)
   - `compile`: Boolean (default `false`)
+  - `selected_chapters`: String (JSON array of chapter idref strings, optional)
 - **Response**: Details of the created job. Includes estimated audiobook duration and total character counts.
 - **Errors**: Returns `409 Conflict` if another job is already running.
 
@@ -392,13 +428,46 @@ The FastAPI backend exposes the following REST endpoints:
 - **Response**: Details of the updated and restarted job.
 - **Errors**: Returns `400 Bad Request` if the job is not in a failed/cancelled state, or `409 Conflict` if another job is already running.
 
-#### 9. Extract Audio + LRC
+#### 9. Delete Job
+- **Route**: `DELETE /api/jobs/{job_id}`
+- **Response**: `{"status": "deleted"}` if successful.
+- **Errors**: `400 Bad Request` if the job is not found or is currently running.
+
+#### 10. Extract Audio + Subtitles from Completed Job
+- **Route**: `POST /api/jobs/{job_id}/convert-audio`
+- **Content-Type**: `multipart/form-data`
+- **Parameters**:
+  - `merge`: Boolean (default `true`)
+  - `formats`: String (comma-separated subtitle formats, default `"ass"`)
+  - `center`: Boolean (default `true`)
+  - `mp4_video`: Boolean (default `false`)
+  - `embed_subtitles`: Boolean (default `false`)
+  - `include_audio`: Boolean (default `true`)
+  - `audio_format`: String (`m4b` or `m4a`, default `m4b`)
+  - `cover_art`: File (optional cover art image upload)
+- **Response**: A ZIP archive containing extracted or merged audio+subtitle tracks.
+
+#### 11. Extract Chapters and Previews
+- **Route**: `POST /api/chapters`
+- **Content-Type**: `multipart/form-data`
+- **Parameters**:
+  - `epub`: File (uploaded EPUB, DOCX, PDF, Markdown, or TXT file, required)
+- **Response**: Array of parsed document sections including `idref`, `title`, `char_count`, and `preview`.
+
+#### 12. Extract Audio + Subtitles (Generic Upload)
 - **Route**: `POST /api/extract`
 - **Content-Type**: `multipart/form-data`
 - **Parameters**:
-  - `epub`: File (EPUB binary, required)
+  - `epub`: File (EPUB binary with media overlays, required)
   - `merge`: Boolean (default `false`)
-- **Response**: A ZIP archive containing extracted per-chapter or merged M4A/MP3+LRC files.
+  - `formats`: String (comma-separated subtitle formats, default `"ass"`)
+  - `center`: Boolean (default `false`)
+  - `mp4_video`: Boolean (default `false`)
+  - `embed_subtitles`: Boolean (default `false`)
+  - `include_audio`: Boolean (default `true`)
+  - `audio_format`: String (`m4b` or `m4a`, default `m4b`)
+  - `cover_art`: File (optional cover art image upload)
+- **Response**: A ZIP archive containing extracted per-chapter or merged audio+subtitle files.
 
 ### System Resources
 
