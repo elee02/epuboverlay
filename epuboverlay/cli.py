@@ -39,8 +39,8 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
                   file=sys.stderr)
             return 1
     elif parsed.synthesizer == "pocket-tts":
-        if not parsed.ref_audio:
-            print("Error: --ref-audio is required when using the pocket-tts synthesizer.",
+        if not parsed.ref_audio and not parsed.pocket_voice:
+            print("Error: Either --ref-audio or --pocket-voice is required when using the pocket-tts synthesizer.",
                   file=sys.stderr)
             return 1
     elif parsed.synthesizer == "kokoro":
@@ -146,6 +146,7 @@ def _cmd_extract(parsed: argparse.Namespace) -> int:
             include_audio=not parsed.no_audio,
             embed_subtitles=parsed.embed_subtitles,
             cover_art=cover_art_path,
+            audio_format=parsed.audio_format,
         )
         print(f"\n✓ Extracted {len(results)} set(s):")
         for audio, subtitles in results:
@@ -258,6 +259,18 @@ def main(args: list[str] | None = None) -> int:
         default=2,
         help="Number of concurrent workers for synthesis (default: 2)."
     )
+    gen_parser.add_argument(
+        "--nfe-step",
+        type=int,
+        default=32,
+        help="Number of inference steps for F5-TTS model (min: 10, max: 64; default: 32)."
+    )
+    gen_parser.add_argument(
+        "--pocket-voice",
+        type=str,
+        default="",
+        help="PocketTTS preset voice name (optional)."
+    )
 
     # ── extract subcommand ──
     ext_parser = subparsers.add_parser(
@@ -316,6 +329,12 @@ def main(args: list[str] | None = None) -> int:
         "--cover-art",
         type=Path,
         help="Path to an optional cover art image to embed in the audiobook (.m4b)."
+    )
+    ext_parser.add_argument(
+        "--audio-format",
+        choices=["m4b", "m4a"],
+        default="m4b",
+        help="Audio container format — 'm4b' (with chapters) or 'm4a' (without chapters; default: m4b)."
     )
 
     parsed = parser.parse_args(args)

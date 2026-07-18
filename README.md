@@ -252,16 +252,15 @@ The following table lists the settings available in the generation CLI/Web API:
 | `--voice` | | Name of the built-in Kokoro voice to use (e.g. `af_heart`). | `""` | CLI & Web |
 | `--voice-formula` | | Custom voice mix formula for Kokoro (e.g. `af_heart*0.6+af_sky*0.4`). | `""` | CLI & Web |
 | `--lang-code` | | Kokoro language code (e.g. `a` for American English, `b` for British English). | `a` | CLI & Web |
-| `--compile` | | Optimize inference speed by compiling the model via `torch.compile` (f5-tts only). | `False` | CLI & Web |
+| `--compile` | | Optimize inference speed by compiling the model via `torch.compile` (f5-tts only; the first chunk compilation takes 1-2 minutes). | `False` | CLI & Web |
 | `--device` | | Hardware device: `cuda`, `cpu`, or `mps`. | `None` (auto-detects) | CLI & Web |
 | `--speed` | | Rate of generated speech (e.g., `1.2` for 20% faster). | `1.0` | CLI & Web |
 | `--max-chars` | | Maximum character length of text sent to the synthesizer at once. | `150` | CLI & Web |
 | `--frame-rate` | | Audio sampling rate in Hz. | `24000.0` | CLI & Web |
 | `--concurrency` | `-c` | Number of concurrent processes/workers for synthesis. | `2` | CLI & Web |
 | `--cache-dir` | | Custom folder path for intermediate chapter audio/SMIL caching. | `~/.epuboverlay/cache/...` | CLI Only |
-| `nfe_step` | | Number of inference steps for F5-TTS model (min: 10, max: 64). | `32` | Web API Only |
-| `compile` | | Optimize inference speed by compiling the model via `torch.compile` (the first chunk takes 1-2 minutes). | `False` | Web API Only |
-| `pocket_voice` | | PocketTTS preset voice name (optional). | `""` | Web API Only |
+| `--nfe-step` | | Number of inference steps for F5-TTS model (min: 10, max: 64). | `32` | CLI & Web |
+| `--pocket-voice` | | PocketTTS preset voice name (optional). | `""` | CLI & Web |
 | `selected_chapters` | | JSON list of chapter `idref` strings to selectively process (optional). | `""` | Web API Only |
 
 ### Subcommand `extract` Options
@@ -277,7 +276,7 @@ The following table lists the settings available in the generation CLI/Web API:
 | `--no-audio` | | Do not extract/generate audio files, only extract subtitles. | `False` | CLI & Web |
 | `--embed-subtitles`| | Embed/burn subtitles into the MP4 video (only if `--mp4-video` is specified). | `False` | CLI & Web |
 | `--cover-art` | | Path to an optional cover art image to embed in the audiobook (.m4b). | | CLI & Web |
-| `audio_format` | | Audio container format — `m4b` (with chapters) or `m4a` (without chapters). | `m4b` | Web API Only |
+| `--audio-format` | | Audio container format — `m4b` (with chapters) or `m4a` (without chapters). | `m4b` | CLI & Web |
 
 ---
 
