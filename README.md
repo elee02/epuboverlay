@@ -6,6 +6,7 @@ Instead of restricting you to one format, `epuboverlay` bridges the gap between 
 - 📖 **Generation (EPUB Enhancement)**: It segments XHTML text into sentences/clauses, wraps them in visual `<span id="...">` tags, synthesizes matching spoken narration in your chosen voice, generates standard W3C SMIL sync maps, and packages everything back into a fully validated EPUB 3 container. This allows modern e-readers (such as Apple Books, Kobo, or Thorium Reader) to highlight sentences in real-time sync with the audio.
 - 🎵 **Extraction (Standalone Playback)**: It unpacks existing narrated EPUBs, extracts their audio tracks, and generates matching subtitle sync files (with options like chapter merging, custom cover art, and subtitle centering/burning) for playback on standard media/music/video players (e.g. Poweramp).
 
+![Dashboard](assets/dashboard.png)
 ---
 
 ## Table of Contents
