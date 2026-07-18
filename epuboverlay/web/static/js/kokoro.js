@@ -1,10 +1,11 @@
-import { previewVoice } from './api.js';
+import { previewVoice, fetchVoiceBlends, saveVoiceBlend, deleteVoiceBlend } from './api.js';
 import { showToast } from './utils.js';
 
 export let activeVoiceMode = 'single';
 export let activeBlendVoices = [];
 export let kokoroVoices = [];
 export let previewAudio = null;
+export let customVoiceBlends = [];
 
 export function setKokoroVoices(voices) {
     kokoroVoices = voices;
@@ -265,6 +266,15 @@ export function applyPreset(formula, elements = {}) {
     }
 }
 
+export async function loadCustomVoiceBlends() {
+    try {
+        const data = await fetchVoiceBlends();
+        customVoiceBlends = data || [];
+    } catch (err) {
+        console.error('Failed to load custom voice blends:', err);
+    }
+}
+
 export function renderPresets(elements = {}) {
     const grid = elements.blendPresetsGrid || document.getElementById('blend-presets-grid');
     if (!grid) return;
@@ -282,6 +292,43 @@ export function renderPresets(elements = {}) {
         });
         grid.appendChild(card);
     });
+
+    if (customVoiceBlends && customVoiceBlends.length > 0) {
+        customVoiceBlends.forEach(preset => {
+            const card = document.createElement('div');
+            card.className = 'blend-preset-card custom-preset';
+            card.style.position = 'relative';
+            card.innerHTML = `
+                <div class="blend-preset-title" style="padding-right: 1.5rem; font-weight: 600;">${preset.name} <span class="badge" style="background:#14b8a6; color:#fff; border:none; font-size:0.7rem; padding:0.1rem 0.3rem; border-radius:3px; margin-left:0.25rem;">Custom</span></div>
+                <div class="blend-preset-desc">${preset.desc || 'Custom voice formula'}</div>
+                <button type="button" class="delete-preset-btn" title="Delete Preset" style="position: absolute; top: 0.5rem; right: 0.5rem; background: none; border: none; color: #f43f5e; cursor: pointer; font-size: 0.9rem; padding: 0; line-height: 1;">✕</button>
+            `;
+            
+            card.querySelector('.delete-preset-btn').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (confirm(`Are you sure you want to delete the preset "${preset.name}"?`)) {
+                    try {
+                        await deleteVoiceBlend(preset.name);
+                        showToast(`Deleted preset: ${preset.name}`, 'success');
+                        await loadCustomVoiceBlends();
+                        
+                        // Refresh presets grids on ALL active views
+                        const mainGrid = document.getElementById('blend-presets-grid');
+                        const pgGrid = document.getElementById('pg-blend-presets-grid');
+                        if (mainGrid) renderPresets({ blendPresetsGrid: mainGrid, voiceFormulaInput: document.getElementById('voice-formula-input') });
+                        if (pgGrid) renderPresets({ blendPresetsGrid: pgGrid, voiceFormulaInput: document.getElementById('pg-voice-formula-input') });
+                    } catch (err) {
+                        showToast(err.message, 'error');
+                    }
+                }
+            });
+            
+            card.addEventListener('click', () => {
+                applyPreset(preset.formula, elements);
+            });
+            grid.appendChild(card);
+        });
+    }
 }
 
 export function setVoiceMode(mode, elements = {}) {
@@ -405,13 +452,14 @@ export function updatePreviewButtonState(isPlaying, playBtn) {
     }
 }
 
-export function setupKokoroMixer(elements = {}) {
+export async function setupKokoroMixer(elements = {}) {
     const modeSelector = elements.voiceModeSelector || document.getElementById('voice-mode-selector');
     const langSelect = elements.langSelect || document.getElementById('lang-code-select');
     const showAllCheckbox = elements.showAllCheckbox || document.getElementById('show-all-languages-checkbox');
     const addBtn = elements.addToBlendBtn || document.getElementById('add-to-blend-btn');
     const resetBtn = elements.formulaResetBtn || document.getElementById('formula-reset-btn');
     const previewBtn = elements.playPreviewBtn || document.getElementById('play-preview-btn');
+    const saveBtn = elements.saveBlendBtn || document.getElementById('save-blend-btn');
     
     if (modeSelector) {
         modeSelector.querySelectorAll('.mode-pill').forEach(btn => {
@@ -453,6 +501,49 @@ export function setupKokoroMixer(elements = {}) {
             playVoicePreview(elements);
         });
     }
+
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const formulaInput = elements.voiceFormulaInput || document.getElementById('voice-formula-input');
+            const formula = formulaInput ? formulaInput.value.trim() : '';
+            if (!formula) {
+                showToast('Please mix some voices to save a blend.', 'error');
+                return;
+            }
+            
+            const name = prompt('Enter a name for your custom voice blend:');
+            if (name === null) return;
+            const cleanName = name.trim();
+            if (!cleanName) {
+                showToast('Blend name cannot be empty.', 'error');
+                return;
+            }
+            
+            const desc = prompt('Enter a brief description (optional):', 'Custom voice formula');
+            if (desc === null) return;
+            
+            try {
+                const oldText = saveBtn.textContent;
+                saveBtn.textContent = 'Saving...';
+                await saveVoiceBlend({
+                    name: cleanName,
+                    desc: desc.trim(),
+                    formula: formula
+                });
+                showToast(`Saved blend "${cleanName}"!`, 'success');
+                await loadCustomVoiceBlends();
+                
+                const mainGrid = document.getElementById('blend-presets-grid');
+                const pgGrid = document.getElementById('pg-blend-presets-grid');
+                if (mainGrid) renderPresets({ blendPresetsGrid: mainGrid, voiceFormulaInput: document.getElementById('voice-formula-input') });
+                if (pgGrid) renderPresets({ blendPresetsGrid: pgGrid, voiceFormulaInput: document.getElementById('pg-voice-formula-input') });
+                saveBtn.textContent = oldText;
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+    }
     
+    await loadCustomVoiceBlends();
     renderPresets(elements);
 }

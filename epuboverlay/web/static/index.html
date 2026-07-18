@@ -122,14 +122,14 @@
                     <form id="job-form" enctype="multipart/form-data">
                         <!-- EPUB Upload -->
                         <div class="form-group full-width" style="margin-bottom: 1rem;">
-                            <label>EPUB File</label>
+                            <label>E-book File</label>
                             <div class="file-upload-zone" id="epub-upload-zone">
                                 <div class="upload-icon">📖</div>
                                 <div class="upload-text">
-                                    <strong>Click to browse</strong> or drag &amp; drop your EPUB file
+                                    <strong>Click to browse</strong> or drag &amp; drop your e-book file (EPUB, PDF, DOCX, MD, TXT)
                                 </div>
                                 <div class="file-name" id="epub-file-name" style="display: none;"></div>
-                                <input type="file" id="epub-file" name="epub" accept=".epub" required>
+                                <input type="file" id="epub-file" name="epub" accept=".epub,.pdf,.docx,.md,.txt" required>
                             </div>
                         </div>
 
@@ -295,7 +295,10 @@
                             <div class="form-group" style="margin-top: 1rem;">
                                 <label for="voice-formula-input" style="display: flex; justify-content: space-between;">
                                     <span>Voice Formula (Compiled String)</span>
-                                    <span class="formula-reset-btn" id="formula-reset-btn" style="color: var(--accent-rose); cursor: pointer; font-size: 0.8rem; font-weight: 500;">🗑| Reset Mix</span>
+                                    <div style="display: flex; gap: 0.75rem;">
+                                        <span class="save-blend-btn" id="save-blend-btn" style="color: #14b8a6; cursor: pointer; font-size: 0.8rem; font-weight: 500;">💾 Save Blend</span>
+                                        <span class="formula-reset-btn" id="formula-reset-btn" style="color: var(--accent-rose); cursor: pointer; font-size: 0.8rem; font-weight: 500;">🗑 Reset Mix</span>
+                                    </div>
                                 </label>
                                 <input type="text" id="voice-formula-input" name="voice_formula" readonly placeholder="Mix voices to build a blend formula (e.g. af_heart*0.6+af_sky*0.4)" style="background: var(--bg-primary); cursor: not-allowed; border-color: var(--border-subtle);">
                             </div>
@@ -475,7 +478,10 @@
                         <div class="form-group" style="margin-top: 1rem;">
                             <label for="pg-voice-formula-input" style="display: flex; justify-content: space-between;">
                                 <span>Voice Formula</span>
-                                <span id="pg-formula-reset-btn" style="color: var(--accent-rose); cursor: pointer; font-size: 0.8rem; font-weight: 500;">🗑 Reset Mix</span>
+                                <div style="display: flex; gap: 0.75rem;">
+                                    <span id="pg-save-blend-btn" style="color: #14b8a6; cursor: pointer; font-size: 0.8rem; font-weight: 500;">💾 Save Blend</span>
+                                    <span id="pg-formula-reset-btn" style="color: var(--accent-rose); cursor: pointer; font-size: 0.8rem; font-weight: 500;">🗑 Reset Mix</span>
+                                </div>
                             </label>
                             <input type="text" id="pg-voice-formula-input" readonly placeholder="Mix voices to build a formula..." style="background: var(--bg-primary); cursor: not-allowed; border-color: var(--border-subtle);">
                         </div>
@@ -662,7 +668,7 @@
 
                 <div class="card" id="extract-card">
                     <p class="card-description">
-                        Upload an EPUB3 file with media overlays (audio narration) to compile it into a proper audiobook (.m4b) and matching subtitle files.
+                        Upload an e-book file (EPUB, PDF, DOCX, MD, TXT) to compile it into a proper audiobook (.m4b) and matching subtitle files.
                     </p>
 
                     <form id="extract-form" enctype="multipart/form-data">
@@ -724,10 +730,14 @@
                                 <span>⚙️</span> Processing Options
                             </div>
                             <div class="options-group-content">
-                                <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
-                                    <input type="checkbox" id="extract-audio-checkbox" name="include_audio" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">
-                                    <span>Include Audiobook (.m4b)</span>
-                                </label>
+                                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+                                    <label style="font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; font-weight: normal;">Audio Format:</label>
+                                    <select id="extract-audio-format" name="audio_format" style="font-size: 0.82rem; padding: 0.35rem 0.65rem; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); cursor: pointer; min-width: 200px;">
+                                        <option value="m4b" selected>M4B Audiobook (with chapters)</option>
+                                        <option value="m4a">M4A Audio (better compatibility)</option>
+                                        <option value="none">No audio</option>
+                                    </select>
+                                </div>
 
                                 <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer; user-select: none; text-transform: none; color: var(--text-secondary);">
                                     <input type="checkbox" id="extract-merge-checkbox" name="merge" checked style="width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-cyan);">

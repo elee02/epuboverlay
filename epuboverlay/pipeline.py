@@ -834,9 +834,18 @@ def _prepare_workspace(
                     item.unlink()
                 elif item.is_dir():
                     shutil.rmtree(item)
-        tmp_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(input_epub, "r") as zf:
             zf.extractall(tmp_dir)
+        
+        # Apply paragraph line-wrap merging and TOC anchor splitting in place
+        try:
+            from epuboverlay.preprocessors import preprocess_epub_workspace
+            preprocess_epub_workspace(tmp_dir)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            emit_fn("parsing", f"Warning: Preprocessing failed: {str(e)}")
+            
         marker_file.write_text(epub_hash)
     else:
         emit_fn("parsing", "Using existing extracted cache...")
@@ -1428,6 +1437,20 @@ def generate_media_overlay_epub(
         opf_path, opf_dir, opf_root, manifest_node, spine_node, manifest_items, book_title = (
             _parse_opf(tmp_dir)
         )
+        
+        # Dynamic self-healing cache check:
+        # If user selected split sections, but the cached spine does not have them, invalidate and rebuild!
+        has_split_selection = any("_sec_" in ch for ch in (selected_chapters or []))
+        has_split_cache = any("_sec_" in (itemref.attrib.get("idref") or "") for itemref in spine_node.findall(".//{*}itemref"))
+        
+        if has_split_selection and not has_split_cache:
+            _emit("parsing", "Detected stale cached workspace without split sections. Re-extracting and splitting...")
+            (tmp_dir / ".extracted").unlink(missing_ok=True)
+            tmp_dir = _prepare_workspace(input_epub, epub_hash, cache_dir_path, _emit)
+            opf_path, opf_dir, opf_root, manifest_node, spine_node, manifest_items, book_title = (
+                _parse_opf(tmp_dir)
+            )
+            
         state.book_title = book_title
 
         # ── Build processable chapter list ───────────────────────────────────

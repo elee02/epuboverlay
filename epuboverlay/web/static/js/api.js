@@ -177,7 +177,7 @@ export async function clearPlaygroundCache() {
 }
 
 
-export async function convertJobToAudio(jobId, merge, formats, center, mp4Video, embedSubtitles, includeAudio, coverArtFile) {
+export async function convertJobToAudio(jobId, merge, formats, center, mp4Video, embedSubtitles, includeAudio, coverArtFile, audioFormat) {
     const formData = new FormData();
     formData.append('merge', merge ? 'true' : 'false');
     formData.append('formats', (formats && formats.length > 0) ? formats.join(',') : 'none');
@@ -185,6 +185,7 @@ export async function convertJobToAudio(jobId, merge, formats, center, mp4Video,
     formData.append('mp4_video', mp4Video ? 'true' : 'false');
     formData.append('embed_subtitles', embedSubtitles ? 'true' : 'false');
     formData.append('include_audio', includeAudio ? 'true' : 'false');
+    formData.append('audio_format', audioFormat || 'm4b');
     if (coverArtFile) {
         formData.append('cover_art', coverArtFile);
     }
@@ -202,3 +203,36 @@ export async function convertJobToAudio(jobId, merge, formats, center, mp4Video,
     }
     return resp.blob();
 }
+
+export async function fetchVoiceBlends() {
+    const resp = await fetch('/api/voice-blends');
+    if (!resp.ok) throw new Error('Failed to fetch voice blends');
+    return await resp.json();
+}
+
+export async function saveVoiceBlend(blend) {
+    const resp = await fetch('/api/voice-blends', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(blend)
+    });
+    if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || 'Failed to save voice blend');
+    }
+    return await resp.json();
+}
+
+export async function deleteVoiceBlend(name) {
+    const resp = await fetch(`/api/voice-blends/${encodeURIComponent(name)}`, {
+        method: 'DELETE'
+    });
+    if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || 'Failed to delete voice blend');
+    }
+    return await resp.json();
+}
+

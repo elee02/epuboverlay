@@ -60,6 +60,7 @@ function getElements() {
         blendAddSelect:     document.getElementById('pg-blend-add-select'),
         addToBlendBtn:      document.getElementById('pg-add-to-blend-btn'),
         formulaResetBtn:    document.getElementById('pg-formula-reset-btn'),
+        saveBlendBtn:       document.getElementById('pg-save-blend-btn'),
         blendPresetsGrid:   document.getElementById('pg-blend-presets-grid'),
         showAllCheckbox:    document.getElementById('pg-show-all-languages-checkbox'),
         // PocketTTS sub-elements

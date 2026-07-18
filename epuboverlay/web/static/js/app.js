@@ -31,7 +31,7 @@ function populateReferencesDropdowns() {
         const firstOpt = el.options[0] || new Option('-- Upload Custom Audio --', '');
         el.innerHTML = '';
         el.appendChild(firstOpt);
-        
+
         savedReferences.forEach(ref => {
             const opt = document.createElement('option');
             opt.value = ref.id;
@@ -62,7 +62,7 @@ const extractEpubFileName = document.getElementById('extract-epub-file-name');
 const extractCoverFile = document.getElementById('extract-cover-file');
 const extractCoverUploadZone = document.getElementById('extract-cover-upload-zone');
 const extractCoverFileName = document.getElementById('extract-cover-file-name');
-const extractAudioCheckbox = document.getElementById('extract-audio-checkbox');
+const extractAudioFormat = document.getElementById('extract-audio-format');
 const extractMp4Checkbox = document.getElementById('extract-mp4-checkbox');
 const extractEmbedSubsCheckbox = document.getElementById('extract-embed-subs-checkbox');
 const extractEmbedSubsGroup = document.getElementById('extract-embed-subs-group');
@@ -189,10 +189,10 @@ function onJobUpdate(job) {
 
 function setupSidebarNav() {
     const pages = {
-        generate:   document.getElementById('page-generate'),
+        generate: document.getElementById('page-generate'),
         playground: document.getElementById('page-playground'),
-        extract:    document.getElementById('page-extract'),
-        settings:   document.getElementById('page-settings'),
+        extract: document.getElementById('page-extract'),
+        settings: document.getElementById('page-settings'),
     };
 
     const navItems = document.querySelectorAll('.nav-item[data-page]');
@@ -279,9 +279,9 @@ function setupSynthesizerToggle() {
     function toggleFields() {
         const val = synthSelect.value;
         cloningOptions.style.display = val === 'f5-tts' ? 'grid' : 'none';
-        f5TtsOptions.style.display   = val === 'f5-tts' ? 'block' : 'none';
-        kokoroOptions.style.display  = val === 'kokoro'  ? 'block' : 'none';
-        pocketOptions.style.display  = val === 'pocket-tts' ? 'block' : 'none';
+        f5TtsOptions.style.display = val === 'f5-tts' ? 'block' : 'none';
+        kokoroOptions.style.display = val === 'kokoro' ? 'block' : 'none';
+        pocketOptions.style.display = val === 'pocket-tts' ? 'block' : 'none';
 
         if (val === 'kokoro') updateFilteredVoices();
     }
@@ -295,9 +295,9 @@ function setupSynthesizerToggle() {
 function setupPocketFormPanel() {
     setupPocketModeToggle({
         modeSelector: document.getElementById('pocket-voice-mode-selector'),
-        presetPanel:  document.getElementById('pocket-preset-panel'),
-        clonePanel:   document.getElementById('pocket-clone-panel'),
-        voiceSelect:  document.getElementById('pocket-voice-select'),
+        presetPanel: document.getElementById('pocket-preset-panel'),
+        clonePanel: document.getElementById('pocket-clone-panel'),
+        voiceSelect: document.getElementById('pocket-voice-select'),
     });
 }
 
@@ -448,7 +448,7 @@ function setupForm() {
         }
 
         if (!epubFile.files.length) {
-            showToast('Please select an EPUB file.', 'error');
+            showToast('Please select an e-book or document file.', 'error');
             return;
         }
 
@@ -544,15 +544,15 @@ function setupForm() {
 
 function setupExtractForm() {
     function updateCheckboxDependencies() {
-        const audioChecked = extractAudioCheckbox.checked;
+        const audioChecked = extractAudioFormat.value !== 'none';
         const mp4Checked = extractMp4Checkbox.checked;
         const embedSubsChecked = extractEmbedSubsCheckbox.checked;
         const mp4Label = extractMp4Checkbox.closest('label');
-        
+
         if (audioChecked) {
             extractMp4Checkbox.disabled = false;
             if (mp4Label) mp4Label.style.opacity = '1';
-            
+
             extractEmbedSubsCheckbox.disabled = !mp4Checked;
             extractEmbedSubsGroup.style.opacity = mp4Checked ? '1' : '0.5';
             if (!mp4Checked) extractEmbedSubsCheckbox.checked = false;
@@ -560,7 +560,7 @@ function setupExtractForm() {
             extractMp4Checkbox.disabled = true;
             extractMp4Checkbox.checked = false;
             if (mp4Label) mp4Label.style.opacity = '0.5';
-            
+
             extractEmbedSubsCheckbox.disabled = true;
             extractEmbedSubsCheckbox.checked = false;
             extractEmbedSubsGroup.style.opacity = '0.5';
@@ -591,7 +591,15 @@ function setupExtractForm() {
 
         setFmtState(fmtTxt, true);
 
-        if (isMp4) {
+        const audioFmt = extractAudioFormat.value;
+        if (audioFmt === 'm4a') {
+            setFmtState(fmtAss, true);
+            setFmtState(fmtSrt, true);
+            setFmtState(fmtVtt, true);
+            setFmtState(fmtTtml, true);
+            setFmtState(fmtSbv, true);
+            setFmtState(fmtLrc, true);
+        } else if (isMp4) {
             setFmtState(fmtAss, true);
             setFmtState(fmtSrt, true);
             setFmtState(fmtVtt, true);
@@ -604,7 +612,7 @@ function setupExtractForm() {
             setFmtState(fmtVtt, false);
             setFmtState(fmtTtml, false);
             setFmtState(fmtSbv, false);
-            setFmtState(fmtLrc, true);
+            setFmtState(fmtLrc, false);
         }
 
         const anyFmtChecked = [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].some(el => el && el.checked);
@@ -640,8 +648,8 @@ function setupExtractForm() {
         }
     }
 
-    if (extractAudioCheckbox && extractMp4Checkbox) {
-        extractAudioCheckbox.addEventListener('change', updateCheckboxDependencies);
+    if (extractAudioFormat && extractMp4Checkbox) {
+        extractAudioFormat.addEventListener('change', updateCheckboxDependencies);
         extractMp4Checkbox.addEventListener('change', updateCheckboxDependencies);
         if (extractEmbedSubsCheckbox) {
             extractEmbedSubsCheckbox.addEventListener('change', () => {
@@ -687,7 +695,10 @@ function setupExtractForm() {
             }
         });
 
-        if (formats.length === 0 && !extractAudioCheckbox.checked) {
+        const audioFormatVal = extractAudioFormat.value;
+        const includeAudio = audioFormatVal !== 'none';
+
+        if (formats.length === 0 && !includeAudio) {
             showToast('Please select at least one format (Audiobook or a subtitle format) to export.', 'error');
             extractSubmitBtn.disabled = false;
             extractSubmitBtn.innerHTML = 'Export';
@@ -702,8 +713,9 @@ function setupExtractForm() {
         formData.append('center', document.getElementById('extract-center-checkbox').checked ? 'true' : 'false');
         formData.append('mp4_video', extractMp4Checkbox.checked ? 'true' : 'false');
         formData.append('embed_subtitles', extractEmbedSubsCheckbox.checked ? 'true' : 'false');
-        formData.append('include_audio', extractAudioCheckbox.checked ? 'true' : 'false');
-        
+        formData.append('include_audio', includeAudio ? 'true' : 'false');
+        formData.append('audio_format', includeAudio ? audioFormatVal : 'm4b');
+
         if (extractCoverFile && extractCoverFile.files.length > 0) {
             formData.append('cover_art', extractCoverFile.files[0]);
         }

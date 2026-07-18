@@ -255,18 +255,18 @@ export function renderActiveJob(job, onJobUpdate) {
     if (synthSection) {
         if (totalChunksToSynthesize > 0) {
             synthSection.style.display = 'block';
-            
+
             const synthPercentEl = card.querySelector('.synthesis-percent');
             if (synthPercentEl) synthPercentEl.textContent = `${synthPercent.toFixed(1)}%`;
-            
+
             const synthBar = card.querySelector('.synthesis-bar');
             if (synthBar) {
                 synthBar.style.width = `${synthPercent}%`;
             }
-            
+
             const chunksVal = card.querySelector('.synthesis-chunks-val');
             if (chunksVal) chunksVal.textContent = `${chunksProcessed}/${totalChunksToSynthesize}`;
-            
+
             const avgTimeVal = card.querySelector('.synthesis-avg-time-val');
             if (avgTimeVal) avgTimeVal.textContent = `${avgTimePerChunkStr} / chunk`;
         } else {
@@ -293,7 +293,7 @@ export function renderActiveJob(job, onJobUpdate) {
     if (audioList) {
         const audios = job.chapter_audios || [];
         const rendered = Array.from(audioList.querySelectorAll('.chapter-audio-item')).map(el => el.getAttribute('data-idref'));
-        
+
         audios.forEach(a => {
             if (!rendered.includes(a.idref)) {
                 const item = document.createElement('div');
@@ -331,7 +331,7 @@ export function renderCompletedJobs(completedJobs) {
             ? formatTime(job.completed_at - job.started_at)
             : '—';
 
-        const audiobookLength = job.audiobook_duration_seconds 
+        const audiobookLength = job.audiobook_duration_seconds
             ? formatTime(job.audiobook_duration_seconds)
             : (job.estimated_total_hours ? `~${job.estimated_total_hours.toFixed(1)} hrs` : '—');
 
@@ -422,10 +422,14 @@ export function renderCompletedJobs(completedJobs) {
                     <div class="options-group-sub" style="display: flex; flex-direction: column; gap: 0.5rem; border-top: 1px solid var(--border-card); padding-top: 0.75rem;">
                         <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">⚙️ Processing Options:</span>
                         <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-                            <label class="merge-checkbox-label" for="audio-cb-${job.id}">
-                                <input type="checkbox" id="audio-cb-${job.id}" class="include-audio-cb" checked>
-                                <span>Include Audiobook (.m4b)</span>
-                            </label>
+                            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                                <label style="font-size: 0.85rem; color: var(--text-primary); white-space: nowrap;">Audio Format:</label>
+                                <select id="audio-fmt-${job.id}" class="audio-format-select" style="font-size: 0.82rem; padding: 0.35rem 0.65rem; background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); cursor: pointer; min-width: 200px;">
+                                    <option value="m4b" selected>M4B Audiobook (with chapters)</option>
+                                    <option value="m4a">M4A Audio (better compatibility)</option>
+                                    <option value="none">No audio</option>
+                                </select>
+                            </div>
                             <label class="merge-checkbox-label" for="merge-cb-${job.id}">
                                 <input type="checkbox" id="merge-cb-${job.id}" class="merge-chapters-cb" checked>
                                 <span>Merge all chapters</span>
@@ -459,8 +463,8 @@ export function renderCompletedJobs(completedJobs) {
             </div>
         `;
 
-                // Setup checkbox dependencies
-        const audioCb = card.querySelector(`.include-audio-cb`);
+        // Setup checkbox dependencies
+        const audioFmtSelect = card.querySelector(`.audio-format-select`);
         const mp4Cb = card.querySelector(`.mp4-video-cb`);
         const embedSubsCb = card.querySelector(`.embed-subtitles-cb`);
         const mp4Group = card.querySelector(`#mp4-group-${job.id}`);
@@ -479,13 +483,14 @@ export function renderCompletedJobs(completedJobs) {
         const convertBtn = card.querySelector(`.convert-audio-btn`);
 
         function updateCardCheckboxDependencies() {
-            const audioChecked = audioCb.checked;
+            const audioFmt = audioFmtSelect.value;
+            const audioChecked = (audioFmt !== 'none');
             const mp4Checked = mp4Cb.checked;
-            
+
             if (audioChecked) {
                 mp4Cb.disabled = false;
                 if (mp4Group) mp4Group.style.opacity = '1';
-                
+
                 embedSubsCb.disabled = !mp4Checked;
                 if (embedSubsGroup) {
                     embedSubsGroup.style.opacity = mp4Checked ? '1' : '0.5';
@@ -495,7 +500,7 @@ export function renderCompletedJobs(completedJobs) {
                 mp4Cb.disabled = true;
                 mp4Cb.checked = false;
                 if (mp4Group) mp4Group.style.opacity = '0.5';
-                
+
                 embedSubsCb.disabled = true;
                 embedSubsCb.checked = false;
                 if (embedSubsGroup) embedSubsGroup.style.opacity = '0.5';
@@ -518,7 +523,14 @@ export function renderCompletedJobs(completedJobs) {
 
             setFmtState(fmtTxt, true);
 
-            if (isMp4) {
+            if (audioFmt === 'm4a') {
+                setFmtState(fmtAss, true);
+                setFmtState(fmtSrt, true);
+                setFmtState(fmtVtt, true);
+                setFmtState(fmtTtml, true);
+                setFmtState(fmtSbv, true);
+                setFmtState(fmtLrc, true);
+            } else if (isMp4) {
                 setFmtState(fmtAss, true);
                 setFmtState(fmtSrt, true);
                 setFmtState(fmtVtt, true);
@@ -531,7 +543,7 @@ export function renderCompletedJobs(completedJobs) {
                 setFmtState(fmtVtt, false);
                 setFmtState(fmtTtml, false);
                 setFmtState(fmtSbv, false);
-                setFmtState(fmtLrc, true);
+                setFmtState(fmtLrc, false);
             }
 
             const anyFmtChecked = [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].some(el => el && el.checked);
@@ -565,8 +577,8 @@ export function renderCompletedJobs(completedJobs) {
             }
         }
 
-        if (audioCb && mp4Cb) {
-            audioCb.addEventListener('change', updateCardCheckboxDependencies);
+        if (audioFmtSelect && mp4Cb) {
+            audioFmtSelect.addEventListener('change', updateCardCheckboxDependencies);
             mp4Cb.addEventListener('change', updateCardCheckboxDependencies);
             if (embedSubsCb) {
                 embedSubsCb.addEventListener('change', () => {
@@ -582,7 +594,7 @@ export function renderCompletedJobs(completedJobs) {
             updateCardCheckboxDependencies();
         }
 
-        card.querySelector('.delete-job-btn').addEventListener('click', () => deleteJob(job.id, () => refreshJobsList(() => {})));
+        card.querySelector('.delete-job-btn').addEventListener('click', () => deleteJob(job.id, () => refreshJobsList(() => { })));
 
         // Convert to Audio handler
         card.querySelector('.convert-audio-btn').addEventListener('click', async () => {
@@ -591,10 +603,12 @@ export function renderCompletedJobs(completedJobs) {
             const center = card.querySelector('.center-subtitles-cb').checked;
             const mp4Video = card.querySelector('.mp4-video-cb').checked;
             const embedSubtitles = card.querySelector('.embed-subtitles-cb').checked;
-            const includeAudio = card.querySelector('.include-audio-cb').checked;
+            const audioFmt = card.querySelector('.audio-format-select').value;
+            const includeAudio = (audioFmt !== 'none');
+            const audioFormat = includeAudio ? audioFmt : 'm4b';
             const coverArtInput = card.querySelector(`#cover-art-${job.id}`);
             const coverArtFile = coverArtInput && coverArtInput.files.length > 0 ? coverArtInput.files[0] : null;
-            
+
             // Read selected formats
             const formats = [];
             ['ass', 'srt', 'vtt', 'ttml', 'sbv', 'lrc', 'txt'].forEach(fmt => {
@@ -612,7 +626,7 @@ export function renderCompletedJobs(completedJobs) {
             btn.disabled = true;
             btn.textContent = '⏳ Exporting…';
             try {
-                const blob = await convertJobToAudio(job.id, merge, formats, center, mp4Video, embedSubtitles, includeAudio, coverArtFile);
+                const blob = await convertJobToAudio(job.id, merge, formats, center, mp4Video, embedSubtitles, includeAudio, coverArtFile, audioFormat);
                 const stem = (job.book_title || job.original_filename || 'output').replace(/\.epub$/i, '');
                 const zipName = `${stem}_audiobook_subtitles.zip`;
                 const url = URL.createObjectURL(blob);
@@ -653,8 +667,8 @@ export function renderFailedJobs(failedJobs, onJobUpdate) {
 
     failedContainer.innerHTML = '';
     failedJobs.forEach(job => {
-        const estHrsStr = job.estimated_total_hours 
-            ? `~${job.estimated_total_hours.toFixed(1)} hrs` 
+        const estHrsStr = job.estimated_total_hours
+            ? `~${job.estimated_total_hours.toFixed(1)} hrs`
             : '—';
 
         const card = document.createElement('div');
@@ -726,7 +740,7 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
 
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
-        
+
         // Modal content HTML
         overlay.innerHTML = `
             <div class="modal-content" style="max-width: 600px;">
@@ -861,7 +875,7 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                 </form>
             </div>
         `;
-        
+
         document.body.appendChild(overlay);
         overlay.offsetHeight;
         overlay.classList.add('active');

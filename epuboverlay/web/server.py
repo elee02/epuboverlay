@@ -205,6 +205,52 @@ async def save_settings(settings: dict = Body(...)):
     return {"status": "saved", "settings": data["current_settings"]}
 
 
+VOICE_BLENDS_FILE = Path.home() / ".epuboverlay" / "voice_blends.json"
+
+def load_voice_blends() -> list[dict]:
+    if not VOICE_BLENDS_FILE.exists():
+        return []
+    try:
+        with open(VOICE_BLENDS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_voice_blends(blends: list[dict]) -> None:
+    VOICE_BLENDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(VOICE_BLENDS_FILE, "w", encoding="utf-8") as f:
+        json.dump(blends, f, indent=2, ensure_ascii=False)
+
+@app.get("/api/voice-blends")
+async def get_voice_blends():
+    """List saved voice blends."""
+    return load_voice_blends()
+
+@app.post("/api/voice-blends")
+async def create_voice_blend(blend: dict = Body(...)):
+    """Save a new voice blend."""
+    blends = load_voice_blends()
+    name = blend.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Blend name is required")
+    # Remove existing blend with the same name if any
+    blends = [b for b in blends if b.get("name", "").strip().lower() != name.lower()]
+    blends.append(blend)
+    save_voice_blends(blends)
+    return {"status": "saved", "blends": blends}
+
+@app.delete("/api/voice-blends/{name}")
+async def delete_voice_blend(name: str):
+    """Delete a voice blend by name."""
+    blends = load_voice_blends()
+    filtered = [b for b in blends if b.get("name", "").strip().lower() != name.strip().lower()]
+    if len(filtered) == len(blends):
+        raise HTTPException(status_code=404, detail="Voice blend not found")
+    save_voice_blends(filtered)
+    return {"status": "deleted", "blends": filtered}
+
+
+
 
 @app.get("/api/references")
 async def get_references():
@@ -644,6 +690,7 @@ async def convert_job_to_audio(
     mp4_video: bool = Form(False),
     embed_subtitles: bool = Form(False),
     include_audio: bool = Form(True),
+    audio_format: str = Form("m4b"),
     cover_art: UploadFile | None = File(None),
 ):
     """Convert a completed job's output EPUB to Audio + Subtitles (ZIP download).
@@ -672,6 +719,11 @@ async def convert_job_to_audio(
             tmp_cover.close()
             tmp_cover_path = Path(tmp_cover.name)
 
+        # Normalize audio format
+        audio_fmt = audio_format.strip().lower() if audio_format else "m4b"
+        if audio_fmt not in ("m4b", "m4a"):
+            audio_fmt = "m4b"
+
         if not formats or formats.lower().strip() == "none":
             formats_list = []
         else:
@@ -686,6 +738,7 @@ async def convert_job_to_audio(
             include_audio=include_audio,
             embed_subtitles=embed_subtitles,
             cover_art=tmp_cover_path,
+            audio_format=audio_fmt,
         )
 
         if not results:
@@ -798,21 +851,31 @@ async def job_events(job_id: str):
 
 @app.post("/api/chapters")
 async def get_chapters(epub: UploadFile = File(...)):
-    """Extract chapter metadata and previews from an uploaded EPUB."""
-    from epuboverlay.pipeline import extract_chapter_previews
-    tmp_epub = tempfile.NamedTemporaryFile(delete=False, suffix=".epub")
+    """Extract chapter metadata and previews from an uploaded EPUB or other formats."""
+    from epuboverlay.preprocessors import get_preprocessor
+    suffix = Path(epub.filename).suffix if epub.filename else ".epub"
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     try:
         content = await epub.read()
-        tmp_epub.write(content)
-        tmp_epub.close()
+        tmp_file.write(content)
+        tmp_file.close()
 
-        previews = extract_chapter_previews(Path(tmp_epub.name))
-        return previews
+        preprocessor = get_preprocessor(Path(tmp_file.name))
+        sections = preprocessor.extract_sections(Path(tmp_file.name))
+        return [
+            {
+                "idref": s.id,
+                "title": s.title,
+                "char_count": s.char_count,
+                "preview": s.preview
+            }
+            for s in sections
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         try:
-            Path(tmp_epub.name).unlink(missing_ok=True)
+            Path(tmp_file.name).unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -826,6 +889,7 @@ async def extract_audio_lrc(
     mp4_video: bool = Form(False),
     embed_subtitles: bool = Form(False),
     include_audio: bool = Form(True),
+    audio_format: str = Form("m4b"),
     cover_art: UploadFile | None = File(None),
 ):
     """Extract Audio + Subtitle files from an EPUB3 with Media Overlays.
@@ -853,6 +917,11 @@ async def extract_audio_lrc(
             tmp_cover.close()
             tmp_cover_path = Path(tmp_cover.name)
 
+        # Normalize audio format
+        audio_fmt = audio_format.strip().lower() if audio_format else "m4b"
+        if audio_fmt not in ("m4b", "m4a"):
+            audio_fmt = "m4b"
+
         if not formats or formats.lower().strip() == "none":
             formats_list = []
         else:
@@ -867,6 +936,7 @@ async def extract_audio_lrc(
             include_audio=include_audio,
             embed_subtitles=embed_subtitles,
             cover_art=tmp_cover_path,
+            audio_format=audio_fmt,
         )
 
         if not results:

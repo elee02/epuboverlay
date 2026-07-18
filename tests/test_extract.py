@@ -612,6 +612,28 @@ class ExtractTests(unittest.TestCase):
             self.assertTrue(results[0][1][0].exists())
             self.assertTrue(results[1][1][0].exists())
 
+    def test_epub_to_audio_subtitles_m4a(self) -> None:
+        """Test epub_to_audio_subtitles with audio_format='m4a'."""
+        from epuboverlay.extract import epub_to_audio_subtitles
+        with tempfile.TemporaryDirectory() as tmpdir:
+            epub_path = Path(tmpdir) / "test.epub"
+            output_dir = Path(tmpdir) / "output"
+            self._make_test_epub_with_overlays(epub_path)
+
+            results = epub_to_audio_subtitles(
+                epub_path=epub_path,
+                output_dir=output_dir,
+                merge=False,
+                formats=["lrc"],
+                include_audio=True,
+                audio_format="m4a",
+            )
+            self.assertEqual(len(results), 2)
+            self.assertTrue(results[0][0].exists())
+            self.assertTrue(results[1][0].exists())
+            self.assertEqual(results[0][0].suffix, ".m4a")
+            self.assertEqual(results[1][0].suffix, ".m4a")
+
 
 class StreamingWavTests(unittest.TestCase):
     """Test the new disk-streaming WAV helper functions."""
