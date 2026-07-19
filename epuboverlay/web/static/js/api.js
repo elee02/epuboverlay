@@ -67,11 +67,15 @@ export async function fetchStats() {
     return await resp.json();
 }
 
-export async function previewVoice(formData) {
-    const resp = await fetch('/api/preview', {
+export async function previewVoice(formData, signal) {
+    const fetchOptions = {
         method: 'POST',
         body: formData
-    });
+    };
+    if (signal) {
+        fetchOptions.signal = signal;
+    }
+    const resp = await fetch('/api/preview', fetchOptions);
     if (!resp.ok) {
         let detail = 'Failed to generate voice preview';
         try { const err = await resp.json(); detail = err.detail || detail; } catch (_) {}

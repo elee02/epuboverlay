@@ -635,9 +635,14 @@
                     </div>
 
                     <!-- Synthesize Button -->
-                    <button type="button" class="btn pg-synthesize-btn" id="pg-synthesize-btn">
-                        ▶ Synthesize &amp; Play
-                    </button>
+                    <div class="pg-action-group">
+                        <button type="button" class="btn pg-synthesize-btn" id="pg-synthesize-btn">
+                            ▶ Synthesize
+                        </button>
+                        <button type="button" class="btn pg-cancel-btn" id="pg-cancel-btn" disabled>
+                            Cancel
+                        </button>
+                    </div>
 
                     <!-- Audio Player (hidden for compatibility) -->
                     <div class="pg-player" id="pg-player-section" style="display:none !important;">

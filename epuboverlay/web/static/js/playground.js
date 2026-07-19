@@ -23,6 +23,8 @@ import {
     getPocketVoiceParams,
 } from './pocket.js';
 
+let pgAbortController = null;
+
 let pgF5RecordedBlob = null;
 let pgPocketRecordedBlob = null;
 
@@ -83,6 +85,7 @@ function getElements() {
         speedInput:         document.getElementById('pg-speed-input'),
         deviceSelect:       document.getElementById('pg-device-select'),
         synthesizeBtn:      document.getElementById('pg-synthesize-btn'),
+        cancelBtn:          document.getElementById('pg-cancel-btn'),
         // History List
         historySection:     document.getElementById('pg-history-section'),
         historyList:        document.getElementById('pg-history-list'),
@@ -334,26 +337,39 @@ async function handleSynthesize(els) {
 
     // --- Synthesize ---
     const btn = els.synthesizeBtn;
+    const cancelBtn = els.cancelBtn;
     if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner" style="display:inline-block; width:0.85rem; height:0.85rem; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:0.4rem; vertical-align:middle;"></span> Synthesizing…';
     }
+    if (cancelBtn) {
+        cancelBtn.disabled = false;
+    }
 
     const pgSynthStart = performance.now();
+    pgAbortController = new AbortController();
 
     try {
-        await previewVoice(body);
+        await previewVoice(body, pgAbortController.signal);
         const elapsed = ((performance.now() - pgSynthStart) / 1000).toFixed(1);
 
         showToast(`Audio synthesized successfully in ${elapsed}s!`, 'success');
         await refreshPlaygroundList();
     } catch (err) {
-        showToast(err.message || 'Synthesis failed.', 'error');
+        if (err.name === 'AbortError') {
+            showToast('Synthesis cancelled.', 'info');
+        } else {
+            showToast(err.message || 'Synthesis failed.', 'error');
+        }
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = '▶ Synthesize & Play';
+            btn.innerHTML = '▶ Synthesize';
         }
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+        }
+        pgAbortController = null;
     }
 }
 
@@ -727,6 +743,15 @@ export function initPlayground() {
     // Synthesize button
     if (els.synthesizeBtn) {
         els.synthesizeBtn.addEventListener('click', () => handleSynthesize(els));
+    }
+
+    // Cancel button
+    if (els.cancelBtn) {
+        els.cancelBtn.addEventListener('click', () => {
+            if (pgAbortController) {
+                pgAbortController.abort();
+            }
+        });
     }
 
     // Clear Cache Button
