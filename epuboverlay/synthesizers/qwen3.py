@@ -162,13 +162,21 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
                 device = "cpu"
         self.device = device
 
+        model_kwargs: dict[str, Any] = {"device_map": self.device}
+        if self.device == "cuda":
+            try:
+                import torch
+                model_kwargs["dtype"] = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            except Exception:
+                pass
+
         # Initialize Qwen3-TTS model wrapper
         model_cls = getattr(qwen_tts, "Qwen3TTSModel", None) or getattr(qwen_tts, "QwenTTS", None)
         if model_cls is not None:
             if hasattr(model_cls, "from_pretrained"):
-                self._model = model_cls.from_pretrained(self.model_name, device_map=self.device)
+                self._model = model_cls.from_pretrained(self.model_name, **model_kwargs)
             else:
-                self._model = model_cls(model_name=self.model_name, device=self.device)
+                self._model = model_cls(model_name=self.model_name, **model_kwargs)
         else:
             raise RuntimeError("Compatible Qwen3TTSModel entry point not found in 'qwen_tts'.")
 
@@ -249,9 +257,22 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
             if self._voice_clone_prompt is not None:
                 clone_kwargs["voice_clone_prompt"] = self._voice_clone_prompt
             else:
-                clone_kwargs["ref_audio"] = self.ref_audio
-                clone_kwargs["ref_text"] = self.ref_text or None
-                clone_kwargs["x_vector_only_mode"] = not bool(self.ref_text)
+                if self.ref_audio and hasattr(self._model, "create_voice_clone_prompt"):
+                    try:
+                        self._voice_clone_prompt = self._model.create_voice_clone_prompt(
+                            ref_audio=self.ref_audio,
+                            ref_text=self.ref_text or None,
+                            x_vector_only_mode=not bool(self.ref_text),
+                        )
+                        clone_kwargs["voice_clone_prompt"] = self._voice_clone_prompt
+                    except Exception:
+                        clone_kwargs["ref_audio"] = self.ref_audio
+                        clone_kwargs["ref_text"] = self.ref_text or None
+                        clone_kwargs["x_vector_only_mode"] = not bool(self.ref_text)
+                else:
+                    clone_kwargs["ref_audio"] = self.ref_audio
+                    clone_kwargs["ref_text"] = self.ref_text or None
+                    clone_kwargs["x_vector_only_mode"] = not bool(self.ref_text)
             res = self._model.generate_voice_clone(**clone_kwargs)
         elif self.mode == "voice_design" and hasattr(self._model, "generate_voice_design"):
             res = self._model.generate_voice_design(

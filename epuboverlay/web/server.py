@@ -1392,6 +1392,7 @@ async def preview_voice(
 
     # 0. Resolve reference voice if ref_id is provided
     resolved_ref_bytes = b""
+    resolved_ref_path: Path | None = None
     resolved_ref_text = ""
     clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "cosyvoice2", "fish-speech")
     if ref_id.strip() and synthesizer in clone_capable:
@@ -1402,6 +1403,7 @@ async def preview_voice(
         audio_path = REFERENCES_DIR / ref["audio_filename"]
         if not audio_path.exists():
             raise HTTPException(status_code=404, detail="Selected reference audio file not found")
+        resolved_ref_path = audio_path
         with open(audio_path, "rb") as f:
             resolved_ref_bytes = f.read()
         resolved_ref_text = ref["text"]
@@ -1418,6 +1420,17 @@ async def preview_voice(
     elif ref_audio and ref_audio.filename:
         ref_audio_bytes = await _read_upload_bytes(ref_audio)
         ref_audio_hash = hashlib.md5(ref_audio_bytes).hexdigest()
+
+    active_ref_path: Path | None = None
+    if resolved_ref_path and resolved_ref_path.exists():
+        active_ref_path = resolved_ref_path
+    elif ref_audio_bytes and ref_audio_hash:
+        PREVIEW_UPLOADS_DIR = Path.home() / ".epuboverlay" / "cache" / "previews"
+        PREVIEW_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        cached_upload = PREVIEW_UPLOADS_DIR / f"{ref_audio_hash}.wav"
+        if not cached_upload.exists():
+            cached_upload.write_bytes(ref_audio_bytes)
+        active_ref_path = cached_upload
 
     parsed_noise_clamp = float(noise_clamp) if noise_clamp.strip() else None
     parsed_frames_after_eos = int(frames_after_eos) if frames_after_eos.strip() else None
@@ -1498,151 +1511,135 @@ async def preview_voice(
             _PREVIEW_SYNTH_CACHE.pop(cache_key)
             _PREVIEW_SYNTH_CACHE[cache_key] = synth
         else:
-            # Cache miss: initialize a temporary file for cloning if required
-            tmp_ref_path: Path | None = None
-            if ref_audio_bytes:
-                tmp_ref = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-                tmp_ref.write(ref_audio_bytes)
-                tmp_ref.close()
-                tmp_ref_path = Path(tmp_ref.name)
-
-            try:
-                if synthesizer == "kokoro":
-                    if not voice and not voice_formula:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Either voice or voice_formula is required for Kokoro.",
-                        )
-                    from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
-                    synth = KokoroSynthesizer(
-                        voice=voice,
-                        voice_formula=voice_formula,
-                        speed=speed,
-                        lang_code=lang_code,
-                        device=device or None,
+            if synthesizer == "kokoro":
+                if not voice and not voice_formula:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Either voice or voice_formula is required for Kokoro.",
                     )
+                from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
+                synth = KokoroSynthesizer(
+                    voice=voice,
+                    voice_formula=voice_formula,
+                    speed=speed,
+                    lang_code=lang_code,
+                    device=device or None,
+                )
 
-                elif synthesizer == "pocket-tts":
-                    if not pocket_voice and not tmp_ref_path:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Either pocket_voice (preset) or ref_audio (clone) is required for PocketTTS.",
-                        )
-                    from epuboverlay.synthesizers.pocket import PocketSynthesizer
-                    synth = PocketSynthesizer(
-                        voice=pocket_voice,
-                        ref_audio=tmp_ref_path,
-                        speed=speed,
-                        pocket_language=pocket_language,
-                        temp=temp,
-                        lsd_decode_steps=lsd_decode_steps,
-                        noise_clamp=parsed_noise_clamp,
-                        eos_threshold=eos_threshold,
-                        frames_after_eos=parsed_frames_after_eos,
-                        quantize=quantize,
-                        dialogue_voice=dialogue_voice,
+            elif synthesizer == "pocket-tts":
+                if not pocket_voice and not active_ref_path:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Either pocket_voice (preset) or ref_audio (clone) is required for PocketTTS.",
                     )
+                from epuboverlay.synthesizers.pocket import PocketSynthesizer
+                synth = PocketSynthesizer(
+                    voice=pocket_voice,
+                    ref_audio=active_ref_path,
+                    speed=speed,
+                    pocket_language=pocket_language,
+                    temp=temp,
+                    lsd_decode_steps=lsd_decode_steps,
+                    noise_clamp=parsed_noise_clamp,
+                    eos_threshold=eos_threshold,
+                    frames_after_eos=parsed_frames_after_eos,
+                    quantize=quantize,
+                    dialogue_voice=dialogue_voice,
+                )
 
-                elif synthesizer == "f5-tts":
-                    if not tmp_ref_path:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="ref_audio is required for F5-TTS preview.",
-                        )
-                    if not resolved_f5_ref_text.strip():
-                        raise HTTPException(
-                            status_code=400,
-                            detail="ref_text is required for F5-TTS preview.",
-                        )
-                    from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
-                    synth = F5TTSSynthesizer(
-                        ref_audio=tmp_ref_path,
-                        ref_text=resolved_f5_ref_text,
-                        device=device or None,
-                        speed=speed,
+            elif synthesizer == "f5-tts":
+                if not active_ref_path:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="ref_audio is required for F5-TTS preview.",
                     )
-
-                elif synthesizer == "qwen3-tts":
-                    if qwen_mode == "clone" and not tmp_ref_path:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="ref_audio (or saved ref_id) is required for Qwen3-TTS clone mode.",
-                        )
-                    from epuboverlay.synthesizers.qwen3 import Qwen3TTSSynthesizer
-                    synth = Qwen3TTSSynthesizer(
-                        model_name=qwen_model,
-                        mode=qwen_mode,
-                        speaker=qwen_speaker,
-                        instruct=instruct,
-                        language=language,
-                        ref_audio=tmp_ref_path,
-                        ref_text=resolved_f5_ref_text,
-                        speed=speed,
-                        temp=temp,
-                        device=device or None,
+                if not resolved_f5_ref_text.strip():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="ref_text is required for F5-TTS preview.",
                     )
+                from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
+                synth = F5TTSSynthesizer(
+                    ref_audio=active_ref_path,
+                    ref_text=resolved_f5_ref_text,
+                    device=device or None,
+                    speed=speed,
+                )
 
-                elif synthesizer == "cosyvoice2":
-                    if cosy_mode != "sft" and not tmp_ref_path:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="ref_audio (or saved ref_id) is required for CosyVoice2-0.5B cloning modes.",
-                        )
-                    from epuboverlay.synthesizers.cosyvoice import CosyVoice2Synthesizer
-                    synth = CosyVoice2Synthesizer(
-                        mode=cosy_mode,
-                        speaker=cosy_speaker,
-                        ref_audio=tmp_ref_path,
-                        ref_text=resolved_f5_ref_text,
-                        instruct=instruct,
-                        language=language,
-                        speed=speed,
-                        device=device or None,
+            elif synthesizer == "qwen3-tts":
+                if qwen_mode == "clone" and not active_ref_path:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="ref_audio (or saved ref_id) is required for Qwen3-TTS clone mode.",
                     )
+                from epuboverlay.synthesizers.qwen3 import Qwen3TTSSynthesizer
+                synth = Qwen3TTSSynthesizer(
+                    model_name=qwen_model,
+                    mode=qwen_mode,
+                    speaker=qwen_speaker,
+                    instruct=instruct,
+                    language=language,
+                    ref_audio=active_ref_path,
+                    ref_text=resolved_f5_ref_text,
+                    speed=speed,
+                    temp=temp,
+                    device=device or None,
+                )
 
-                elif synthesizer == "fish-speech":
-                    from epuboverlay.synthesizers.fish import FishSpeechSynthesizer
-                    synth = FishSpeechSynthesizer(
-                        ref_audio=tmp_ref_path,
-                        ref_text=resolved_f5_ref_text,
-                        emotion_tag=emotion_tag,
-                        language=language,
-                        temp=temp,
-                        top_p=top_p,
-                        repetition_penalty=repetition_penalty,
-                        speed=speed,
-                        api_url=fish_api_url,
-                        device=device or None,
+            elif synthesizer == "cosyvoice2":
+                if cosy_mode != "sft" and not active_ref_path:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="ref_audio (or saved ref_id) is required for CosyVoice2-0.5B cloning modes.",
                     )
+                from epuboverlay.synthesizers.cosyvoice import CosyVoice2Synthesizer
+                synth = CosyVoice2Synthesizer(
+                    mode=cosy_mode,
+                    speaker=cosy_speaker,
+                    ref_audio=active_ref_path,
+                    ref_text=resolved_f5_ref_text,
+                    instruct=instruct,
+                    language=language,
+                    speed=speed,
+                    device=device or None,
+                )
 
-                elif synthesizer == "dummy":
-                    from epuboverlay.synthesizers.dummy import DummySynthesizer
-                    synth = DummySynthesizer()
+            elif synthesizer == "fish-speech":
+                from epuboverlay.synthesizers.fish import FishSpeechSynthesizer
+                synth = FishSpeechSynthesizer(
+                    ref_audio=active_ref_path,
+                    ref_text=resolved_f5_ref_text,
+                    emotion_tag=emotion_tag,
+                    language=language,
+                    temp=temp,
+                    top_p=top_p,
+                    repetition_penalty=repetition_penalty,
+                    speed=speed,
+                    api_url=fish_api_url,
+                    device=device or None,
+                )
 
-                # Save model to cache
-                _PREVIEW_SYNTH_CACHE[cache_key] = synth
+            elif synthesizer == "dummy":
+                from epuboverlay.synthesizers.dummy import DummySynthesizer
+                synth = DummySynthesizer()
 
-                # Manage cache size (LRU eviction)
-                if len(_PREVIEW_SYNTH_CACHE) > _MAX_CACHE_SIZE:
-                    oldest_key = next(iter(_PREVIEW_SYNTH_CACHE))
-                    old_synth = _PREVIEW_SYNTH_CACHE.pop(oldest_key)
-                    # Force garbage collection to free VRAM/RAM
-                    import gc
-                    try:
-                        import torch
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                    except ImportError:
-                        pass
-                    del old_synth
-                    gc.collect()
+            # Save model to cache
+            _PREVIEW_SYNTH_CACHE[cache_key] = synth
 
-            finally:
-                if tmp_ref_path:
-                    try:
-                        tmp_ref_path.unlink(missing_ok=True)
-                    except Exception:
-                        pass
+            # Manage cache size (LRU eviction)
+            if len(_PREVIEW_SYNTH_CACHE) > _MAX_CACHE_SIZE:
+                oldest_key = next(iter(_PREVIEW_SYNTH_CACHE))
+                old_synth = _PREVIEW_SYNTH_CACHE.pop(oldest_key)
+                # Force garbage collection to free VRAM/RAM
+                import gc
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except ImportError:
+                    pass
+                del old_synth
+                gc.collect()
 
     # 4. Perform synthesis
     try:
