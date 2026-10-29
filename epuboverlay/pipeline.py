@@ -824,9 +824,6 @@ def _compute_config_hash(
         "speaker",
         "instruct",
         "language",
-        "emotion_tag",
-        "top_p",
-        "repetition_penalty",
     ):
         if hasattr(synthesizer, attr):
             val = getattr(synthesizer, attr)

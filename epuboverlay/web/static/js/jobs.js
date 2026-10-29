@@ -657,7 +657,6 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                                 <option value="pocket-tts" ${originalConfig.synthesizer === 'pocket-tts' ? 'selected' : ''}>PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang)</option>
                                 <option value="kokoro" ${originalConfig.synthesizer === 'kokoro' ? 'selected' : ''}>Kokoro-82M (Built-in Voices / Formulas)</option>
                                 <option value="qwen3-tts" ${originalConfig.synthesizer === 'qwen3-tts' ? 'selected' : ''}>Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
-                                <option value="fish-speech" ${originalConfig.synthesizer === 'fish-speech' ? 'selected' : ''}>Fish-Speech-1.5 / OpenAudio (8-Lang incl. Arabic)</option>
                                 <option value="f5-tts" ${originalConfig.synthesizer === 'f5-tts' ? 'selected' : ''}>F5-TTS (Voice Cloning)</option>
                                 <option value="dummy" ${originalConfig.synthesizer === 'dummy' ? 'selected' : ''}>Dummy (Silent / Testing)</option>
                             </select>
@@ -917,7 +916,7 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
             modalKokoroOpts.style.display = synth === 'kokoro' ? 'block' : 'none';
             if (modalMultilingualOpts) {
                 modalMultilingualOpts.style.display =
-                    (synth === 'qwen3-tts' || synth === 'fish-speech') ? 'block' : 'none';
+                    synth === 'qwen3-tts' ? 'block' : 'none';
             }
 
             if (synth === 'kokoro') {
@@ -998,7 +997,7 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                     formData.append('voice', '');
                     formData.append('voice_formula', elements.voiceFormulaInput.value);
                 }
-            } else if (modalSynth.value === 'qwen3-tts' || modalSynth.value === 'fish-speech') {
+            } else if (modalSynth.value === 'qwen3-tts') {
                 const langVal = modalForm.querySelector('#modal-language')?.value || '';
                 const instructVal = modalForm.querySelector('#modal-instruct')?.value || '';
                 if (langVal) formData.append('language', langVal);

@@ -9,11 +9,6 @@ from typing import Any, Callable
 from epuboverlay.synthesizers.base import BaseSynthesizer, FrameTimedSynthesizer
 from epuboverlay.synthesizers.dummy import DummySynthesizer
 from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
-from epuboverlay.synthesizers.fish import (
-    FISH_EMOTION_TAGS,
-    FISH_LANGUAGES,
-    FishSpeechSynthesizer,
-)
 from epuboverlay.synthesizers.kokoro import KOKORO_VOICES, KokoroSynthesizer
 from epuboverlay.synthesizers.pocket import (
     POCKET_LANGUAGES,
@@ -76,19 +71,6 @@ _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
         temp=float(kw.get("temp", 0.7) if kw.get("temp") not in (None, "") else 0.7),
         device=kw.get("device"),
     ),
-    "fish-speech": lambda **kw: FishSpeechSynthesizer(
-        ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
-        ref_text=kw.get("ref_text", "") or "",
-        emotion_tag=kw.get("emotion_tag", "") or "",
-        language=kw.get("language") or kw.get("lang_code") or "auto",
-        temp=float(kw.get("temp", 0.7) if kw.get("temp") not in (None, "") else 0.7),
-        top_p=float(kw.get("top_p", 0.7) if kw.get("top_p") not in (None, "") else 0.7),
-        repetition_penalty=float(kw.get("repetition_penalty", 1.2) if kw.get("repetition_penalty") not in (None, "") else 1.2),
-        speed=float(kw.get("speed", 1.0)),
-        api_url=kw.get("fish_api_url") or kw.get("api_url") or "",
-        api_key=kw.get("fish_api_key") or kw.get("api_key") or "",
-        device=kw.get("device"),
-    ),
 }
 
 AVAILABLE_SYNTHESIZERS: list[str] = list(_REGISTRY.keys())
@@ -98,8 +80,7 @@ def create_synthesizer(synth_id: str, **kwargs: Any) -> BaseSynthesizer:
     """Create and return a synthesizer instance for the given identifier.
 
     Args:
-        synth_id: One of 'dummy', 'f5-tts', 'kokoro', 'pocket-tts',
-            'qwen3-tts', 'fish-speech'.
+        synth_id: One of 'dummy', 'f5-tts', 'kokoro', 'pocket-tts', 'qwen3-tts'.
         **kwargs: Synthesizer-specific configuration options.
     """
     if synth_id not in _REGISTRY:
@@ -118,15 +99,12 @@ __all__ = [
     "KokoroSynthesizer",
     "PocketSynthesizer",
     "Qwen3TTSSynthesizer",
-    "FishSpeechSynthesizer",
     "KOKORO_VOICES",
     "POCKET_VOICES",
     "POCKET_LANGUAGES",
     "QWEN3_MODELS",
     "QWEN3_VOICES",
     "QWEN3_LANGUAGES",
-    "FISH_LANGUAGES",
-    "FISH_EMOTION_TAGS",
     "AVAILABLE_SYNTHESIZERS",
     "create_synthesizer",
 ]

@@ -5,7 +5,6 @@ let _installedSynthesizers = {
     'kokoro': true,
     'pocket-tts': true,
     'qwen3-tts': true,
-    'fish-speech': true,
     'f5-tts': true,
 };
 
@@ -20,7 +19,6 @@ export const SCENARIO_PROFILES = {
         eos_threshold: -4.0,
         frames_after_eos: '',
         instruct: '',
-        emotion_tag: '',
     },
     fiction_audiobook: {
         label: 'Fiction & Literary',
@@ -32,7 +30,6 @@ export const SCENARIO_PROFILES = {
         eos_threshold: -4.2,
         frames_after_eos: 5,
         instruct: 'Speak in a warm, captivating storytelling tone with expressive cadence and natural breath pauses.',
-        emotion_tag: '(soft tone)',
     },
     technical_docs: {
         label: 'Technical & Academic',
@@ -44,7 +41,6 @@ export const SCENARIO_PROFILES = {
         eos_threshold: -4.0,
         frames_after_eos: 3,
         instruct: 'Speak in a clear, calm, articulate, and measured instructional tone with crisp pronunciation.',
-        emotion_tag: '(calm)',
     },
     executive_briefing: {
         label: 'Executive Briefing',
@@ -56,7 +52,6 @@ export const SCENARIO_PROFILES = {
         eos_threshold: -3.8,
         frames_after_eos: 1,
         instruct: 'Speak with confident, brisk, authoritative broadcast clarity and energetic pacing.',
-        emotion_tag: '(serious)',
     },
     language_learning: {
         label: 'Language Shadowing',
@@ -68,7 +63,6 @@ export const SCENARIO_PROFILES = {
         eos_threshold: -4.5,
         frames_after_eos: 7,
         instruct: 'Speak slowly and distinctly with crystal-clear phonetic articulation for language learners.',
-        emotion_tag: '(calm)',
     },
     dramatic_dialogue: {
         label: 'Dramatic Dialogue',
@@ -80,7 +74,6 @@ export const SCENARIO_PROFILES = {
         eos_threshold: -4.2,
         frames_after_eos: 4,
         instruct: 'Deliver with rich dramatic emotion, dynamic pitch variation, and vivid character expression.',
-        emotion_tag: '(empathetic)',
     },
 };
 
@@ -95,7 +88,7 @@ export function getInstalledSynthesizers() {
 }
 
 export function getPreferredInstalledSynthesizer(fallback = 'dummy') {
-    for (const key of ['pocket-tts', 'kokoro', 'qwen3-tts', 'fish-speech', 'f5-tts', 'dummy']) {
+    for (const key of ['pocket-tts', 'kokoro', 'qwen3-tts', 'f5-tts', 'dummy']) {
         if (_installedSynthesizers[key]) return key;
     }
     return fallback;
@@ -108,7 +101,6 @@ export function applyInstalledSynthesizersToSelect(selectEl, installedMap = _ins
         'pocket-tts': 'pocket',
         'kokoro': 'kokoro',
         'qwen3-tts': 'qwen',
-        'fish-speech': 'fish',
     };
     Array.from(selectEl.options).forEach(opt => {
         const val = opt.value;

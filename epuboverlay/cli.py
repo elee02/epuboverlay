@@ -88,8 +88,6 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
         scen = NARRATION_SCENARIOS[scenario_id]
         if getattr(parsed, "instruct", "") == "" and scen.get("instruct"):
             parsed.instruct = scen["instruct"]
-        if getattr(parsed, "emotion_tag", "") == "" and scen.get("emotion_tag"):
-            parsed.emotion_tag = scen["emotion_tag"]
 
     # Validate synthesizer parameters
     if parsed.synthesizer == "f5-tts":
@@ -256,7 +254,7 @@ def main(args: list[str] | None = None) -> int:
     )
     gen_parser.add_argument(
         "-s", "--synthesizer",
-        choices=["f5-tts", "kokoro", "pocket-tts", "qwen3-tts", "fish-speech", "dummy"],
+        choices=["f5-tts", "kokoro", "pocket-tts", "qwen3-tts", "dummy"],
         default="f5-tts",
         help="Synthesizer implementation to use (default: f5-tts)."
     )
@@ -279,12 +277,6 @@ def main(args: list[str] | None = None) -> int:
         help="Natural-language emotion and intonation instruction (for qwen3-tts)."
     )
     gen_parser.add_argument(
-        "--emotion-tag",
-        type=str,
-        default="",
-        help="Inline/prefix emotion marker for fish-speech, e.g. '(excited)', '(whispering)'."
-    )
-    gen_parser.add_argument(
         "--pocket-language",
         type=str,
         default="english",
@@ -294,7 +286,7 @@ def main(args: list[str] | None = None) -> int:
         "--temp",
         type=float,
         default=0.7,
-        help="Sampling temperature for PocketTTS / Qwen3-TTS / Fish-Speech (default: 0.7)."
+        help="Sampling temperature for PocketTTS / Qwen3-TTS (default: 0.7)."
     )
     gen_parser.add_argument(
         "--lsd-decode-steps",
@@ -325,18 +317,6 @@ def main(args: list[str] | None = None) -> int:
         type=str,
         default="Ryan",
         help="Qwen3-TTS preset speaker name (default: Ryan)."
-    )
-    gen_parser.add_argument(
-        "--fish-api-url",
-        type=str,
-        default="",
-        help="Local or remote Fish-Speech HTTP API endpoint (e.g. http://127.0.0.1:8080/v1/tts)."
-    )
-    gen_parser.add_argument(
-        "--fish-api-key",
-        type=str,
-        default="",
-        help="Fish Audio Cloud API key (can also be set via FISH_API_KEY environment variable)."
     )
     gen_parser.add_argument(
         "-a", "--ref-audio",

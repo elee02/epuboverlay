@@ -84,18 +84,6 @@ export async function previewVoice(formData, signal) {
     return await resp.blob();
 }
 
-export async function testFishConnection(apiKey = '', apiUrl = '') {
-    const resp = await fetch('/api/fish/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey, api_url: apiUrl })
-    });
-    if (!resp.ok) {
-        throw new Error(`Connection test failed (HTTP ${resp.status})`);
-    }
-    return await resp.json();
-}
-
 export async function fetchChapters(file) {
     const formData = new FormData();
     formData.append('epub', file);

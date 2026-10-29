@@ -14,7 +14,6 @@ export function populateReferencesDropdowns() {
         { el: document.getElementById('pg-f5-ref-voice-select'), type: 'f5' },
         { el: document.getElementById('pg-pocket-ref-voice-select'), type: 'pocket' },
         { el: document.getElementById('pg-qwen-ref-voice-select'), type: 'qwen' },
-        { el: document.getElementById('pg-fish-ref-voice-select'), type: 'fish' },
     ];
     selects.forEach(({ el }) => {
         if (!el) return;

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "epuboverlay"
 version = "0.11.0"
-description = "Generate standard narrated EPUB 3 files with Media Overlays using F5-TTS, Kokoro-82M, Pocket-TTS, Qwen3-TTS, and Fish-Speech, and extract audio & subtitles."
+description = "Generate standard narrated EPUB 3 files with Media Overlays using F5-TTS, Kokoro-82M, Pocket-TTS, and Qwen3-TTS, and extract audio & subtitles."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 classifiers = [
@@ -43,18 +43,6 @@ qwen3-tts = [
     "soundfile>=0.12.1",
     "scipy>=1.10.0",
 ]
-fish = [
-    "fish-audio-sdk>=1.0.0",
-    "ormsgpack>=1.2.0",
-    "soundfile>=0.12.1",
-    "scipy>=1.10.0",
-]
-fish-speech = [
-    "fish-audio-sdk>=1.0.0",
-    "ormsgpack>=1.2.0",
-    "soundfile>=0.12.1",
-    "scipy>=1.10.0",
-]
 
 # Installation tiers:
 # Minimal: base dependencies only (web app, CLI, dummy testing, EPUB/TXT/MD)
@@ -66,11 +54,9 @@ standard = [
     "python-docx",
     "pypdf",
 ]
-# Multilingual: emotional & multilingual TTS engines (Qwen3-TTS, Fish-Speech)
+# Multilingual: emotional & multilingual TTS engines (Qwen3-TTS)
 multilingual = [
     "qwen-tts>=0.1.0",
-    "fish-audio-sdk>=1.0.0",
-    "ormsgpack>=1.2.0",
     "soundfile>=0.12.1",
     "scipy>=1.10.0",
 ]
@@ -81,8 +67,6 @@ full = [
     "scipy>=1.10.0",
     "f5-tts>=1.1.0",
     "qwen-tts>=0.1.0",
-    "fish-audio-sdk>=1.0.0",
-    "ormsgpack>=1.2.0",
     "soundfile>=0.12.1",
     "python-docx",
     "pypdf",
@@ -93,8 +77,6 @@ all = [
     "scipy>=1.10.0",
     "f5-tts>=1.1.0",
     "qwen-tts>=0.1.0",
-    "fish-audio-sdk>=1.0.0",
-    "ormsgpack>=1.2.0",
     "soundfile>=0.12.1",
     "python-docx",
     "pypdf",

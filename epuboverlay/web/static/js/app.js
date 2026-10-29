@@ -177,26 +177,6 @@ function applyConfigDefaults(defaults) {
     if (qwenSpeakerSelect && defaults.qwen_speaker) {
         qwenSpeakerSelect.value = defaults.qwen_speaker;
     }
-
-    const fishKeyInput = document.getElementById('fish-api-key-input');
-    if (fishKeyInput && defaults.fish_api_key) {
-        fishKeyInput.value = defaults.fish_api_key;
-    }
-
-    const fishUrlInput = document.getElementById('fish-api-url-input');
-    if (fishUrlInput && defaults.fish_api_url) {
-        fishUrlInput.value = defaults.fish_api_url;
-    }
-
-    const pgFishKeyInput = document.getElementById('pg-fish-api-key-input');
-    if (pgFishKeyInput && defaults.fish_api_key) {
-        pgFishKeyInput.value = defaults.fish_api_key;
-    }
-
-    const pgFishUrlInput = document.getElementById('pg-fish-api-url-input');
-    if (pgFishUrlInput && defaults.fish_api_url) {
-        pgFishUrlInput.value = defaults.fish_api_url;
-    }
 }
 
 // ── Global SSE update callback ──────────────────────────────────────────────
@@ -299,20 +279,12 @@ function setupSynthesizerToggle() {
     const kokoroOptions = document.getElementById('kokoro-options');
     const pocketOptions = document.getElementById('pocket-tts-options');
     const qwenOptions = document.getElementById('qwen3-tts-options');
-    const fishOptions = document.getElementById('fish-speech-options');
     const emotionDirector = document.getElementById('emotion-director-options');
 
     const qwenVoiceModeSelector = document.getElementById('qwen-voice-mode-selector');
     const qwenModeSelect = document.getElementById('qwen-mode-select');
     const qwenModelSelect = document.getElementById('qwen-model-select');
     const qwenSpeakerGroup = document.getElementById('qwen-speaker-group');
-
-    const fishVoiceModeSelector = document.getElementById('fish-voice-mode-selector');
-
-    function getActiveFishMode() {
-        const pill = fishVoiceModeSelector ? fishVoiceModeSelector.querySelector('.mode-pill.active') : null;
-        return pill ? pill.getAttribute('data-mode') : 'clone';
-    }
 
     function syncQwenModelAndPills(modeVal) {
         if (qwenVoiceModeSelector) {
@@ -337,7 +309,6 @@ function setupSynthesizerToggle() {
     function toggleFields() {
         const val = synthSelect.value;
         const qwenMode = qwenModeSelect ? qwenModeSelect.value : 'custom_voice';
-        const fishMode = getActiveFishMode();
 
         if (qwenSpeakerGroup) {
             qwenSpeakerGroup.style.display = qwenMode === 'custom_voice' ? 'flex' : 'none';
@@ -345,8 +316,7 @@ function setupSynthesizerToggle() {
 
         const needsRefAudio =
             val === 'f5-tts' ||
-            (val === 'qwen3-tts' && qwenMode === 'clone') ||
-            (val === 'fish-speech' && fishMode === 'clone');
+            (val === 'qwen3-tts' && qwenMode === 'clone');
 
         if (cloningOptions) cloningOptions.style.display = needsRefAudio ? 'grid' : 'none';
         if (refTextLabel) {
@@ -358,10 +328,8 @@ function setupSynthesizerToggle() {
         if (kokoroOptions) kokoroOptions.style.display = val === 'kokoro' ? 'block' : 'none';
         if (pocketOptions) pocketOptions.style.display = val === 'pocket-tts' ? 'block' : 'none';
         if (qwenOptions) qwenOptions.style.display = val === 'qwen3-tts' ? 'block' : 'none';
-        if (fishOptions) fishOptions.style.display = val === 'fish-speech' ? 'block' : 'none';
         if (emotionDirector) {
-            emotionDirector.style.display =
-                (val === 'qwen3-tts' || val === 'fish-speech') ? 'block' : 'none';
+            emotionDirector.style.display = (val === 'qwen3-tts') ? 'block' : 'none';
         }
 
         if (val === 'kokoro') updateFilteredVoices();
@@ -381,17 +349,6 @@ function setupSynthesizerToggle() {
         qwenModeSelect.addEventListener('change', () => {
             syncQwenModelAndPills(qwenModeSelect.value);
             toggleFields();
-        });
-    }
-
-    if (fishVoiceModeSelector) {
-        fishVoiceModeSelector.querySelectorAll('.mode-pill').forEach(pill => {
-            pill.addEventListener('click', () => {
-                fishVoiceModeSelector.querySelectorAll('.mode-pill').forEach(p => {
-                    p.classList.toggle('active', p === pill);
-                });
-                toggleFields();
-            });
         });
     }
 
@@ -433,7 +390,6 @@ function setupScenarioAndDirectorControls() {
                 const eosEl = document.getElementById('pocket-eos-input');
                 const framesEl = document.getElementById('pocket-frames-eos-input');
                 const instructEl = document.getElementById('instruct-input');
-                const fishEmotionEl = document.getElementById('fish-emotion-tag-select');
 
                 if (speedEl) speedEl.value = prof.speed;
                 if (maxCharsEl) maxCharsEl.value = prof.max_chars;
@@ -443,7 +399,6 @@ function setupScenarioAndDirectorControls() {
                 if (eosEl) eosEl.value = prof.eos_threshold;
                 if (framesEl) framesEl.value = prof.frames_after_eos !== undefined ? prof.frames_after_eos : '';
                 if (instructEl && prof.instruct !== undefined) instructEl.value = prof.instruct;
-                if (fishEmotionEl && prof.emotion_tag !== undefined) fishEmotionEl.value = prof.emotion_tag;
 
                 showToast(`Scenario "${prof.label}" applied.`, 'info');
             });
@@ -588,22 +543,15 @@ function setupForm() {
                     }
                 }
             }
-        } else if (synthSelect.value === 'f5-tts' || synthSelect.value === 'fish-speech' || synthSelect.value === 'qwen3-tts') {
+        } else if (synthSelect.value === 'f5-tts' || synthSelect.value === 'qwen3-tts') {
             formData.set('voice', '');
             formData.set('voice_formula', '');
             formData.set('pocket_voice', '');
 
-            if (synthSelect.value === 'fish-speech') {
-                const fishLang = document.getElementById('fish-language-select');
-                if (fishLang) formData.set('language', fishLang.value);
-            }
-
             const qwenMode = document.getElementById('qwen-mode-select')?.value || 'custom_voice';
-            const fishMode = document.getElementById('fish-voice-mode-selector')?.querySelector('.mode-pill.active')?.getAttribute('data-mode') || 'clone';
             const shouldAttachCloneRef =
                 synthSelect.value === 'f5-tts' ||
-                (synthSelect.value === 'qwen3-tts' && qwenMode === 'clone') ||
-                (synthSelect.value === 'fish-speech' && fishMode === 'clone');
+                (synthSelect.value === 'qwen3-tts' && qwenMode === 'clone');
 
             if (shouldAttachCloneRef) {
                 const refVoiceSelect = document.getElementById('ref-voice-select');

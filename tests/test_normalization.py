@@ -14,8 +14,6 @@ from epuboverlay.synthesizers import (
     AVAILABLE_SYNTHESIZERS,
     POCKET_LANGUAGES,
     QWEN3_LANGUAGES,
-    FISH_LANGUAGES,
-    FISH_EMOTION_TAGS,
 )
 
 class NormalizationTests(unittest.TestCase):
@@ -135,15 +133,13 @@ class NormalizationTests(unittest.TestCase):
         ):
             self.assertIn(key, NARRATION_SCENARIOS)
 
-        for synth in ("dummy", "kokoro", "pocket-tts", "qwen3-tts", "fish-speech", "f5-tts"):
+        for synth in ("dummy", "kokoro", "pocket-tts", "qwen3-tts", "f5-tts"):
             self.assertIn(synth, AVAILABLE_SYNTHESIZERS)
 
         self.assertIn("german_24l", POCKET_LANGUAGES)
         self.assertIn("spanish_24l", POCKET_LANGUAGES)
         self.assertIn("ru", QWEN3_LANGUAGES)
         self.assertIn("ko", QWEN3_LANGUAGES)
-        self.assertIn("ar", FISH_LANGUAGES)
-        self.assertTrue(any(item["tag"] == "(whispering)" for item in FISH_EMOTION_TAGS))
 
 if __name__ == "__main__":
     unittest.main()

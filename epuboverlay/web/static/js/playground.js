@@ -10,7 +10,6 @@ import {
     fetchPlaygroundHistory,
     clearPlaygroundCache,
     saveReference,
-    testFishConnection,
 } from './api.js?v=8';
 import {
     showToast,
@@ -58,7 +57,6 @@ function getElements() {
         kokoroPanel:        document.getElementById('pg-kokoro-panel'),
         pocketPanel:        document.getElementById('pg-pocket-panel'),
         qwenPanel:          document.getElementById('pg-qwen3-panel'),
-        fishPanel:          document.getElementById('pg-fish-panel'),
         f5Panel:            document.getElementById('pg-f5-panel'),
         dummyPanel:         document.getElementById('pg-dummy-panel'),
         emotionDirectorPanel: document.getElementById('pg-emotion-director-panel'),
@@ -103,16 +101,6 @@ function getElements() {
         qwenLanguageSelect: document.getElementById('pg-qwen-language-select'),
         qwenRefGroup:       document.getElementById('pg-qwen-ref-group'),
         qwenRefVoiceSelect: document.getElementById('pg-qwen-ref-voice-select'),
-        // Fish-Speech sub-elements
-        fishVoiceModeSelector: document.getElementById('pg-fish-voice-mode-selector'),
-        fishLanguageSelect: document.getElementById('pg-fish-language-select'),
-        fishEmotionSelect:  document.getElementById('pg-fish-emotion-select'),
-        fishRefGroup:       document.getElementById('pg-fish-ref-group'),
-        fishRefVoiceSelect: document.getElementById('pg-fish-ref-voice-select'),
-        fishApiKeyInput:    document.getElementById('pg-fish-api-key-input'),
-        fishApiUrlInput:    document.getElementById('pg-fish-api-url-input'),
-        fishTestBtn:        document.getElementById('pg-fish-test-btn'),
-        fishStatusBadge:    document.getElementById('pg-fish-status-badge'),
         // Shared Emotion Instruct
         instructInput:      document.getElementById('pg-instruct-input'),
         // F5-TTS sub-elements
@@ -143,17 +131,9 @@ function getActiveSynth(els) {
     return activeBtn ? activeBtn.getAttribute('data-synth') : 'kokoro';
 }
 
-function getActiveFishPlaygroundMode(els) {
-    const pill = els.fishVoiceModeSelector
-        ? els.fishVoiceModeSelector.querySelector('.mode-pill.active')
-        : null;
-    return pill ? pill.getAttribute('data-mode') : 'clone';
-}
-
 function updatePlaygroundClonePanelVisibility(els) {
     const synth = getActiveSynth(els);
     const qwenMode = els.qwenModeSelect ? els.qwenModeSelect.value : 'custom_voice';
-    const fishMode = getActiveFishPlaygroundMode(els);
 
     if (els.qwenSpeakerGroup) {
         els.qwenSpeakerGroup.style.display = qwenMode === 'custom_voice' ? 'flex' : 'none';
@@ -161,14 +141,10 @@ function updatePlaygroundClonePanelVisibility(els) {
     if (els.qwenRefGroup) {
         els.qwenRefGroup.style.display = qwenMode === 'clone' ? 'block' : 'none';
     }
-    if (els.fishRefGroup) {
-        els.fishRefGroup.style.display = fishMode === 'clone' ? 'flex' : 'none';
-    }
 
     const showSharedCloneStudio =
         synth === 'f5-tts' ||
-        (synth === 'qwen3-tts' && qwenMode === 'clone') ||
-        (synth === 'fish-speech' && fishMode === 'clone');
+        (synth === 'qwen3-tts' && qwenMode === 'clone');
 
     if (els.f5Panel) {
         els.f5Panel.style.display = showSharedCloneStudio ? 'block' : 'none';
@@ -185,7 +161,6 @@ function switchSynth(synth, els) {
         kokoro:        els.kokoroPanel,
         'pocket-tts':  els.pocketPanel,
         'qwen3-tts':   els.qwenPanel,
-        'fish-speech': els.fishPanel,
         dummy:         els.dummyPanel,
     };
     Object.entries(panels).forEach(([key, panel]) => {
@@ -193,7 +168,7 @@ function switchSynth(synth, els) {
     });
     if (els.emotionDirectorPanel) {
         els.emotionDirectorPanel.style.display =
-            (synth === 'qwen3-tts' || synth === 'fish-speech') ? 'block' : 'none';
+            (synth === 'qwen3-tts') ? 'block' : 'none';
     }
     updatePlaygroundClonePanelVisibility(els);
 }
@@ -248,13 +223,6 @@ export async function refreshPlaygroundList() {
                 }
                 if (item.settings.language) {
                     settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.language)}</span>`;
-                }
-            } else if (item.synthesizer === 'fish-speech') {
-                if (item.settings.language) {
-                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.language)}</span>`;
-                }
-                if (item.settings.emotion_tag) {
-                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.emotion_tag)}</span>`;
                 }
             } else if (item.synthesizer === 'f5-tts') {
                 settingsHtml += `<span class="pg-meta-badge settings">cloning</span>`;
@@ -454,37 +422,6 @@ async function handleSynthesize(els) {
         } else if (qwenMode === 'voice_design' && !instruct) {
             showToast('Please enter an Emotion & Intonation prompt to design a voice.', 'error');
             return;
-        }
-
-    } else if (synth === 'fish-speech') {
-        const fishLang = els.fishLanguageSelect ? els.fishLanguageSelect.value : 'auto';
-        const emotionTag = els.fishEmotionSelect ? els.fishEmotionSelect.value : '';
-        const instruct = els.instructInput ? els.instructInput.value.trim() : '';
-        const apiKey = els.fishApiKeyInput ? els.fishApiKeyInput.value.trim() : '';
-        const apiUrl = els.fishApiUrlInput ? els.fishApiUrlInput.value.trim() : '';
-        const fishMode = getActiveFishPlaygroundMode(els);
-
-        body.append('language', fishLang);
-        if (emotionTag) body.append('emotion_tag', emotionTag);
-        if (instruct) body.append('instruct', instruct);
-        if (apiKey) body.append('fish_api_key', apiKey);
-        if (apiUrl) body.append('fish_api_url', apiUrl);
-
-        if (fishMode === 'clone') {
-            const savedId = (els.fishRefVoiceSelect && els.fishRefVoiceSelect.value)
-                || (els.f5RefVoiceSelect && els.f5RefVoiceSelect.value) || '';
-            const refText = els.f5RefTextInput ? els.f5RefTextInput.value.trim() : '';
-            const customFile = els.f5RefAudioInput && els.f5RefAudioInput.files[0];
-            if (savedId) {
-                body.append('ref_id', savedId);
-                if (refText) body.append('ref_text', refText);
-            } else if (pgF5RecordedBlob) {
-                body.append('ref_audio', pgF5RecordedBlob, 'recorded_prompt.wav');
-                if (refText) body.append('ref_text', refText);
-            } else if (customFile) {
-                body.append('ref_audio', customFile);
-                if (refText) body.append('ref_text', refText);
-            }
         }
 
     } else if (synth === 'f5-tts') {
@@ -779,7 +716,6 @@ export function initPlayground() {
         'pocket-tts': 'pocket',
         kokoro: 'kokoro',
         'qwen3-tts': 'qwen',
-        'fish-speech': 'fish',
     };
     if (els.synthSelector) {
         els.synthSelector.querySelectorAll('.pg-synth-pill').forEach(btn => {
@@ -851,61 +787,20 @@ export function initPlayground() {
         });
     }
 
-    // Fish-Speech mode pills handler
-    if (els.fishVoiceModeSelector) {
-        els.fishVoiceModeSelector.querySelectorAll('.mode-pill').forEach(pill => {
-            pill.addEventListener('click', () => {
-                els.fishVoiceModeSelector.querySelectorAll('.mode-pill').forEach(p => {
-                    p.classList.toggle('active', p === pill);
-                });
-                updatePlaygroundClonePanelVisibility(els);
-            });
-        });
-    }
-
-    // Fish Audio test connection
-    if (els.fishTestBtn && els.fishStatusBadge) {
-        els.fishTestBtn.addEventListener('click', async () => {
-            const apiKey = els.fishApiKeyInput ? els.fishApiKeyInput.value.trim() : '';
-            const apiUrl = els.fishApiUrlInput ? els.fishApiUrlInput.value.trim() : '';
-            els.fishStatusBadge.textContent = 'Testing...';
-            els.fishStatusBadge.style.color = 'var(--text-secondary)';
-            try {
-                const res = await testFishConnection(apiKey, apiUrl);
-                if (res.connected) {
-                    els.fishStatusBadge.textContent = `✓ Connected (${res.type === 'cloud' ? 'Cloud' : 'Local'})`;
-                    els.fishStatusBadge.style.color = 'var(--accent-emerald)';
-                    showToast(`Fish Audio connected! ${res.message || ''}`, 'success');
-                } else {
-                    els.fishStatusBadge.textContent = '✗ Failed';
-                    els.fishStatusBadge.style.color = 'var(--accent-rose)';
-                    showToast(res.error || 'Failed to connect to Fish Audio', 'error');
-                }
-            } catch (err) {
-                els.fishStatusBadge.textContent = '✗ Error';
-                els.fishStatusBadge.style.color = 'var(--accent-rose)';
-                showToast(err.message, 'error');
-            }
-        });
-    }
-
     // Keep quick-select saved voice dropdowns in sync with #pg-f5-ref-voice-select
-    [els.qwenRefVoiceSelect, els.fishRefVoiceSelect].forEach(sel => {
-        if (!sel) return;
-        sel.addEventListener('change', () => {
-            if (els.f5RefVoiceSelect && els.f5RefVoiceSelect.value !== sel.value) {
-                els.f5RefVoiceSelect.value = sel.value;
+    if (els.qwenRefVoiceSelect) {
+        els.qwenRefVoiceSelect.addEventListener('change', () => {
+            if (els.f5RefVoiceSelect && els.f5RefVoiceSelect.value !== els.qwenRefVoiceSelect.value) {
+                els.f5RefVoiceSelect.value = els.qwenRefVoiceSelect.value;
                 els.f5RefVoiceSelect.dispatchEvent(new Event('change'));
             }
         });
-    });
+    }
     if (els.f5RefVoiceSelect) {
         els.f5RefVoiceSelect.addEventListener('change', () => {
-            [els.qwenRefVoiceSelect, els.fishRefVoiceSelect].forEach(sel => {
-                if (sel && sel.value !== els.f5RefVoiceSelect.value) {
-                    sel.value = els.f5RefVoiceSelect.value;
-                }
-            });
+            if (els.qwenRefVoiceSelect && els.qwenRefVoiceSelect.value !== els.f5RefVoiceSelect.value) {
+                els.qwenRefVoiceSelect.value = els.f5RefVoiceSelect.value;
+            }
         });
     }
 
@@ -925,7 +820,6 @@ export function initPlayground() {
                 if (els.pocketEosInput) els.pocketEosInput.value = prof.eos_threshold;
                 if (els.pocketFramesEosInput) els.pocketFramesEosInput.value = prof.frames_after_eos !== undefined ? prof.frames_after_eos : '';
                 if (els.instructInput && prof.instruct !== undefined) els.instructInput.value = prof.instruct;
-                if (els.fishEmotionSelect && prof.emotion_tag !== undefined) els.fishEmotionSelect.value = prof.emotion_tag;
                 showToast(`Audition scenario "${prof.label}" loaded.`, 'info');
             });
         });
@@ -952,9 +846,6 @@ export function initPlayground() {
                         zh: 'Chinese', de: 'German', es: 'Spanish',
                     };
                     if (qwenLangMap[lang]) els.qwenLanguageSelect.value = qwenLangMap[lang];
-                }
-                if (els.fishLanguageSelect) {
-                    els.fishLanguageSelect.value = lang;
                 }
             });
         });

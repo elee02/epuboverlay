@@ -26,7 +26,6 @@ NARRATION_SCENARIOS: dict[str, dict[str, Any]] = {
         "eos_threshold": -4.0,
         "frames_after_eos": None,
         "instruct": "",
-        "emotion_tag": "",
     },
     "fiction_audiobook": {
         "id": "fiction_audiobook",
@@ -41,7 +40,6 @@ NARRATION_SCENARIOS: dict[str, dict[str, Any]] = {
         "eos_threshold": -4.1,
         "frames_after_eos": 2,
         "instruct": "Narrate with warm literary expressiveness, natural dramatic pacing, and subtle emotional nuance.",
-        "emotion_tag": "(soft tone)",
     },
     "technical_docs": {
         "id": "technical_docs",
@@ -56,7 +54,6 @@ NARRATION_SCENARIOS: dict[str, dict[str, Any]] = {
         "eos_threshold": -4.0,
         "frames_after_eos": 1,
         "instruct": "Speak with clear, authoritative, and precise articulation suitable for technical and scientific documentation.",
-        "emotion_tag": "(serious)",
     },
     "executive_briefing": {
         "id": "executive_briefing",
@@ -71,7 +68,6 @@ NARRATION_SCENARIOS: dict[str, dict[str, Any]] = {
         "eos_threshold": -3.9,
         "frames_after_eos": 1,
         "instruct": "Deliver in a polished, confident, and engaging broadcast briefing style with crisp sentence transitions.",
-        "emotion_tag": "",
     },
     "language_learning": {
         "id": "language_learning",
@@ -86,7 +82,6 @@ NARRATION_SCENARIOS: dict[str, dict[str, Any]] = {
         "eos_threshold": -4.2,
         "frames_after_eos": 6,
         "instruct": "Enunciate every syllable clearly and deliberately at a measured, learner-friendly pace.",
-        "emotion_tag": "(soft tone)",
     },
     "dramatic_dialogue": {
         "id": "dramatic_dialogue",
@@ -101,7 +96,6 @@ NARRATION_SCENARIOS: dict[str, dict[str, Any]] = {
         "eos_threshold": -4.3,
         "frames_after_eos": 2,
         "instruct": "Perform with rich theatrical emotion, distinct character inflection, and expressive intonation.",
-        "emotion_tag": "(excited)",
     },
 }
 

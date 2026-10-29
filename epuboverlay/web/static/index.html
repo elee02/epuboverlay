@@ -211,7 +211,6 @@
                                     <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang 24L)</option>
                                     <option value="kokoro">Kokoro-82M (Fast Presets &amp; Voice Blending)</option>
                                     <option value="qwen3-tts">Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
-                                    <option value="fish-speech">Fish-Speech-1.5 / OpenAudio (8-Lang incl. Arabic &amp; Emotion Tags)</option>
                                     <option value="f5-tts">F5-TTS (Diffusion Zero-Shot Voice Cloning)</option>
                                     <option value="dummy">Dummy (Instant Silent Testing)</option>
                                 </select>
@@ -511,57 +510,7 @@
                             </div>
                         </div>
 
-                        <!-- Fish-Speech-1.5 / OpenAudio Specific Options -->
-                        <div id="fish-speech-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label>Voice Mode</label>
-                                    <div class="voice-mode-selector" id="fish-voice-mode-selector">
-                                        <button type="button" class="mode-pill active" data-mode="clone">Clone Voice</button>
-                                        <button type="button" class="mode-pill" data-mode="default">Default Voice</button>
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label for="fish-language-select">Target Language (incl. Arabic)</label>
-                                    <select id="fish-language-select" name="fish_language">
-                                        <option value="auto">Auto-Detect (EN/RU/KO/JA/ZH/DE/ES/AR)</option>
-                                        <option value="en">English</option>
-                                        <option value="ru">Russian (Русский)</option>
-                                        <option value="ko">Korean (한국어)</option>
-                                        <option value="ja">Japanese (日本語)</option>
-                                        <option value="zh">Chinese (中文)</option>
-                                        <option value="de">German (Deutsch)</option>
-                                        <option value="es">Spanish (Español)</option>
-                                        <option value="ar">Arabic (العربية)</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="fish-emotion-tag-select">Default Emotion Marker</label>
-                                    <select id="fish-emotion-tag-select" name="emotion_tag">
-                                        <option value="">Neutral (Use inline markers or default)</option>
-                                        <option value="(calm)">(calm) Calm &amp; Composed</option>
-                                        <option value="(excited)">(excited) Excited &amp; Energetic</option>
-                                        <option value="(sad)">(sad) Melancholic &amp; Somber</option>
-                                        <option value="(angry)">(angry) Intense &amp; Frustrated</option>
-                                        <option value="(whispering)">(whispering) Hushed &amp; Whispered</option>
-                                        <option value="(soft tone)">(soft tone) Gentle &amp; Intimate</option>
-                                        <option value="(empathetic)">(empathetic) Warm &amp; Empathetic</option>
-                                        <option value="(serious)">(serious) Authoritative &amp; Serious</option>
-                                        <option value="(in a hurry tone)">(in a hurry tone) Urgent &amp; Fast</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="fish-api-key-input">Fish Audio API Key (Cloud)</label>
-                                    <input type="password" id="fish-api-key-input" name="fish_api_key" placeholder="Enter API Key from fish.audio/go-api" autocomplete="off">
-                                </div>
-                                <div class="form-group">
-                                    <label for="fish-api-url-input">Fish-Speech Server URL (Local / Custom)</label>
-                                    <input type="text" id="fish-api-url-input" name="fish_api_url" placeholder="http://127.0.0.1:8080/v1/tts (blank = Cloud)">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Shared Voice Cloning Options (F5-TTS, Qwen3-TTS Clone, Fish-Speech Clone) -->
+                        <!-- Shared Voice Cloning Options (F5-TTS, Qwen3-TTS Clone) -->
                         <div id="cloning-options" class="ref-audio-fields" style="margin-top: 1rem;">
                             <div class="form-group">
                                 <label for="ref-voice-select">Reference Voice (Voice Library)</label>
@@ -586,7 +535,7 @@
                             </div>
                         </div>
 
-                        <!-- Shared Emotion & Intonation Director Panel (for Qwen3-TTS, Fish-Speech) -->
+                        <!-- Shared Emotion & Intonation Director Panel (for Qwen3-TTS) -->
                         <div id="emotion-director-options" class="director-panel" style="display: none;">
                             <div class="director-panel-header">
                                 <div class="director-panel-title">
@@ -719,7 +668,6 @@
                         <button type="button" class="pg-synth-pill active" data-synth="kokoro">🗣 Kokoro-82M</button>
                         <button type="button" class="pg-synth-pill" data-synth="pocket-tts">📦 PocketTTS</button>
                         <button type="button" class="pg-synth-pill" data-synth="qwen3-tts">🎭 Qwen3-TTS</button>
-                        <button type="button" class="pg-synth-pill" data-synth="fish-speech">🐟 Fish-Speech</button>
                         <button type="button" class="pg-synth-pill" data-synth="f5-tts">🎤 F5-TTS</button>
                         <button type="button" class="pg-synth-pill" data-synth="dummy">🔇 Dummy</button>
                     </div>
@@ -991,66 +939,6 @@
                             <select id="pg-qwen-ref-voice-select">
                                 <option value="">-- Upload Custom File / Record Below --</option>
                             </select>
-                        </div>
-                    </div>
-
-                    <!-- ── Fish-Speech-1.5 / OpenAudio Panel ── -->
-                    <div id="pg-fish-panel" style="display: none;">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>Voice Mode</label>
-                                <div class="voice-mode-selector" id="pg-fish-voice-mode-selector">
-                                    <button type="button" class="mode-pill active" data-mode="clone">Clone Voice</button>
-                                    <button type="button" class="mode-pill" data-mode="default">Default Voice</button>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label for="pg-fish-language-select">Target Language (incl. Arabic)</label>
-                                <select id="pg-fish-language-select">
-                                    <option value="auto">Auto-Detect (EN/RU/KO/JA/ZH/DE/ES/AR)</option>
-                                    <option value="en">English</option>
-                                    <option value="ru">Russian (Русский)</option>
-                                    <option value="ko">Korean (한국어)</option>
-                                    <option value="ja">Japanese (日本語)</option>
-                                    <option value="zh">Chinese (中文)</option>
-                                    <option value="de">German (Deutsch)</option>
-                                    <option value="es">Spanish (Español)</option>
-                                    <option value="ar">Arabic (العربية)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="pg-fish-emotion-select">Emotion / Delivery Marker</label>
-                                <select id="pg-fish-emotion-select">
-                                    <option value="">Neutral (or use inline tags below)</option>
-                                    <option value="(calm)">(calm) Calm &amp; Composed</option>
-                                    <option value="(excited)">(excited) Excited &amp; Energetic</option>
-                                    <option value="(sad)">(sad) Melancholic &amp; Somber</option>
-                                    <option value="(angry)">(angry) Intense &amp; Frustrated</option>
-                                    <option value="(whispering)">(whispering) Hushed &amp; Whispered</option>
-                                    <option value="(soft tone)">(soft tone) Gentle &amp; Intimate</option>
-                                    <option value="(empathetic)">(empathetic) Warm &amp; Empathetic</option>
-                                    <option value="(serious)">(serious) Authoritative &amp; Serious</option>
-                                    <option value="(in a hurry tone)">(in a hurry tone) Urgent &amp; Fast</option>
-                                </select>
-                            </div>
-                            <div class="form-group" id="pg-fish-ref-group">
-                                <label for="pg-fish-ref-voice-select">Quick Select Saved Voice</label>
-                                <select id="pg-fish-ref-voice-select">
-                                    <option value="">-- Upload Custom File / Record Below --</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="pg-fish-api-key-input">Fish Audio API Key (Cloud)</label>
-                                <input type="password" id="pg-fish-api-key-input" placeholder="Enter API Key from fish.audio/go-api" autocomplete="off">
-                            </div>
-                            <div class="form-group">
-                                <label for="pg-fish-api-url-input">Fish API Server URL (Local / Custom)</label>
-                                <input type="text" id="pg-fish-api-url-input" placeholder="http://127.0.0.1:8080/v1/tts">
-                            </div>
-                            <div class="form-group full-width" style="display: flex; align-items: center; gap: 0.75rem; margin-top: -0.25rem;">
-                                <button type="button" class="btn btn-xs btn-ghost" id="pg-fish-test-btn">⚡ Test Connection</button>
-                                <span id="pg-fish-status-badge" style="font-size: 0.8rem; font-weight: 500;"></span>
-                            </div>
                         </div>
                     </div>
 
@@ -1530,7 +1418,6 @@
                                             <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang 24L)</option>
                                             <option value="kokoro">Kokoro-82M (Fast Presets &amp; Voice Blending)</option>
                                             <option value="qwen3-tts">Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
-                                            <option value="fish-speech">Fish-Speech-1.5 / OpenAudio (8-Lang incl. Arabic &amp; Emotion Tags)</option>
                                             <option value="f5-tts">F5-TTS (Diffusion Zero-Shot Voice Cloning)</option>
                                             <option value="dummy">Dummy (Instant Silent Testing)</option>
                                         </select>
@@ -1564,31 +1451,6 @@
                                     <div class="form-group">
                                         <label for="default-frame-rate">Frame Rate (Hz)</label>
                                         <input type="number" id="default-frame-rate" value="24000.0" min="8000" max="48000" step="1000">
-                                    </div>
-                                </div>
-
-                                <div class="settings-subcard" style="margin-top: 1.5rem; padding: 1.25rem; background: var(--bg-secondary); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
-                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
-                                        <h4 style="margin: 0; font-size: 1rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.4rem;">
-                                            🐟 Fish Audio (Cloud &amp; Local Server)
-                                        </h4>
-                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                            <button type="button" class="btn btn-xs btn-ghost" id="settings-test-fish-btn">⚡ Test Connection</button>
-                                            <span id="settings-fish-status-badge" style="font-size: 0.8rem; font-weight: 500;"></span>
-                                        </div>
-                                    </div>
-                                    <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 1rem;">
-                                        Connect to Fish Audio's official Cloud API (<a href="https://fish.audio/go-api" target="_blank" rel="noopener noreferrer" style="color: var(--accent-indigo); text-decoration: underline;">get API key with free tier</a>) or enter your local self-hosted OpenAudio server address.
-                                    </p>
-                                    <div class="form-grid">
-                                        <div class="form-group">
-                                            <label for="default-fish-api-key">Fish Audio API Key (Cloud)</label>
-                                            <input type="password" id="default-fish-api-key" placeholder="Enter API Key from fish.audio/go-api" autocomplete="off">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="default-fish-api-url">Server URL (Local / Custom)</label>
-                                            <input type="text" id="default-fish-api-url" placeholder="http://127.0.0.1:8080/v1/tts (blank = Cloud/Python)">
-                                        </div>
                                     </div>
                                 </div>
                             </form>

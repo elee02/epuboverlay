@@ -118,23 +118,12 @@ async def _save_upload_to_temp(
 def get_installed_synthesizers() -> dict[str, bool]:
     """Detect which TTS synthesizers are installed in the current environment."""
     import importlib.util
-    import os
 
-    settings = load_settings_data().get("current_settings", {})
-    fish_installed = (
-        importlib.util.find_spec("fish_speech") is not None
-        or importlib.util.find_spec("fish_audio_sdk") is not None
-        or bool(settings.get("fish_api_url"))
-        or bool(settings.get("fish_api_key"))
-        or bool(os.environ.get("FISH_SPEECH_API_URL"))
-        or bool(os.environ.get("FISH_API_KEY"))
-    )
     return {
         "dummy": True,
         "kokoro": importlib.util.find_spec("kokoro") is not None,
         "pocket-tts": importlib.util.find_spec("pocket_tts") is not None,
         "qwen3-tts": importlib.util.find_spec("qwen_tts") is not None,
-        "fish-speech": fish_installed,
         "f5-tts": importlib.util.find_spec("f5_tts") is not None,
     }
 
@@ -273,8 +262,6 @@ async def get_config():
     """Return available synthesizers, voices, languages, scenarios, and defaults."""
     from epuboverlay.normalization import NARRATION_SCENARIOS
     from epuboverlay.synthesizers import (
-        FISH_EMOTION_TAGS,
-        FISH_LANGUAGES,
         KOKORO_VOICES,
         POCKET_LANGUAGES,
         POCKET_VOICES,
@@ -286,10 +273,6 @@ async def get_config():
     current = data.get("current_settings", {})
     installed = get_installed_synthesizers()
 
-    # If user configured a custom fish_api_url in settings, mark fish-speech available
-    if current.get("fish_api_url"):
-        installed["fish-speech"] = True
-
     # Pick default synthesizer based on what is actually installed
     saved_synth = current.get("synthesizer")
     if saved_synth and installed.get(saved_synth, False):
@@ -300,8 +283,6 @@ async def get_config():
         default_synth = "kokoro"
     elif installed.get("qwen3-tts", False):
         default_synth = "qwen3-tts"
-    elif installed.get("fish-speech", False):
-        default_synth = "fish-speech"
     elif installed.get("f5-tts", False):
         default_synth = "f5-tts"
     else:
@@ -334,9 +315,6 @@ async def get_config():
         "qwen_mode": current.get("qwen_mode", "custom_voice"),
         "qwen_speaker": "Ryan" if current.get("qwen_speaker") in (None, "", "Chelsie") else current.get("qwen_speaker", "Ryan"),
         "instruct": current.get("instruct", ""),
-        "emotion_tag": current.get("emotion_tag", ""),
-        "fish_api_url": current.get("fish_api_url", ""),
-        "fish_api_key": current.get("fish_api_key", ""),
     }
 
     return {
@@ -344,7 +322,6 @@ async def get_config():
             "pocket-tts",
             "kokoro",
             "qwen3-tts",
-            "fish-speech",
             "f5-tts",
             "dummy",
         ],
@@ -355,8 +332,6 @@ async def get_config():
         "qwen3_models": QWEN3_MODELS,
         "qwen3_voices": QWEN3_VOICES,
         "qwen3_languages": QWEN3_LANGUAGES,
-        "fish_languages": FISH_LANGUAGES,
-        "fish_emotion_tags": FISH_EMOTION_TAGS,
         "scenarios": NARRATION_SCENARIOS,
         "defaults": defaults,
     }
@@ -377,80 +352,6 @@ async def save_settings(settings: dict = Body(...)):
     data["current_settings"] = settings
     save_settings_data(data)
     return {"status": "saved", "settings": data["current_settings"]}
-
-
-@app.post("/api/fish/test")
-async def test_fish_connection(data: dict = Body(...)):
-    """Test Fish Audio connection (Cloud API or Local Server)."""
-    import urllib.request
-    import urllib.error
-
-    api_key = (data.get("api_key") or "").strip()
-    api_url = (data.get("api_url") or "").strip()
-
-    saved = load_settings_data().get("current_settings", {})
-    if not api_key:
-        api_key = (saved.get("fish_api_key") or os.environ.get("FISH_API_KEY", "")).strip()
-    if not api_url:
-        api_url = (saved.get("fish_api_url") or os.environ.get("FISH_SPEECH_API_URL", "")).strip()
-
-    # 1. Test Cloud API if api_key is present
-    if api_key:
-        try:
-            from fish_audio_sdk import Session
-            session = Session(api_key)
-            credit_info = session.get_api_credit()
-            credit_val = getattr(credit_info, "credit", None)
-            if credit_val is None:
-                credit_val = getattr(credit_info, "balance", "Active")
-            return {
-                "ok": True,
-                "type": "cloud",
-                "message": f"Connected to Fish Audio Cloud API! (Balance: {credit_val} credits)",
-                "credits": credit_val,
-            }
-        except Exception as e:
-            err_msg = str(e)
-            if "401" in err_msg or "Invalid token" in err_msg:
-                return {
-                    "ok": False,
-                    "type": "cloud",
-                    "message": "Fish Audio API Key is invalid or expired. Get a free key at https://fish.audio/go-api.",
-                }
-            return {
-                "ok": False,
-                "type": "cloud",
-                "message": f"Fish Audio Cloud error: {err_msg}",
-            }
-
-    # 2. Test local / custom server URL
-    target_url = api_url or "http://127.0.0.1:8080/v1/tts"
-    try:
-        req = urllib.request.Request(target_url, headers={"User-Agent": "epuboverlay"}, method="GET")
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            return {
-                "ok": True,
-                "type": "local",
-                "message": f"Connected to local Fish-Speech server at {target_url} (HTTP {resp.status})",
-            }
-    except urllib.error.HTTPError as e:
-        if e.code in (404, 405, 422, 200, 400):
-            return {
-                "ok": True,
-                "type": "local",
-                "message": f"Connected to Fish-Speech server at {target_url} (Server is online)",
-            }
-        return {
-            "ok": False,
-            "type": "local",
-            "message": f"Fish-Speech server at {target_url} returned HTTP {e.code}",
-        }
-    except Exception as e:
-        return {
-            "ok": False,
-            "type": "unreachable",
-            "message": f"No server reached at {target_url} ({e}). To use Fish-Speech, start your local server or enter a Cloud API key.",
-        }
 
 
 VOICE_BLENDS_FILE = Path.home() / ".epuboverlay" / "voice_blends.json"
@@ -654,7 +555,6 @@ _PKG_ALIASES = {
     "f5-tts": "f5",
     "pocket-tts": "pocket",
     "qwen3-tts": "qwen",
-    "fish-speech": "fish",
     "kokoro": "kokoro",
 }
 
@@ -691,11 +591,6 @@ async def create_job(
     qwen_mode: str = Form("custom_voice"),
     qwen_speaker: str = Form("Ryan"),
     instruct: str = Form(""),
-    emotion_tag: str = Form(""),
-    fish_api_url: str = Form(""),
-    fish_api_key: str = Form(""),
-    top_p: float = Form(0.7),
-    repetition_penalty: float = Form(1.2),
     selected_chapters: str = Form(""),  # JSON array of idref strings
 ):
     """Submit a new EPUB overlay generation job."""
@@ -707,8 +602,6 @@ async def create_job(
 
     # Validate synthesizer availability
     installed = get_installed_synthesizers()
-    if synthesizer == "fish-speech" and fish_api_url.strip():
-        installed["fish-speech"] = True
     if not installed.get(synthesizer, False):
         pkg_alias = _PKG_ALIASES.get(synthesizer, synthesizer)
         raise HTTPException(
@@ -765,7 +658,7 @@ async def create_job(
 
     try:
         norm_settings = load_settings_data().get("current_settings", {})
-        clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "fish-speech")
+        clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts")
 
         # Save ref audio if provided
         ref_audio_path = None
@@ -814,11 +707,6 @@ async def create_job(
             "qwen_mode": qwen_mode,
             "qwen_speaker": qwen_speaker,
             "instruct": instruct,
-            "emotion_tag": emotion_tag,
-            "fish_api_url": fish_api_url or norm_settings.get("fish_api_url", "") or os.environ.get("FISH_SPEECH_API_URL", ""),
-            "fish_api_key": fish_api_key or norm_settings.get("fish_api_key", "") or os.environ.get("FISH_API_KEY", ""),
-            "top_p": top_p,
-            "repetition_penalty": repetition_penalty,
             "selected_chapters": parsed_chapters,
             "expand_numerals": norm_settings.get("expand_numerals", True),
             "resolve_contractions": norm_settings.get("resolve_contractions", True),
@@ -893,9 +781,6 @@ async def resume_job(
     qwen_mode: str | None = Form(None),
     qwen_speaker: str | None = Form(None),
     instruct: str | None = Form(None),
-    emotion_tag: str | None = Form(None),
-    fish_api_url: str | None = Form(None),
-    fish_api_key: str | None = Form(None),
     ref_id: str | None = Form(None),
     ref_text: str | None = Form(None),
     ref_audio: UploadFile | None = File(None),
@@ -920,9 +805,6 @@ async def resume_job(
 
     target_synth = synthesizer if synthesizer is not None else job.config.get("synthesizer", "f5-tts")
     installed = get_installed_synthesizers()
-    effective_fish_url = fish_api_url if fish_api_url is not None else job.config.get("fish_api_url", "")
-    if target_synth == "fish-speech" and effective_fish_url:
-        installed["fish-speech"] = True
     if not installed.get(target_synth, False):
         pkg_alias = _PKG_ALIASES.get(target_synth, target_synth)
         raise HTTPException(
@@ -960,9 +842,6 @@ async def resume_job(
         ("qwen_mode", qwen_mode),
         ("qwen_speaker", qwen_speaker),
         ("instruct", instruct),
-        ("emotion_tag", emotion_tag),
-        ("fish_api_url", fish_api_url),
-        ("fish_api_key", fish_api_key),
         ("ref_text", ref_text),
     ]:
         if val is not None:
@@ -1414,16 +1293,11 @@ async def preview_voice(
     frames_after_eos: str = Form(""),
     quantize: bool = Form(False),
     dialogue_voice: str = Form(""),
-    # Qwen3 / Fish-Speech params
+    # Qwen3 params
     qwen_model: str = Form("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
     qwen_mode: str = Form("custom_voice"),
     qwen_speaker: str = Form("Ryan"),
     instruct: str = Form(""),
-    emotion_tag: str = Form(""),
-    fish_api_url: str = Form(""),
-    fish_api_key: str = Form(""),
-    top_p: float = Form(0.7),
-    repetition_penalty: float = Form(1.2),
     # Cloning & Reference
     ref_audio: UploadFile | None = File(None),
     ref_text: str = Form(""),
@@ -1441,8 +1315,6 @@ async def preview_voice(
 
     # 0. Check synthesizer availability
     installed = get_installed_synthesizers()
-    if synthesizer == "fish-speech" and fish_api_url.strip():
-        installed["fish-speech"] = True
     if not installed.get(synthesizer, False):
         pkg_alias = _PKG_ALIASES.get(synthesizer, synthesizer)
         raise HTTPException(
@@ -1458,7 +1330,7 @@ async def preview_voice(
     resolved_ref_bytes = b""
     resolved_ref_path: Path | None = None
     resolved_ref_text = ""
-    clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "fish-speech")
+    clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts")
     if ref_id.strip() and synthesizer in clone_capable:
         refs = load_references()
         ref = next((r for r in refs if r["id"] == ref_id), None)
@@ -1532,23 +1404,6 @@ async def preview_voice(
             ref_audio_hash,
             resolved_f5_ref_text,
             temp,
-            speed,
-            device or "auto",
-        )
-    elif synthesizer == "fish-speech":
-        effective_fish_key = fish_api_key or load_settings_data().get("current_settings", {}).get("fish_api_key", "") or os.environ.get("FISH_API_KEY", "")
-        effective_fish_url = fish_api_url or load_settings_data().get("current_settings", {}).get("fish_api_url", "") or os.environ.get("FISH_SPEECH_API_URL", "")
-        cache_key = (
-            "fish-speech",
-            emotion_tag,
-            language,
-            ref_audio_hash,
-            resolved_f5_ref_text,
-            temp,
-            top_p,
-            repetition_penalty,
-            effective_fish_url,
-            effective_fish_key,
             speed,
             device or "auto",
         )
@@ -1656,24 +1511,6 @@ async def preview_voice(
                         device=device or None,
                     )
 
-                elif synthesizer == "fish-speech":
-                    effective_fish_key = fish_api_key or load_settings_data().get("current_settings", {}).get("fish_api_key", "") or os.environ.get("FISH_API_KEY", "")
-                    effective_fish_url = fish_api_url or load_settings_data().get("current_settings", {}).get("fish_api_url", "") or os.environ.get("FISH_SPEECH_API_URL", "")
-                    from epuboverlay.synthesizers.fish import FishSpeechSynthesizer
-                    synth = FishSpeechSynthesizer(
-                        ref_audio=active_ref_path,
-                        ref_text=resolved_f5_ref_text,
-                        emotion_tag=emotion_tag,
-                        language=language,
-                        temp=temp,
-                        top_p=top_p,
-                        repetition_penalty=repetition_penalty,
-                        speed=speed,
-                        api_url=effective_fish_url,
-                        api_key=effective_fish_key,
-                        device=device or None,
-                    )
-
                 elif synthesizer == "dummy":
                     from epuboverlay.synthesizers.dummy import DummySynthesizer
                     synth = DummySynthesizer()
@@ -1737,10 +1574,6 @@ async def preview_voice(
             settings_dict["language"] = language
             if instruct:
                 settings_dict["instruct"] = instruct
-        elif synthesizer == "fish-speech":
-            settings_dict["language"] = language
-            if emotion_tag:
-                settings_dict["emotion_tag"] = emotion_tag
         elif synthesizer == "f5-tts":
             settings_dict["mode"] = "clone"
             if ref_id:
