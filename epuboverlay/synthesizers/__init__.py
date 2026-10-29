@@ -10,6 +10,7 @@ from epuboverlay.synthesizers.base import BaseSynthesizer, FrameTimedSynthesizer
 from epuboverlay.synthesizers.cosyvoice import (
     COSYVOICE_LANGUAGES,
     COSYVOICE_MODES,
+    COSYVOICE_VOICES,
     CosyVoice2Synthesizer,
 )
 from epuboverlay.synthesizers.dummy import DummySynthesizer
@@ -71,7 +72,7 @@ _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
     "qwen3-tts": lambda **kw: Qwen3TTSSynthesizer(
         model_name=kw.get("qwen_model") or kw.get("model_name") or "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         mode=kw.get("qwen_mode") or kw.get("mode") or "custom_voice",
-        speaker=kw.get("qwen_speaker") or kw.get("speaker") or kw.get("voice") or "Chelsie",
+        speaker=kw.get("qwen_speaker") or kw.get("speaker") or kw.get("voice") or "Ryan",
         instruct=kw.get("instruct", "") or "",
         language=kw.get("language") or kw.get("lang_code") or "auto",
         ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
@@ -83,11 +84,13 @@ _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
     "cosyvoice2": lambda **kw: CosyVoice2Synthesizer(
         model_name=kw.get("cosy_model") or kw.get("model_name") or "iic/CosyVoice2-0.5B",
         mode=kw.get("cosy_mode") or kw.get("mode") or "instruct",
+        speaker=kw.get("cosy_speaker") or kw.get("speaker") or "英文女",
         ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
         ref_text=kw.get("ref_text", "") or "",
         instruct=kw.get("instruct", "") or "",
         language=kw.get("language") or kw.get("lang_code") or "auto",
         speed=float(kw.get("speed", 1.0)),
+        api_url=kw.get("cosy_api_url") or kw.get("api_url") or "",
         device=kw.get("device"),
     ),
     "fish-speech": lambda **kw: FishSpeechSynthesizer(
@@ -141,6 +144,7 @@ __all__ = [
     "QWEN3_LANGUAGES",
     "COSYVOICE_LANGUAGES",
     "COSYVOICE_MODES",
+    "COSYVOICE_VOICES",
     "FISH_LANGUAGES",
     "FISH_EMOTION_TAGS",
     "AVAILABLE_SYNTHESIZERS",

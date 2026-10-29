@@ -108,8 +108,8 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
                   file=sys.stderr)
             return 1
     elif parsed.synthesizer == "cosyvoice2":
-        if not parsed.ref_audio:
-            print("Error: --ref-audio (or --ref-id) is required when using the cosyvoice2 synthesizer.",
+        if getattr(parsed, "cosy_mode", "instruct") != "sft" and not parsed.ref_audio:
+            print("Error: --ref-audio (or --ref-id) is required when using the cosyvoice2 synthesizer in cloning modes.",
                   file=sys.stderr)
             return 1
     elif parsed.synthesizer == "qwen3-tts":
@@ -328,14 +328,20 @@ def main(args: list[str] | None = None) -> int:
     gen_parser.add_argument(
         "--qwen-speaker",
         type=str,
-        default="Chelsie",
-        help="Qwen3-TTS preset speaker name (default: Chelsie)."
+        default="Ryan",
+        help="Qwen3-TTS preset speaker name (default: Ryan)."
     )
     gen_parser.add_argument(
         "--cosy-mode",
-        choices=["instruct", "zero_shot", "cross_lingual"],
+        choices=["instruct", "zero_shot", "cross_lingual", "sft"],
         default="instruct",
         help="CosyVoice2 mode (default: instruct)."
+    )
+    gen_parser.add_argument(
+        "--cosy-speaker",
+        type=str,
+        default="英文女",
+        help="CosyVoice2 preset SFT speaker name (default: 英文女)."
     )
     gen_parser.add_argument(
         "--fish-api-url",

@@ -36,7 +36,7 @@ MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MiB
 
 @app.middleware("http")
 async def verify_same_origin(request: Request, call_next):
-    """Block cross-origin CSRF requests to mutating /api/* endpoints."""
+    """Block cross-origin CSRF requests to mutating /api/* endpoints and prevent stale static caching."""
     if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.url.path.startswith("/api/"):
         origin = request.headers.get("origin")
         if origin:
@@ -51,7 +51,10 @@ async def verify_same_origin(request: Request, call_next):
                     status_code=403,
                     content={"detail": f"Cross-origin request blocked from origin: {origin}"},
                 )
-    return await call_next(request)
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
 
 
 async def _read_upload_bytes(upload: UploadFile, max_bytes: int = MAX_UPLOAD_BYTES) -> bytes:
@@ -114,8 +117,14 @@ def get_installed_synthesizers() -> dict[str, bool]:
     import importlib.util
     import os
 
+    cosy_installed = (
+        importlib.util.find_spec("cosyvoice") is not None
+        or importlib.util.find_spec("modelscope") is not None
+        or bool(os.environ.get("COSYVOICE_API_URL"))
+    )
     fish_installed = (
         importlib.util.find_spec("fish_speech") is not None
+        or importlib.util.find_spec("fish_audio_sdk") is not None
         or bool(os.environ.get("FISH_SPEECH_API_URL"))
     )
     return {
@@ -123,7 +132,7 @@ def get_installed_synthesizers() -> dict[str, bool]:
         "kokoro": importlib.util.find_spec("kokoro") is not None,
         "pocket-tts": importlib.util.find_spec("pocket_tts") is not None,
         "qwen3-tts": importlib.util.find_spec("qwen_tts") is not None,
-        "cosyvoice2": importlib.util.find_spec("cosyvoice") is not None,
+        "cosyvoice2": cosy_installed,
         "fish-speech": fish_installed,
         "f5-tts": importlib.util.find_spec("f5_tts") is not None,
     }
@@ -265,6 +274,7 @@ async def get_config():
     from epuboverlay.synthesizers import (
         COSYVOICE_LANGUAGES,
         COSYVOICE_MODES,
+        COSYVOICE_VOICES,
         FISH_EMOTION_TAGS,
         FISH_LANGUAGES,
         KOKORO_VOICES,
@@ -326,8 +336,9 @@ async def get_config():
         "dialogue_voice": current.get("dialogue_voice", ""),
         "qwen_model": current.get("qwen_model", "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
         "qwen_mode": current.get("qwen_mode", "custom_voice"),
-        "qwen_speaker": current.get("qwen_speaker", "Chelsie"),
+        "qwen_speaker": "Ryan" if current.get("qwen_speaker") in (None, "", "Chelsie") else current.get("qwen_speaker", "Ryan"),
         "cosy_mode": current.get("cosy_mode", "instruct"),
+        "cosy_speaker": current.get("cosy_speaker", "英文女"),
         "instruct": current.get("instruct", ""),
         "emotion_tag": current.get("emotion_tag", ""),
         "fish_api_url": current.get("fish_api_url", ""),
@@ -352,6 +363,7 @@ async def get_config():
         "qwen3_languages": QWEN3_LANGUAGES,
         "cosyvoice_languages": COSYVOICE_LANGUAGES,
         "cosyvoice_modes": COSYVOICE_MODES,
+        "cosyvoice_voices": COSYVOICE_VOICES,
         "fish_languages": FISH_LANGUAGES,
         "fish_emotion_tags": FISH_EMOTION_TAGS,
         "scenarios": NARRATION_SCENARIOS,
@@ -613,8 +625,9 @@ async def create_job(
     dialogue_voice: str = Form(""),
     qwen_model: str = Form("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
     qwen_mode: str = Form("custom_voice"),
-    qwen_speaker: str = Form("Chelsie"),
+    qwen_speaker: str = Form("Ryan"),
     cosy_mode: str = Form("instruct"),
+    cosy_speaker: str = Form("英文女"),
     instruct: str = Form(""),
     emotion_tag: str = Form(""),
     fish_api_url: str = Form(""),
@@ -639,7 +652,7 @@ async def create_job(
             status_code=400,
             detail=(
                 f"Synthesizer '{synthesizer}' is not installed in this environment. "
-                f"To install it, run: uv add 'epuboverlay[{pkg_alias}]' "
+                f"To install it, run: uv sync --extra {pkg_alias} "
                 f"(or pip install 'epuboverlay[{pkg_alias}]')"
             ),
         )
@@ -670,10 +683,10 @@ async def create_job(
                 detail="Reference audio (or saved ref_id) is required for Qwen3-TTS clone mode.",
             )
     elif synthesizer == "cosyvoice2":
-        if not ref_id.strip() and not ref_audio:
+        if cosy_mode != "sft" and not ref_id.strip() and not ref_audio:
             raise HTTPException(
                 status_code=400,
-                detail="Reference audio (or saved ref_id) is required for CosyVoice2-0.5B.",
+                detail="Reference audio (or saved ref_id) is required for CosyVoice2-0.5B cloning modes.",
             )
 
     parsed_chapters = None
@@ -744,6 +757,7 @@ async def create_job(
             "qwen_mode": qwen_mode,
             "qwen_speaker": qwen_speaker,
             "cosy_mode": cosy_mode,
+            "cosy_speaker": cosy_speaker,
             "instruct": instruct,
             "emotion_tag": emotion_tag,
             "fish_api_url": fish_api_url,
@@ -823,6 +837,7 @@ async def resume_job(
     qwen_mode: str | None = Form(None),
     qwen_speaker: str | None = Form(None),
     cosy_mode: str | None = Form(None),
+    cosy_speaker: str | None = Form(None),
     instruct: str | None = Form(None),
     emotion_tag: str | None = Form(None),
     fish_api_url: str | None = Form(None),
@@ -859,7 +874,7 @@ async def resume_job(
             status_code=400,
             detail=(
                 f"Synthesizer '{target_synth}' is not installed in this environment. "
-                f"To install it, run: uv add 'epuboverlay[{pkg_alias}]'"
+                f"To install it, run: uv sync --extra {pkg_alias} (or pip install 'epuboverlay[{pkg_alias}]')"
             ),
         )
 
@@ -890,6 +905,7 @@ async def resume_job(
         ("qwen_mode", qwen_mode),
         ("qwen_speaker", qwen_speaker),
         ("cosy_mode", cosy_mode),
+        ("cosy_speaker", cosy_speaker),
         ("instruct", instruct),
         ("emotion_tag", emotion_tag),
         ("fish_api_url", fish_api_url),
@@ -1336,8 +1352,9 @@ async def preview_voice(
     # Qwen3 / CosyVoice2 / Fish-Speech params
     qwen_model: str = Form("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
     qwen_mode: str = Form("custom_voice"),
-    qwen_speaker: str = Form("Chelsie"),
+    qwen_speaker: str = Form("Ryan"),
     cosy_mode: str = Form("instruct"),
+    cosy_speaker: str = Form("英文女"),
     instruct: str = Form(""),
     emotion_tag: str = Form(""),
     fish_api_url: str = Form(""),
@@ -1368,7 +1385,7 @@ async def preview_voice(
             status_code=400,
             detail=(
                 f"Synthesizer '{synthesizer}' is not installed in this environment. "
-                f"To install it, run: uv add 'epuboverlay[{pkg_alias}]' "
+                f"To install it, run: uv sync --extra {pkg_alias} "
                 f"(or pip install 'epuboverlay[{pkg_alias}]')"
             ),
         )
@@ -1445,6 +1462,7 @@ async def preview_voice(
         cache_key = (
             "cosyvoice2",
             cosy_mode,
+            cosy_speaker,
             instruct,
             language,
             ref_audio_hash,
@@ -1565,14 +1583,15 @@ async def preview_voice(
                     )
 
                 elif synthesizer == "cosyvoice2":
-                    if not tmp_ref_path:
+                    if cosy_mode != "sft" and not tmp_ref_path:
                         raise HTTPException(
                             status_code=400,
-                            detail="ref_audio (or saved ref_id) is required for CosyVoice2-0.5B.",
+                            detail="ref_audio (or saved ref_id) is required for CosyVoice2-0.5B cloning modes.",
                         )
                     from epuboverlay.synthesizers.cosyvoice import CosyVoice2Synthesizer
                     synth = CosyVoice2Synthesizer(
                         mode=cosy_mode,
+                        speaker=cosy_speaker,
                         ref_audio=tmp_ref_path,
                         ref_text=resolved_f5_ref_text,
                         instruct=instruct,

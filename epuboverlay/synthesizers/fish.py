@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import threading
 import urllib.request
 import wave
@@ -46,10 +47,11 @@ class FishSpeechSynthesizer(BaseSynthesizer):
     emotional & paralinguistic markers such as ``(excited)``, ``(sad)``,
     ``(whispering)``, ``(soft tone)``, and ``(sighing)``.
 
-    Supports two execution backends:
+    Supports three execution backends:
     1. **Local Fish-Speech API Server** (``api_url``, e.g. ``http://127.0.0.1:8080/v1/tts``)
        — works out-of-the-box with a running Fish-Speech / OpenAudio server.
-    2. **Direct Python Engine** (``fish_speech`` package) when installed in the environment.
+    2. **Fish Audio SDK** (``fish_audio_sdk``) when installed in the environment.
+    3. **Direct Python Engine** (``fish_speech`` package) when installed in the environment.
     """
 
     _DEFAULT_SAMPLE_RATE = 44100
@@ -75,22 +77,27 @@ class FishSpeechSynthesizer(BaseSynthesizer):
         self.top_p = float(top_p)
         self.repetition_penalty = float(repetition_penalty)
         self._speed = float(speed)
-        self.api_url = (api_url or "").strip()
+        self.api_url = (api_url or os.environ.get("FISH_SPEECH_API_URL", "")).strip()
         self.device = device or "cuda"
         self._lock = threading.Lock()
         self._sample_rate = self._DEFAULT_SAMPLE_RATE
         self._engine = None
+        self._sdk_available = False
 
         if not self.api_url:
             try:
                 import fish_speech  # type: ignore[import-not-found]
                 self._engine = fish_speech
-            except ImportError as e:
-                raise ImportError(
-                    "fish-speech is not installed and no api_url was provided. "
-                    "Install it via 'uv add \"epuboverlay[fish]\"' or provide a local "
-                    "Fish-Speech API URL (e.g. http://127.0.0.1:8080/v1/tts)."
-                ) from e
+            except ImportError:
+                try:
+                    import fish_audio_sdk  # type: ignore[import-not-found]  # noqa: F401
+                    self._sdk_available = True
+                except ImportError as e:
+                    raise ImportError(
+                        "fish-speech / fish-audio-sdk is not installed and no api_url was provided. "
+                        "Install it via 'uv sync --extra fish' (or 'pip install \"epuboverlay[fish]\"') "
+                        "or provide a local Fish-Speech API URL (e.g. http://127.0.0.1:8080/v1/tts)."
+                    ) from e
 
         self._ref_audio_bytes: bytes = b""
         if self.ref_audio and Path(self.ref_audio).exists():
@@ -145,7 +152,25 @@ class FishSpeechSynthesizer(BaseSynthesizer):
                     pcm = (np.clip(arr, -1.0, 1.0) * 32767.0).astype(np.int16)
                     return self._to_wav_bytes(pcm.tobytes(), self._sample_rate), len(pcm)
 
-            # Fallback to local HTTP server if fish_speech is installed as server-only package
+            if self._sdk_available and os.environ.get("FISH_API_KEY"):
+                from fish_audio_sdk import ReferenceAudio, Session, TTSRequest  # type: ignore[import-not-found]
+
+                session = Session(os.environ["FISH_API_KEY"])
+                refs = []
+                if self._ref_audio_bytes:
+                    refs.append(ReferenceAudio(audio=self._ref_audio_bytes, text=self.ref_text or ""))
+                req = TTSRequest(
+                    text=tagged_text,
+                    references=refs,
+                    format="wav",
+                    temperature=self.temp,
+                    top_p=self.top_p,
+                    repetition_penalty=self.repetition_penalty,
+                )
+                chunks: list[bytes] = list(session.tts(req))
+                return self._postprocess_wav_bytes(b"".join(chunks))
+
+            # Fallback to local HTTP server if fish_speech / fish_audio_sdk is used with a local server
             default_url = self.api_url or "http://127.0.0.1:8080/v1/tts"
             wav_bytes = self._synthesize_via_api(tagged_text, url=default_url)
             return self._postprocess_wav_bytes(wav_bytes)
@@ -180,8 +205,15 @@ class FishSpeechSynthesizer(BaseSynthesizer):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return resp.read()
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return resp.read()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to connect to Fish-Speech server at {target_url}. "
+                "Ensure your local Fish-Speech / OpenAudio server is running on that port "
+                "or set FISH_API_KEY in the environment."
+            ) from e
 
     def _postprocess_wav_bytes(self, wav_bytes: bytes) -> tuple[bytes, int]:
         if not wav_bytes:
@@ -208,4 +240,3 @@ class FishSpeechSynthesizer(BaseSynthesizer):
             audio = resample(audio, new_len).astype("float32")
         pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype(np.int16)
         return self._to_wav_bytes(pcm.tobytes(), self._sample_rate), len(pcm)
-

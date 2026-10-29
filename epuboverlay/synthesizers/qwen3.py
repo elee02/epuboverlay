@@ -4,28 +4,29 @@ from __future__ import annotations
 import re
 import threading
 from pathlib import Path
+from typing import Any
 
 from epuboverlay.synthesizers.base import BaseSynthesizer
 
 
 QWEN3_MODELS: dict[str, str] = {
     "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice": "Qwen3-TTS 1.7B CustomVoice (Emotion Instruct + Preset Speakers)",
+    "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice": "Qwen3-TTS 0.6B CustomVoice (Fast Preset Speakers)",
     "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign": "Qwen3-TTS 1.7B VoiceDesign (Design Any Voice from Text Prompt)",
     "Qwen/Qwen3-TTS-12Hz-1.7B-Base": "Qwen3-TTS 1.7B Base (High-Fidelity 3s Zero-Shot Cloning)",
     "Qwen/Qwen3-TTS-12Hz-0.6B-Base": "Qwen3-TTS 0.6B Base (Ultra-Fast Lightweight Zero-Shot Cloning)",
 }
 
 QWEN3_VOICES: list[dict[str, str]] = [
-    {"id": "Chelsie", "name": "Chelsie (Warm Female, Expressive)", "gender": "Female", "lang": "Multi"},
-    {"id": "Ethan", "name": "Ethan (Clear Male, Authoritative)", "gender": "Male", "lang": "Multi"},
-    {"id": "Serena", "name": "Serena (Calm Female, Audiobook)", "gender": "Female", "lang": "Multi"},
-    {"id": "Vivian", "name": "Vivian (Bright Female, Narrative)", "gender": "Female", "lang": "Multi"},
-    {"id": "Ryan", "name": "Ryan (Deep Male, Documentary)", "gender": "Male", "lang": "Multi"},
-    {"id": "Aiden", "name": "Aiden (Conversational Male)", "gender": "Male", "lang": "Multi"},
-    {"id": "Aria", "name": "Aria (Dynamic Female, Dramatic)", "gender": "Female", "lang": "Multi"},
-    {"id": "Dmitry", "name": "Dmitry (Resonant Male, Russian/Multi)", "gender": "Male", "lang": "RU/Multi"},
-    {"id": "Yuna", "name": "Yuna (Gentle Female, Korean/Multi)", "gender": "Female", "lang": "KO/Multi"},
-    {"id": "Sora", "name": "Sora (Crisp Female, Japanese/Multi)", "gender": "Female", "lang": "JA/Multi"},
+    {"id": "Ryan", "name": "Ryan (English Male — Dynamic & Expressive)", "gender": "Male", "lang": "EN/Multi"},
+    {"id": "Aiden", "name": "Aiden (English Male — Clear & Conversational)", "gender": "Male", "lang": "EN/Multi"},
+    {"id": "Serena", "name": "Serena (Warm, Gentle Female — Audiobook)", "gender": "Female", "lang": "ZH/Multi"},
+    {"id": "Vivian", "name": "Vivian (Bright, Articulate Female — Narrative)", "gender": "Female", "lang": "ZH/Multi"},
+    {"id": "Uncle_Fu", "name": "Uncle Fu (Deep, Resonant Male — Storytelling)", "gender": "Male", "lang": "ZH/Multi"},
+    {"id": "Dylan", "name": "Dylan (Natural, Youthful Male)", "gender": "Male", "lang": "ZH/Multi"},
+    {"id": "Eric", "name": "Eric (Lively, Warm Male)", "gender": "Male", "lang": "ZH/Multi"},
+    {"id": "Ono_Anna", "name": "Ono Anna (Crisp Japanese/Multi Female)", "gender": "Female", "lang": "JA/Multi"},
+    {"id": "Sohee", "name": "Sohee (Emotive Korean/Multi Female)", "gender": "Female", "lang": "KO/Multi"},
 ]
 
 QWEN3_LANGUAGES: dict[str, str] = {
@@ -42,7 +43,43 @@ QWEN3_LANGUAGES: dict[str, str] = {
     "pt": "Portuguese (Português)",
 }
 
+_LANG_ISO_TO_NAME: dict[str, str] = {
+    "": "Auto",
+    "auto": "Auto",
+    "en": "English",
+    "english": "English",
+    "ru": "Russian",
+    "russian": "Russian",
+    "ko": "Korean",
+    "korean": "Korean",
+    "ja": "Japanese",
+    "jp": "Japanese",
+    "japanese": "Japanese",
+    "zh": "Chinese",
+    "chinese": "Chinese",
+    "de": "German",
+    "german": "German",
+    "es": "Spanish",
+    "spanish": "Spanish",
+    "fr": "French",
+    "french": "French",
+    "it": "Italian",
+    "italian": "Italian",
+    "pt": "Portuguese",
+    "portuguese": "Portuguese",
+}
+
+_VALID_SPEAKERS_MAP: dict[str, str] = {v["id"].lower(): v["id"] for v in QWEN3_VOICES}
+
 _INLINE_INSTRUCT_RE = re.compile(r"^\s*\[instruct\s*:\s*([^\]]+)\]\s*", re.IGNORECASE)
+
+
+def normalize_qwen_language(lang: str | None) -> str:
+    """Normalize ISO code or language name to Qwen3-TTS language identifier."""
+    if not lang:
+        return "Auto"
+    cleaned = lang.strip().lower()
+    return _LANG_ISO_TO_NAME.get(cleaned, lang.strip().capitalize())
 
 
 class Qwen3TTSSynthesizer(BaseSynthesizer):
@@ -51,7 +88,7 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
     (English, Russian, Korean, Japanese, Chinese, German, Spanish, French, Italian, Portuguese).
 
     Modes:
-        - ``custom_voice``: Uses a built-in speaker (e.g. ``"Chelsie"``, ``"Ethan"``) with
+        - ``custom_voice``: Uses a built-in speaker (e.g. ``"Ryan"``, ``"Serena"``) with
           an optional natural-language ``instruct`` prompt for granular emotion & intonation.
         - ``voice_design``: Synthesizes a brand-new speaker identity and emotional delivery
           purely from a natural-language ``instruct`` description.
@@ -64,9 +101,9 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
         self,
         model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         mode: str = "custom_voice",
-        speaker: str = "Chelsie",
+        speaker: str = "Ryan",
         instruct: str = "",
-        language: str = "auto",
+        language: str = "Auto",
         ref_audio: str | Path | None = None,
         ref_text: str = "",
         speed: float = 1.0,
@@ -78,21 +115,33 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
         except ImportError as e:
             raise ImportError(
                 "qwen-tts is not installed. Please install it using "
-                "'uv add \"epuboverlay[qwen]\"' (or 'pip install \"epuboverlay[qwen]\"') "
+                "'uv sync --extra qwen' (or 'pip install \"epuboverlay[qwen]\"') "
                 "to use the Qwen3TTSSynthesizer."
             ) from e
 
-        self.model_name = (model_name or "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice").strip()
         self.mode = (mode or "custom_voice").strip().lower()
-        self.speaker = (speaker or "Chelsie").strip()
+        raw_model = (model_name or "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice").strip()
+
+        # Ensure checkpoint matches selected synthesis mode
+        if self.mode == "clone" and "base" not in raw_model.lower():
+            raw_model = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+        elif self.mode == "voice_design" and "voicedesign" not in raw_model.lower():
+            raw_model = "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
+        elif self.mode == "custom_voice" and "customvoice" not in raw_model.lower():
+            raw_model = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+        self.model_name = raw_model
+
+        raw_speaker = (speaker or "Ryan").strip()
+        self.speaker = _VALID_SPEAKERS_MAP.get(raw_speaker.lower(), "Ryan")
         self.instruct = (instruct or "").strip()
-        self.language = (language or "auto").strip().lower()
+        self.language = normalize_qwen_language(language)
         self.ref_audio = str(ref_audio) if ref_audio else ""
         self.ref_text = (ref_text or "").strip()
         self._speed = float(speed)
         self.temp = float(temp)
         self._lock = threading.Lock()
         self._sample_rate = self._DEFAULT_SAMPLE_RATE
+        self._voice_clone_prompt: Any = None
 
         if self.mode == "clone" and not self.ref_audio:
             raise ValueError("ref_audio is required for Qwen3-TTS 'clone' mode.")
@@ -123,6 +172,17 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
         else:
             raise RuntimeError("Compatible Qwen3TTSModel entry point not found in 'qwen_tts'.")
 
+        # Precompute voice clone prompt once so multi-chunk books don't re-encode ref_audio per sentence
+        if self.mode == "clone" and self.ref_audio and hasattr(self._model, "create_voice_clone_prompt"):
+            try:
+                self._voice_clone_prompt = self._model.create_voice_clone_prompt(
+                    ref_audio=self.ref_audio,
+                    ref_text=self.ref_text or None,
+                    x_vector_only_mode=not bool(self.ref_text),
+                )
+            except Exception:
+                self._voice_clone_prompt = None
+
     @property
     def sample_rate(self) -> int:
         return self._sample_rate
@@ -147,7 +207,7 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
         if not clean_text.strip():
             return b"", 0
 
-        lang_arg = None if self.language in ("", "auto") else self.language
+        lang_arg = self.language or "Auto"
 
         with self._lock:
             audio, sr = self._invoke_model(clean_text, active_instruct, lang_arg)
@@ -177,18 +237,22 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
         self,
         text: str,
         instruct: str,
-        language: str | None,
+        language: str,
     ) -> tuple[object, int]:
         """Dispatch to the appropriate Qwen3-TTS generation method."""
         if self.mode == "clone" and hasattr(self._model, "generate_voice_clone"):
-            res = self._model.generate_voice_clone(
-                text=text,
-                language=language,
-                ref_audio=self.ref_audio,
-                ref_text=self.ref_text or None,
-                instruct=instruct or None,
-                temperature=self.temp,
-            )
+            clone_kwargs: dict[str, Any] = {
+                "text": text,
+                "language": language,
+                "temperature": self.temp,
+            }
+            if self._voice_clone_prompt is not None:
+                clone_kwargs["voice_clone_prompt"] = self._voice_clone_prompt
+            else:
+                clone_kwargs["ref_audio"] = self.ref_audio
+                clone_kwargs["ref_text"] = self.ref_text or None
+                clone_kwargs["x_vector_only_mode"] = not bool(self.ref_text)
+            res = self._model.generate_voice_clone(**clone_kwargs)
         elif self.mode == "voice_design" and hasattr(self._model, "generate_voice_design"):
             res = self._model.generate_voice_design(
                 text=text,
@@ -200,7 +264,7 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
             res = self._model.generate_custom_voice(
                 text=text,
                 language=language,
-                speaker=self.speaker or "Chelsie",
+                speaker=self.speaker or "Ryan",
                 instruct=instruct or None,
                 temperature=self.temp,
             )
@@ -222,4 +286,3 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
                 return wavs[0], sr
             return wavs, sr
         return res, self._DEFAULT_SAMPLE_RATE
-

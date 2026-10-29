@@ -123,7 +123,7 @@ export function applyInstalledSynthesizersToSelect(selectEl, installedMap = _ins
             opt.textContent = opt.dataset.baseLabel;
         } else {
             const extra = pkgHint[val] || val;
-            opt.textContent = `${opt.dataset.baseLabel} (Not Installed — uv add "epuboverlay[${extra}]")`;
+            opt.textContent = `${opt.dataset.baseLabel} (Not Installed — uv sync --extra ${extra})`;
         }
     });
     if (selectEl.selectedOptions.length && selectEl.selectedOptions[0].disabled) {

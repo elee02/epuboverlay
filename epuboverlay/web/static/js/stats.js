@@ -1,4 +1,4 @@
-import { fetchStats, fetchCacheSize } from './api.js';
+import { fetchStats, fetchCacheSize } from './api.js?v=5';
 
 export function startStatsPolling() {
     updateStats();

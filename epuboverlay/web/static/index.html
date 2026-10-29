@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="epuboverlay Dashboard — Generate narrated EPUB 3 files with Media Overlays using AI voice cloning.">
     <title>epuboverlay — Multilingual Voice &amp; Audiobook Studio</title>
-    <link rel="stylesheet" href="/static/style.css?v=4">
+    <link rel="stylesheet" href="/static/style.css?v=5">
     <script>
         window.onerror = function(msg, url, line, col, error) {
             console.error("Global JS Error:", msg, "at", url, ":", line);
@@ -244,27 +244,6 @@
                             </div>
                         </div>
 
-                        <!-- Voice Cloning Options (F5-TTS clone mode) -->
-                        <div id="cloning-options" class="ref-audio-fields" style="margin-top: 1rem;">
-                            <div class="form-group">
-                                <label for="ref-voice-select">Reference Voice</label>
-                                <select id="ref-voice-select" name="ref_id" style="margin-bottom: 0.75rem;">
-                                    <option value="">-- Upload Custom Audio --</option>
-                                    <!-- Populated dynamically -->
-                                </select>
-                            </div>
-                            <div class="form-group" id="generate-f5-upload-group">
-                                <label>Reference Audio File</label>
-                                <div class="file-upload-zone" id="ref-audio-upload-zone" style="padding: 0.8rem;">
-                                    <div class="upload-text" style="font-size: 0.8rem;">
-                                        <strong>Upload</strong> voice clip (.wav, .mp3, etc.)
-                                    </div>
-                                    <div class="file-name" id="ref-audio-file-name" style="display: none;"></div>
-                                    <input type="file" id="ref-audio-file" name="ref_audio" accept=".wav,.mp3,.flac,.ogg">
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- F5-TTS Specific Options -->
                         <div id="f5-tts-options" class="model-specific-options" style="margin-top: 1rem;">
                             <div class="form-grid">
@@ -276,10 +255,6 @@
                                     <input type="checkbox" id="compile-checkbox" name="compile" style="width: auto; margin: 0; cursor: pointer;">
                                     <label for="compile-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">Compile Model (torch.compile)</label>
                                 </div>
-                            </div>
-                            <div class="form-group" style="margin-top: 1rem;" id="generate-f5-ref-text-group">
-                                <label for="ref-text-input">Reference Text</label>
-                                <textarea id="ref-text-input" name="ref_text" placeholder="Exact transcript of your reference audio clip..." rows="3"></textarea>
                             </div>
                         </div>
 
@@ -480,11 +455,19 @@
                         <div id="qwen3-tts-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
                             <div class="form-grid">
                                 <div class="form-group">
+                                    <label>Voice Mode</label>
+                                    <div class="voice-mode-selector" id="qwen-voice-mode-selector">
+                                        <button type="button" class="mode-pill active" data-mode="custom_voice">Preset Voice</button>
+                                        <button type="button" class="mode-pill" data-mode="clone">Clone Voice</button>
+                                        <button type="button" class="mode-pill" data-mode="voice_design">Voice Design</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
                                     <label for="qwen-mode-select">Synthesis Mode</label>
                                     <select id="qwen-mode-select" name="qwen_mode">
                                         <option value="custom_voice">CustomVoice (Preset Speaker + Emotion Instruct)</option>
-                                        <option value="voice_design">VoiceDesign (Design Any Voice &amp; Emotion from Text)</option>
                                         <option value="clone">Zero-Shot 3s Voice Cloning (1.7B / 0.6B Base)</option>
+                                        <option value="voice_design">VoiceDesign (Design Any Voice &amp; Emotion from Text)</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
@@ -496,16 +479,18 @@
                                         <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS 0.6B Base (Lightweight Fast Cloning)</option>
                                     </select>
                                 </div>
-                                <div class="form-group">
+                                <div class="form-group" id="qwen-speaker-group">
                                     <label for="qwen-speaker-select">Preset Speaker</label>
                                     <select id="qwen-speaker-select" name="qwen_speaker">
-                                        <option value="Chelsie">Chelsie (Warm, Expressive Female)</option>
-                                        <option value="Ethan">Ethan (Clear, Confident Male)</option>
-                                        <option value="Serena">Serena (Calm, Narrative Female)</option>
-                                        <option value="Vivian">Vivian (Bright, Energetic Female)</option>
-                                        <option value="Ryan">Ryan (Deep, Authoritative Male)</option>
-                                        <option value="Aiden">Aiden (Natural, Conversational Male)</option>
-                                        <option value="Aria">Aria (Soft, Articulate Female)</option>
+                                        <option value="Ryan">Ryan (Dynamic Male — English Native, Supports All 10 Languages)</option>
+                                        <option value="Aiden">Aiden (Sunny American Male — Clear Midrange)</option>
+                                        <option value="Serena">Serena (Warm, Gentle Female — Narrative Storytelling)</option>
+                                        <option value="Vivian">Vivian (Bright, Expressive Young Female)</option>
+                                        <option value="Uncle_Fu">Uncle Fu (Deep, Seasoned Mellow Male Timbre)</option>
+                                        <option value="Dylan">Dylan (Clear, Natural Young Male)</option>
+                                        <option value="Eric">Eric (Lively, Slightly Husky Male)</option>
+                                        <option value="Ono_Anna">Ono Anna (Playful, Nimble Female — Japanese/Multilingual)</option>
+                                        <option value="Sohee">Sohee (Warm, Rich Emotion Female — Korean/Multilingual)</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
@@ -531,11 +516,31 @@
                         <div id="cosyvoice2-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
                             <div class="form-grid">
                                 <div class="form-group">
+                                    <label>Voice Mode</label>
+                                    <div class="voice-mode-selector" id="cosy-voice-mode-selector">
+                                        <button type="button" class="mode-pill active" data-mode="clone">Clone Voice</button>
+                                        <button type="button" class="mode-pill" data-mode="sft">Preset Voice</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
                                     <label for="cosy-mode-select">CosyVoice2 Mode</label>
                                     <select id="cosy-mode-select" name="cosy_mode">
-                                        <option value="instruct">Instruct2 (Natural-Language Emotion &amp; Dialect Control)</option>
+                                        <option value="instruct">Instruct2 (Natural-Language Emotion &amp; Reference Voice)</option>
                                         <option value="zero_shot">Zero-Shot Voice Cloning (3-10s Reference)</option>
-                                        <option value="cross_lingual">Cross-Lingual Cloning (Clone EN Voice into RU/KO/JA/ZH/DE/ES)</option>
+                                        <option value="cross_lingual">Cross-Lingual Cloning (Clone Voice Across EN/RU/KO/JA/ZH/DE/ES)</option>
+                                        <option value="sft">Preset Speaker (Built-in SFT Voice)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" id="cosy-speaker-group" style="display: none;">
+                                    <label for="cosy-speaker-select">Preset Speaker</label>
+                                    <select id="cosy-speaker-select" name="cosy_speaker">
+                                        <option value="英文女">English Female (Preset SFT)</option>
+                                        <option value="英文男">English Male (Preset SFT)</option>
+                                        <option value="中文女">Chinese Female (Preset SFT)</option>
+                                        <option value="中文男">Chinese Male (Preset SFT)</option>
+                                        <option value="日语男">Japanese Male (Preset SFT)</option>
+                                        <option value="韩语女">Korean Female (Preset SFT)</option>
+                                        <option value="粤语女">Cantonese Female (Preset SFT)</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
@@ -560,6 +565,13 @@
                         <div id="fish-speech-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
                             <div class="form-grid">
                                 <div class="form-group">
+                                    <label>Voice Mode</label>
+                                    <div class="voice-mode-selector" id="fish-voice-mode-selector">
+                                        <button type="button" class="mode-pill active" data-mode="clone">Clone Voice</button>
+                                        <button type="button" class="mode-pill" data-mode="default">Default Voice</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
                                     <label for="fish-language-select">Target Language (incl. Arabic)</label>
                                     <select id="fish-language-select" name="fish_language">
                                         <option value="auto">Auto-Detect (EN/RU/KO/JA/ZH/DE/ES/AR)</option>
@@ -581,7 +593,7 @@
                                         <option value="(excited)">(excited) Excited &amp; Energetic</option>
                                         <option value="(sad)">(sad) Melancholic &amp; Somber</option>
                                         <option value="(angry)">(angry) Intense &amp; Frustrated</option>
-                                        <option value="(whispering)">(whispering) Husht &amp; Whispered</option>
+                                        <option value="(whispering)">(whispering) Hushed &amp; Whispered</option>
                                         <option value="(soft tone)">(soft tone) Gentle &amp; Intimate</option>
                                         <option value="(empathetic)">(empathetic) Warm &amp; Empathetic</option>
                                         <option value="(serious)">(serious) Authoritative &amp; Serious</option>
@@ -592,6 +604,31 @@
                                     <label for="fish-api-url-input">Fish-Speech Server URL (Optional)</label>
                                     <input type="text" id="fish-api-url-input" name="fish_api_url" placeholder="http://127.0.0.1:8080/v1/tts (blank = local Python)">
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Shared Voice Cloning Options (F5-TTS, Qwen3-TTS Clone, CosyVoice2 Clone, Fish-Speech Clone) -->
+                        <div id="cloning-options" class="ref-audio-fields" style="margin-top: 1rem;">
+                            <div class="form-group">
+                                <label for="ref-voice-select">Reference Voice (Voice Library)</label>
+                                <select id="ref-voice-select" name="ref_id" style="margin-bottom: 0.75rem;">
+                                    <option value="">-- Upload Custom Audio --</option>
+                                    <!-- Populated dynamically -->
+                                </select>
+                            </div>
+                            <div class="form-group" id="generate-f5-upload-group">
+                                <label>Reference Audio File</label>
+                                <div class="file-upload-zone" id="ref-audio-upload-zone" style="padding: 0.8rem;">
+                                    <div class="upload-text" style="font-size: 0.8rem;">
+                                        <strong>Upload</strong> voice clip (.wav, .mp3, etc.)
+                                    </div>
+                                    <div class="file-name" id="ref-audio-file-name" style="display: none;"></div>
+                                    <input type="file" id="ref-audio-file" name="ref_audio" accept=".wav,.mp3,.flac,.ogg">
+                                </div>
+                            </div>
+                            <div class="form-group" style="grid-column: 1 / -1;" id="generate-f5-ref-text-group">
+                                <label for="ref-text-input" id="ref-text-label">Reference Text (Transcript of Reference Audio)</label>
+                                <textarea id="ref-text-input" name="ref_text" placeholder="Exact transcript of your reference audio clip..." rows="2"></textarea>
                             </div>
                         </div>
 
@@ -941,11 +978,19 @@
                     <div id="pg-qwen3-panel" style="display: none;">
                         <div class="form-grid">
                             <div class="form-group">
+                                <label>Voice Mode</label>
+                                <div class="voice-mode-selector" id="pg-qwen-voice-mode-selector">
+                                    <button type="button" class="mode-pill active" data-mode="custom_voice">Preset Voice</button>
+                                    <button type="button" class="mode-pill" data-mode="clone">Clone Voice</button>
+                                    <button type="button" class="mode-pill" data-mode="voice_design">Voice Design</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
                                 <label for="pg-qwen-mode-select">Synthesis Mode</label>
                                 <select id="pg-qwen-mode-select">
                                     <option value="custom_voice">CustomVoice (Preset Speaker + Emotion Instruct)</option>
-                                    <option value="voice_design">VoiceDesign (Design Persona &amp; Emotion from Prompt)</option>
                                     <option value="clone">Zero-Shot 3s Voice Cloning (1.7B / 0.6B Base)</option>
+                                    <option value="voice_design">VoiceDesign (Design Persona &amp; Emotion from Prompt)</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -960,13 +1005,15 @@
                             <div class="form-group" id="pg-qwen-speaker-group">
                                 <label for="pg-qwen-speaker-select">Preset Speaker</label>
                                 <select id="pg-qwen-speaker-select">
-                                    <option value="Chelsie">Chelsie (Warm, Expressive Female)</option>
-                                    <option value="Ethan">Ethan (Clear, Confident Male)</option>
-                                    <option value="Serena">Serena (Calm, Narrative Female)</option>
-                                    <option value="Vivian">Vivian (Bright, Energetic Female)</option>
-                                    <option value="Ryan">Ryan (Deep, Authoritative Male)</option>
-                                    <option value="Aiden">Aiden (Natural, Conversational Male)</option>
-                                    <option value="Aria">Aria (Soft, Articulate Female)</option>
+                                    <option value="Ryan">Ryan (Dynamic Male — English Native, Supports All 10 Languages)</option>
+                                    <option value="Aiden">Aiden (Sunny American Male — Clear Midrange)</option>
+                                    <option value="Serena">Serena (Warm, Gentle Female — Narrative Storytelling)</option>
+                                    <option value="Vivian">Vivian (Bright, Expressive Young Female)</option>
+                                    <option value="Uncle_Fu">Uncle Fu (Deep, Seasoned Mellow Male Timbre)</option>
+                                    <option value="Dylan">Dylan (Clear, Natural Young Male)</option>
+                                    <option value="Eric">Eric (Lively, Slightly Husky Male)</option>
+                                    <option value="Ono_Anna">Ono Anna (Playful, Nimble Female — Japanese/Multilingual)</option>
+                                    <option value="Sohee">Sohee (Warm, Rich Emotion Female — Korean/Multilingual)</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -987,9 +1034,9 @@
                             </div>
                         </div>
                         <div class="form-group" id="pg-qwen-ref-group" style="margin-top: 0.75rem; display: none;">
-                            <label for="pg-qwen-ref-voice-select">Reference Voice (from Voice Library)</label>
+                            <label for="pg-qwen-ref-voice-select">Quick Select Saved Voice</label>
                             <select id="pg-qwen-ref-voice-select">
-                                <option value="">-- Select Saved Voice --</option>
+                                <option value="">-- Upload Custom File / Record Below --</option>
                             </select>
                         </div>
                     </div>
@@ -998,11 +1045,31 @@
                     <div id="pg-cosyvoice2-panel" style="display: none;">
                         <div class="form-grid">
                             <div class="form-group">
+                                <label>Voice Mode</label>
+                                <div class="voice-mode-selector" id="pg-cosy-voice-mode-selector">
+                                    <button type="button" class="mode-pill active" data-mode="clone">Clone Voice</button>
+                                    <button type="button" class="mode-pill" data-mode="sft">Preset Voice</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
                                 <label for="pg-cosy-mode-select">CosyVoice2 Mode</label>
                                 <select id="pg-cosy-mode-select">
                                     <option value="instruct">Instruct2 (Emotion Prompt + Reference Voice)</option>
                                     <option value="zero_shot">Zero-Shot Voice Cloning</option>
                                     <option value="cross_lingual">Cross-Lingual Voice Cloning (EN/RU/KO/JA/ZH/DE/ES)</option>
+                                    <option value="sft">Preset Speaker (Built-in SFT Voice)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="pg-cosy-speaker-group" style="display: none;">
+                                <label for="pg-cosy-speaker-select">Preset Speaker</label>
+                                <select id="pg-cosy-speaker-select">
+                                    <option value="英文女">English Female (Preset SFT)</option>
+                                    <option value="英文男">English Male (Preset SFT)</option>
+                                    <option value="中文女">Chinese Female (Preset SFT)</option>
+                                    <option value="中文男">Chinese Male (Preset SFT)</option>
+                                    <option value="日语男">Japanese Male (Preset SFT)</option>
+                                    <option value="韩语女">Korean Female (Preset SFT)</option>
+                                    <option value="粤语女">Cantonese Female (Preset SFT)</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -1020,10 +1087,10 @@
                                     <option value="it">Italian (&lt;|it|&gt;)</option>
                                 </select>
                             </div>
-                            <div class="form-group">
-                                <label for="pg-cosy-ref-voice-select">Reference Voice (Voice Library)</label>
+                            <div class="form-group" id="pg-cosy-ref-group">
+                                <label for="pg-cosy-ref-voice-select">Quick Select Saved Voice</label>
                                 <select id="pg-cosy-ref-voice-select">
-                                    <option value="">-- Built-in SFT / Select Saved Voice --</option>
+                                    <option value="">-- Upload Custom File / Record Below --</option>
                                 </select>
                             </div>
                         </div>
@@ -1032,6 +1099,13 @@
                     <!-- ── Fish-Speech-1.5 / OpenAudio Panel ── -->
                     <div id="pg-fish-panel" style="display: none;">
                         <div class="form-grid">
+                            <div class="form-group">
+                                <label>Voice Mode</label>
+                                <div class="voice-mode-selector" id="pg-fish-voice-mode-selector">
+                                    <button type="button" class="mode-pill active" data-mode="clone">Clone Voice</button>
+                                    <button type="button" class="mode-pill" data-mode="default">Default Voice</button>
+                                </div>
+                            </div>
                             <div class="form-group">
                                 <label for="pg-fish-language-select">Target Language (incl. Arabic)</label>
                                 <select id="pg-fish-language-select">
@@ -1061,10 +1135,10 @@
                                     <option value="(in a hurry tone)">(in a hurry tone) Urgent &amp; Fast</option>
                                 </select>
                             </div>
-                            <div class="form-group">
-                                <label for="pg-fish-ref-voice-select">Reference Voice (Optional Clone)</label>
+                            <div class="form-group" id="pg-fish-ref-group">
+                                <label for="pg-fish-ref-voice-select">Quick Select Saved Voice</label>
                                 <select id="pg-fish-ref-voice-select">
-                                    <option value="">-- Default Voice --</option>
+                                    <option value="">-- Upload Custom File / Record Below --</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -1608,6 +1682,6 @@
     <!-- Legacy stats bar elements (kept hidden for JS stats.js compatibility) -->
     <div class="system-stats-bar" id="system-stats-bar" style="display:none;" aria-hidden="true"></div>
 
-    <script type="module" src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/app.js?v=5"></script>
 </body>
 </html>
