@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import re
 import threading
 from pathlib import Path
@@ -10,29 +11,21 @@ from epuboverlay.synthesizers.base import BaseSynthesizer
 
 
 COSYVOICE_LANGUAGES: dict[str, str] = {
-    "auto": "Auto-Detect / Native Script",
-    "en": "English (<|en|>)",
-    "ru": "Russian / Русский (<|ru|>)",
-    "ko": "Korean / 한국어 (<|ko|>)",
-    "ja": "Japanese / 日本語 (<|jp|>)",
-    "zh": "Chinese / 中文 (<|zh|>)",
-    "de": "German / Deutsch (<|de|>)",
-    "es": "Spanish / Español (<|es|>)",
-    "fr": "French / Français (<|fr|>)",
-    "it": "Italian / Italiano (<|it|>)",
+    "auto": "Auto-Detect (Native Script)",
+    "en": "English",
+    "ja": "Japanese / 日本語",
+    "zh": "Chinese / 中文",
+    "ko": "Korean / 한국어",
+    "yue": "Cantonese / 粤语",
+    "ru": "Russian / Русский",
+    "de": "German / Deutsch",
+    "es": "Spanish / Español",
+    "fr": "French / Français",
+    "it": "Italian / Italiano",
 }
 
-COSYVOICE_LANG_TOKENS: dict[str, str] = {
-    "en": "<|en|>",
-    "ru": "<|ru|>",
-    "ko": "<|ko|>",
-    "ja": "<|jp|>",
-    "zh": "<|zh|>",
-    "de": "<|de|>",
-    "es": "<|es|>",
-    "fr": "<|fr|>",
-    "it": "<|it|>",
-}
+# CosyVoice2 uses Qwen2 backbone which natively reads standard script without language token prefixes.
+COSYVOICE_LANG_TOKENS: dict[str, str] = {}
 
 COSYVOICE_MODES: dict[str, str] = {
     "instruct": "Instruct + Emotion Control (Natural-Language Style + Reference Audio)",
@@ -127,6 +120,17 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
         device: str | None = None,
     ) -> None:
         self.model_name = (model_name or "iic/CosyVoice2-0.5B").strip()
+        if not os.path.exists(self.model_name):
+            repo_cache_name = self.model_name.replace("/", "--")
+            candidates = [
+                Path.home() / ".cache" / "modelscope" / "models" / repo_cache_name / "snapshots" / "master",
+                Path.home() / ".cache" / "modelscope" / "hub" / self.model_name,
+            ]
+            for c in candidates:
+                if c.exists() and (c / "cosyvoice2.yaml").exists():
+                    self.model_name = str(c)
+                    break
+
         self.mode = (mode or "instruct").strip().lower()
         self.speaker = (speaker or "英文女").strip()
         self.ref_audio = str(ref_audio) if ref_audio else ""
@@ -193,11 +197,7 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
                 _COSY_MODEL_CACHE[cache_key] = self._model
 
             if self.ref_audio:
-                try:
-                    from cosyvoice.utils.file_utils import load_wav  # type: ignore[import-not-found]
-                    self._prompt_speech_16k = load_wav(self.ref_audio, 16000)
-                except Exception:
-                    self._prompt_speech_16k = self.ref_audio
+                self._prompt_speech_16k = self.ref_audio
 
     @property
     def sample_rate(self) -> int:
@@ -214,9 +214,8 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
             active_instruct = match.group(1).strip()
             text = text[match.end():].strip()
 
-        lang_token = COSYVOICE_LANG_TOKENS.get(self.language, "")
-        if lang_token and not text.startswith("<|"):
-            text = f"{lang_token}{text}"
+        # Clean any legacy or accidental language tags (e.g. <|jp|>, <|en|>) from text
+        text = re.sub(r"^<\|[a-zA-Z0-9_]+\|>\s*", "", text.strip())
         return active_instruct, text
 
     def synthesize(self, text: str) -> tuple[bytes, int]:
@@ -239,17 +238,27 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
                 ctx = nullcontext()
             with ctx:
                 if self.mode == "sft" and hasattr(self._model, "inference_sft"):
+                    # Fallback to available speaker if requested speaker is missing
+                    available_spks = list(getattr(self._model.frontend, "spk2info", {}).keys())
+                    target_spk = self.speaker
+                    if available_spks and target_spk not in available_spks:
+                        target_spk = available_spks[0]
                     gen = self._model.inference_sft(
                         prepared_text,
-                        self.speaker,
+                        target_spk,
                         stream=False,
                         speed=self._speed,
                     )
                 elif self.mode == "instruct" and active_instruct and hasattr(self._model, "inference_instruct2"):
+                    clean_inst = active_instruct.replace("<|endofprompt|>", "").strip()
+                    if not clean_inst.startswith("You are a helpful assistant."):
+                        instruct_prompt = f"You are a helpful assistant. {clean_inst}<|endofprompt|>"
+                    else:
+                        instruct_prompt = f"{clean_inst}<|endofprompt|>"
                     gen = self._model.inference_instruct2(
                         prepared_text,
-                        active_instruct,
-                        self._prompt_speech_16k,
+                        instruct_prompt,
+                        self.ref_audio,
                         stream=False,
                         speed=self._speed,
                     )
@@ -257,14 +266,14 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
                     gen = self._model.inference_zero_shot(
                         prepared_text,
                         self.ref_text,
-                        self._prompt_speech_16k,
+                        self.ref_audio,
                         stream=False,
                         speed=self._speed,
                     )
                 elif hasattr(self._model, "inference_cross_lingual"):
                     gen = self._model.inference_cross_lingual(
                         prepared_text,
-                        self._prompt_speech_16k,
+                        self.ref_audio,
                         stream=False,
                         speed=self._speed,
                     )
@@ -272,7 +281,7 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
                     gen = self._model.inference_zero_shot(
                         prepared_text,
                         self.ref_text,
-                        self._prompt_speech_16k,
+                        self.ref_audio,
                         stream=False,
                     )
 
