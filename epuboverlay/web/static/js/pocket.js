@@ -37,10 +37,18 @@ export function setPocketVoices(voices) {
  * Populate a <select> element with PocketTTS preset voice options.
  * @param {HTMLSelectElement} selectEl
  * @param {string} [selected] - Voice to pre-select
+ * @param {boolean} [includeEmpty=false] - Whether to include a blank default option
  */
-export function populatePocketVoiceSelect(selectEl, selected = 'alba') {
+export function populatePocketVoiceSelect(selectEl, selected = 'alba', includeEmpty = false) {
     if (!selectEl) return;
     selectEl.innerHTML = '';
+    if (includeEmpty) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = '-- Same as Narrator --';
+        if (!selected) emptyOpt.selected = true;
+        selectEl.appendChild(emptyOpt);
+    }
     const list = pocketVoices.length ? pocketVoices : Object.keys(POCKET_VOICE_NAMES);
     list.forEach(voice => {
         const opt = document.createElement('option');
@@ -59,13 +67,17 @@ export function populatePocketVoiceSelect(selectEl, selected = 'alba') {
  * @param {HTMLElement} elements.presetPanel   - Panel shown in preset mode
  * @param {HTMLElement} elements.clonePanel    - Panel shown in clone mode
  * @param {HTMLSelectElement} elements.voiceSelect - <select> for preset voices
+ * @param {HTMLSelectElement} [elements.dialogueVoiceSelect] - <select> for quoted dialogue voice
  * @param {string} [initialMode='preset']
  */
 export function setupPocketModeToggle(elements, initialMode = 'preset') {
-    const { modeSelector, presetPanel, clonePanel, voiceSelect } = elements;
+    const { modeSelector, presetPanel, clonePanel, voiceSelect, dialogueVoiceSelect } = elements;
 
     if (voiceSelect) {
         populatePocketVoiceSelect(voiceSelect);
+    }
+    if (dialogueVoiceSelect) {
+        populatePocketVoiceSelect(dialogueVoiceSelect, '', true);
     }
 
     function applyMode(mode) {
@@ -97,18 +109,42 @@ export function setupPocketModeToggle(elements, initialMode = 'preset') {
  * @param {HTMLInputElement} elements.refAudioInput
  */
 export function getPocketVoiceParams(elements) {
-    const { modeSelector, voiceSelect, refAudioInput } = elements;
+    const {
+        modeSelector,
+        voiceSelect,
+        refAudioInput,
+        languageSelect,
+        dialogueVoiceSelect,
+        tempInput,
+        lsdInput,
+        noiseClampInput,
+        eosInput,
+        framesEosInput,
+        quantizeCheckbox,
+    } = elements;
 
     const activeBtn = modeSelector
         ? modeSelector.querySelector('.mode-pill.active')
         : null;
     const mode = activeBtn ? activeBtn.getAttribute('data-mode') : 'preset';
 
+    const granular = {
+        pocket_language: languageSelect ? languageSelect.value : 'english',
+        dialogue_voice: dialogueVoiceSelect ? dialogueVoiceSelect.value : '',
+        temp: tempInput && tempInput.value !== '' ? parseFloat(tempInput.value) : 0.7,
+        lsd_decode_steps: lsdInput && lsdInput.value !== '' ? parseInt(lsdInput.value, 10) : 1,
+        noise_clamp: noiseClampInput && noiseClampInput.value !== '' ? parseFloat(noiseClampInput.value) : null,
+        eos_threshold: eosInput && eosInput.value !== '' ? parseFloat(eosInput.value) : -4.0,
+        frames_after_eos: framesEosInput && framesEosInput.value !== '' ? parseInt(framesEosInput.value, 10) : null,
+        quantize: quantizeCheckbox ? Boolean(quantizeCheckbox.checked) : false,
+    };
+
     if (mode === 'preset') {
         return {
             mode,
             pocket_voice: voiceSelect ? voiceSelect.value : '',
             ref_audio_file: null,
+            ...granular,
         };
     } else {
         const file = refAudioInput && refAudioInput.files[0] ? refAudioInput.files[0] : null;
@@ -116,6 +152,7 @@ export function getPocketVoiceParams(elements) {
             mode,
             pocket_voice: '',
             ref_audio_file: file,
+            ...granular,
         };
     }
 }

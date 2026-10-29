@@ -654,9 +654,12 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                         <div class="form-group" style="margin-bottom: 0;">
                             <label for="modal-synthesizer">Synthesizer</label>
                             <select id="modal-synthesizer" name="synthesizer">
-                                <option value="f5-tts" ${originalConfig.synthesizer === 'f5-tts' ? 'selected' : ''}>F5-TTS (Voice Cloning)</option>
+                                <option value="pocket-tts" ${originalConfig.synthesizer === 'pocket-tts' ? 'selected' : ''}>PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang)</option>
                                 <option value="kokoro" ${originalConfig.synthesizer === 'kokoro' ? 'selected' : ''}>Kokoro-82M (Built-in Voices / Formulas)</option>
-                                <option value="pocket-tts" ${originalConfig.synthesizer === 'pocket-tts' ? 'selected' : ''}>PocketTTS (Lightweight CPU Cloning)</option>
+                                <option value="qwen3-tts" ${originalConfig.synthesizer === 'qwen3-tts' ? 'selected' : ''}>Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
+                                <option value="cosyvoice2" ${originalConfig.synthesizer === 'cosyvoice2' ? 'selected' : ''}>CosyVoice2-0.5B (9-Lang Instruct &amp; Tags)</option>
+                                <option value="fish-speech" ${originalConfig.synthesizer === 'fish-speech' ? 'selected' : ''}>Fish-Speech-1.5 / OpenAudio (8-Lang incl. Arabic)</option>
+                                <option value="f5-tts" ${originalConfig.synthesizer === 'f5-tts' ? 'selected' : ''}>F5-TTS (Voice Cloning)</option>
                                 <option value="dummy" ${originalConfig.synthesizer === 'dummy' ? 'selected' : ''}>Dummy (Silent / Testing)</option>
                             </select>
                         </div>
@@ -810,6 +813,20 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                         </div>
                     </div>
                     
+                    <!-- Multilingual Emotion Director in Modal -->
+                    <div id="modal-multilingual-options" style="display: none; border-top: 1px solid var(--border-subtle); padding-top: 0.75rem;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="modal-language">Language</label>
+                                <input type="text" id="modal-language" name="language" value="${escapeHtml(originalConfig.language || 'Auto')}" placeholder="Auto, English, Russian, Korean, Arabic...">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="modal-instruct">Emotion / Intonation Instruct</label>
+                                <input type="text" id="modal-instruct" name="instruct" value="${escapeHtml(originalConfig.instruct || '')}" placeholder="Speak with warm, expressive intonation...">
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="modal-footer" style="margin-top: 0.5rem;">
                         <button type="button" class="btn btn-ghost btn-sm cancel-btn">Cancel</button>
                         <button type="submit" class="btn btn-primary btn-sm submit-btn">Resume Job</button>
@@ -893,11 +910,16 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
         }
 
         // Hide/show options function
+        const modalMultilingualOpts = overlay.querySelector('#modal-multilingual-options');
         function toggleModalSynthFields() {
             const synth = modalSynth.value;
             modalF5Opts.style.display = synth === 'f5-tts' ? 'block' : 'none';
             if (modalPocketOpts) modalPocketOpts.style.display = synth === 'pocket-tts' ? 'block' : 'none';
             modalKokoroOpts.style.display = synth === 'kokoro' ? 'block' : 'none';
+            if (modalMultilingualOpts) {
+                modalMultilingualOpts.style.display =
+                    (synth === 'qwen3-tts' || synth === 'cosyvoice2' || synth === 'fish-speech') ? 'block' : 'none';
+            }
 
             if (synth === 'kokoro') {
                 // Trigger initial filter & layout
@@ -977,6 +999,11 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                     formData.append('voice', '');
                     formData.append('voice_formula', elements.voiceFormulaInput.value);
                 }
+            } else if (modalSynth.value === 'qwen3-tts' || modalSynth.value === 'cosyvoice2' || modalSynth.value === 'fish-speech') {
+                const langVal = modalForm.querySelector('#modal-language')?.value || '';
+                const instructVal = modalForm.querySelector('#modal-instruct')?.value || '';
+                if (langVal) formData.append('language', langVal);
+                if (instructVal) formData.append('instruct', instructVal);
             }
 
             closeModal();

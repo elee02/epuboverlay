@@ -33,6 +33,36 @@ pocket = [
 ]
 f5 = ["f5-tts>=1.1.0"]
 f5-tts = ["f5-tts>=1.1.0"]
+qwen = [
+    "qwen-tts>=0.1.0",
+    "soundfile>=0.12.1",
+    "scipy>=1.10.0",
+]
+qwen3-tts = [
+    "qwen-tts>=0.1.0",
+    "soundfile>=0.12.1",
+    "scipy>=1.10.0",
+]
+cosyvoice = [
+    "modelscope>=1.15.0",
+    "soundfile>=0.12.1",
+    "scipy>=1.10.0",
+]
+cosyvoice2 = [
+    "modelscope>=1.15.0",
+    "soundfile>=0.12.1",
+    "scipy>=1.10.0",
+]
+fish = [
+    "fish-speech>=1.5.0",
+    "soundfile>=0.12.1",
+    "scipy>=1.10.0",
+]
+fish-speech = [
+    "fish-speech>=1.5.0",
+    "soundfile>=0.12.1",
+    "scipy>=1.10.0",
+]
 
 # Installation tiers:
 # Minimal: base dependencies only (web app, CLI, dummy testing, EPUB/TXT/MD)
@@ -44,12 +74,24 @@ standard = [
     "python-docx",
     "pypdf",
 ]
-# Full: everything including heavy F5-TTS voice cloning
+# Multilingual: emotional & multilingual TTS engines (Qwen3-TTS, CosyVoice2, Fish-Speech)
+multilingual = [
+    "qwen-tts>=0.1.0",
+    "modelscope>=1.15.0",
+    "fish-speech>=1.5.0",
+    "soundfile>=0.12.1",
+    "scipy>=1.10.0",
+]
+# Full: everything including heavy F5-TTS and multilingual voice cloning
 full = [
     "kokoro>=0.7.16",
     "pocket-tts>=0.1.0",
     "scipy>=1.10.0",
     "f5-tts>=1.1.0",
+    "qwen-tts>=0.1.0",
+    "modelscope>=1.15.0",
+    "fish-speech>=1.5.0",
+    "soundfile>=0.12.1",
     "python-docx",
     "pypdf",
 ]
@@ -58,6 +100,10 @@ all = [
     "pocket-tts>=0.1.0",
     "scipy>=1.10.0",
     "f5-tts>=1.1.0",
+    "qwen-tts>=0.1.0",
+    "modelscope>=1.15.0",
+    "fish-speech>=1.5.0",
+    "soundfile>=0.12.1",
     "python-docx",
     "pypdf",
 ]

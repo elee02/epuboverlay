@@ -4,7 +4,85 @@ let _installedSynthesizers = {
     'dummy': true,
     'kokoro': true,
     'pocket-tts': true,
+    'qwen3-tts': true,
+    'cosyvoice2': true,
+    'fish-speech': true,
     'f5-tts': true,
+};
+
+export const SCENARIO_PROFILES = {
+    custom: {
+        label: 'Custom Studio',
+        speed: 1.0,
+        max_chars: 150,
+        temp: 0.7,
+        lsd_decode_steps: 1,
+        noise_clamp: '',
+        eos_threshold: -4.0,
+        frames_after_eos: '',
+        instruct: '',
+        emotion_tag: '',
+    },
+    fiction_audiobook: {
+        label: 'Fiction & Literary',
+        speed: 0.96,
+        max_chars: 165,
+        temp: 0.78,
+        lsd_decode_steps: 2,
+        noise_clamp: '',
+        eos_threshold: -4.2,
+        frames_after_eos: 5,
+        instruct: 'Speak in a warm, captivating storytelling tone with expressive cadence and natural breath pauses.',
+        emotion_tag: '(soft tone)',
+    },
+    technical_docs: {
+        label: 'Technical & Academic',
+        speed: 1.02,
+        max_chars: 135,
+        temp: 0.55,
+        lsd_decode_steps: 2,
+        noise_clamp: 2.5,
+        eos_threshold: -4.0,
+        frames_after_eos: 3,
+        instruct: 'Speak in a clear, calm, articulate, and measured instructional tone with crisp pronunciation.',
+        emotion_tag: '(calm)',
+    },
+    executive_briefing: {
+        label: 'Executive Briefing',
+        speed: 1.12,
+        max_chars: 180,
+        temp: 0.62,
+        lsd_decode_steps: 1,
+        noise_clamp: 3.0,
+        eos_threshold: -3.8,
+        frames_after_eos: 1,
+        instruct: 'Speak with confident, brisk, authoritative broadcast clarity and energetic pacing.',
+        emotion_tag: '(serious)',
+    },
+    language_learning: {
+        label: 'Language Shadowing',
+        speed: 0.86,
+        max_chars: 105,
+        temp: 0.5,
+        lsd_decode_steps: 3,
+        noise_clamp: 2.2,
+        eos_threshold: -4.5,
+        frames_after_eos: 7,
+        instruct: 'Speak slowly and distinctly with crystal-clear phonetic articulation for language learners.',
+        emotion_tag: '(calm)',
+    },
+    dramatic_dialogue: {
+        label: 'Dramatic Dialogue',
+        speed: 0.95,
+        max_chars: 145,
+        temp: 0.85,
+        lsd_decode_steps: 3,
+        noise_clamp: '',
+        eos_threshold: -4.2,
+        frames_after_eos: 4,
+        instruct: 'Deliver with rich dramatic emotion, dynamic pitch variation, and vivid character expression.',
+        emotion_tag: '(empathetic)',
+    },
 };
 
 export function setInstalledSynthesizers(installedMap) {
@@ -18,7 +96,7 @@ export function getInstalledSynthesizers() {
 }
 
 export function getPreferredInstalledSynthesizer(fallback = 'dummy') {
-    for (const key of ['kokoro', 'pocket-tts', 'f5-tts', 'dummy']) {
+    for (const key of ['pocket-tts', 'kokoro', 'qwen3-tts', 'cosyvoice2', 'fish-speech', 'f5-tts', 'dummy']) {
         if (_installedSynthesizers[key]) return key;
     }
     return fallback;
@@ -30,6 +108,9 @@ export function applyInstalledSynthesizersToSelect(selectEl, installedMap = _ins
         'f5-tts': 'f5',
         'pocket-tts': 'pocket',
         'kokoro': 'kokoro',
+        'qwen3-tts': 'qwen',
+        'cosyvoice2': 'cosyvoice',
+        'fish-speech': 'fish',
     };
     Array.from(selectEl.options).forEach(opt => {
         const val = opt.value;

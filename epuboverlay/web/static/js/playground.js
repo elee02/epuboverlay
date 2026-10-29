@@ -18,6 +18,7 @@ import {
     getInstalledSynthesizers,
     getPreferredInstalledSynthesizer,
     setupAudioRecorder,
+    SCENARIO_PROFILES,
 } from './utils.js';
 import { loadSavedReferencesGlobal, savedReferences } from './app.js';
 import {
@@ -35,6 +36,17 @@ let pgAbortController = null;
 let pgF5RecordedBlob = null;
 let pgPocketRecordedBlob = null;
 
+const LANGUAGE_SAMPLES = {
+    en: 'The quick brown fox jumps over the lazy dog. "Wait a moment," she whispered, "do you hear that voice echoing across the library?"',
+    ru: 'В тишине старинной библиотеки звучал тёплый, выразительный голос, оживляющий страницы забытых романов.',
+    ko: '고요한 도서관 안에서 따뜻한 목소리가 울려 퍼지며, 오래된 책 속의 이야기를 생생하게 들려주었습니다.',
+    ja: '静かな図書館の中で、温かく表現力豊かな声が響き渡り、物語の世界へと誘いました。',
+    zh: '在宁静的图书馆里，温暖而富有表现力的声音缓缓响起，将书页中的故事娓娓道来。',
+    de: 'In der Stille der alten Bibliothek erklang eine warme, ausdrucksstarke Stimme, die die Geschichten zum Leben erweckte.',
+    es: 'En el silencio de la antigua biblioteca, resonó una voz cálida y expresiva que dio vida a cada página del libro.',
+    ar: 'في هدوء المكتبة القديمة، تردد صوت دافئ ومعبر يبعث الحياة في صفحات الكتب والقصص.',
+};
+
 // ── Playground DOM element references ──────────────────────────────────────
 
 function getElements() {
@@ -44,8 +56,12 @@ function getElements() {
         // Panels
         kokoroPanel:        document.getElementById('pg-kokoro-panel'),
         pocketPanel:        document.getElementById('pg-pocket-panel'),
+        qwenPanel:          document.getElementById('pg-qwen3-panel'),
+        cosyPanel:          document.getElementById('pg-cosyvoice2-panel'),
+        fishPanel:          document.getElementById('pg-fish-panel'),
         f5Panel:            document.getElementById('pg-f5-panel'),
         dummyPanel:         document.getElementById('pg-dummy-panel'),
+        emotionDirectorPanel: document.getElementById('pg-emotion-director-panel'),
         // Kokoro sub-elements
         voiceModeSelector:  document.getElementById('pg-voice-mode-selector'),
         kokoroSinglePanel:  document.getElementById('pg-kokoro-single-panel'),
@@ -66,10 +82,37 @@ function getElements() {
         pocketPresetPanel:  document.getElementById('pg-pocket-preset-panel'),
         pocketClonePanel:   document.getElementById('pg-pocket-clone-panel'),
         pocketVoiceSelect:  document.getElementById('pg-pocket-voice-select'),
+        pocketLanguageSelect: document.getElementById('pg-pocket-language-select'),
+        pocketDialogueVoiceSelect: document.getElementById('pg-pocket-dialogue-voice-select'),
+        pocketTempInput:    document.getElementById('pg-pocket-temp-input'),
+        pocketLsdInput:     document.getElementById('pg-pocket-lsd-input'),
+        pocketNoiseClampInput: document.getElementById('pg-pocket-noise-clamp-input'),
+        pocketEosInput:     document.getElementById('pg-pocket-eos-input'),
+        pocketFramesEosInput: document.getElementById('pg-pocket-frames-eos-input'),
+        pocketQuantizeCheckbox: document.getElementById('pg-pocket-quantize-checkbox'),
         pocketRefAudioInput:document.getElementById('pg-pocket-ref-audio'),
         pocketRefAudioName: document.getElementById('pg-pocket-ref-audio-name'),
         pocketRefAudioZone: document.getElementById('pg-pocket-ref-audio-zone'),
         pocketRefVoiceSelect: document.getElementById('pg-pocket-ref-voice-select'),
+        // Qwen3-TTS sub-elements
+        qwenModeSelect:     document.getElementById('pg-qwen-mode-select'),
+        qwenModelSelect:    document.getElementById('pg-qwen-model-select'),
+        qwenSpeakerSelect:  document.getElementById('pg-qwen-speaker-select'),
+        qwenSpeakerGroup:   document.getElementById('pg-qwen-speaker-group'),
+        qwenLanguageSelect: document.getElementById('pg-qwen-language-select'),
+        qwenRefGroup:       document.getElementById('pg-qwen-ref-group'),
+        qwenRefVoiceSelect: document.getElementById('pg-qwen-ref-voice-select'),
+        // CosyVoice2 sub-elements
+        cosyModeSelect:     document.getElementById('pg-cosy-mode-select'),
+        cosyLanguageSelect: document.getElementById('pg-cosy-language-select'),
+        cosyRefVoiceSelect: document.getElementById('pg-cosy-ref-voice-select'),
+        // Fish-Speech sub-elements
+        fishLanguageSelect: document.getElementById('pg-fish-language-select'),
+        fishEmotionSelect:  document.getElementById('pg-fish-emotion-select'),
+        fishRefVoiceSelect: document.getElementById('pg-fish-ref-voice-select'),
+        fishApiUrlInput:    document.getElementById('pg-fish-api-url-input'),
+        // Shared Emotion Instruct
+        instructInput:      document.getElementById('pg-instruct-input'),
         // F5-TTS sub-elements
         f5RefAudioInput:    document.getElementById('pg-f5-ref-audio'),
         f5RefAudioName:     document.getElementById('pg-f5-ref-audio-name'),
@@ -105,14 +148,21 @@ function switchSynth(synth, els) {
         });
     }
     const panels = {
-        kokoro:       els.kokoroPanel,
-        'pocket-tts': els.pocketPanel,
-        'f5-tts':     els.f5Panel,
-        dummy:        els.dummyPanel,
+        kokoro:        els.kokoroPanel,
+        'pocket-tts':  els.pocketPanel,
+        'qwen3-tts':   els.qwenPanel,
+        cosyvoice2:    els.cosyPanel,
+        'fish-speech': els.fishPanel,
+        'f5-tts':      els.f5Panel,
+        dummy:         els.dummyPanel,
     };
     Object.entries(panels).forEach(([key, panel]) => {
         if (panel) panel.style.display = key === synth ? 'block' : 'none';
     });
+    if (els.emotionDirectorPanel) {
+        els.emotionDirectorPanel.style.display =
+            (synth === 'qwen3-tts' || synth === 'cosyvoice2' || synth === 'fish-speech') ? 'block' : 'none';
+    }
 }
 
 // ── Rendering Stacked History ──────────────────────────────────────────────
@@ -148,9 +198,35 @@ export async function refreshPlaygroundList() {
                 }
             } else if (item.synthesizer === 'pocket-tts') {
                 if (item.settings.pocket_voice) {
-                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.pocket_voice)} (preset)</span>`;
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.pocket_voice)}</span>`;
                 } else {
                     settingsHtml += `<span class="pg-meta-badge settings">cloning</span>`;
+                }
+                if (item.settings.pocket_language && item.settings.pocket_language !== 'english') {
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.pocket_language)}</span>`;
+                }
+                if (item.settings.temp) {
+                    settingsHtml += `<span class="pg-meta-badge settings">T=${escapeHtml(item.settings.temp)}</span>`;
+                }
+            } else if (item.synthesizer === 'qwen3-tts') {
+                settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.qwen_mode || 'custom_voice')}</span>`;
+                if (item.settings.qwen_speaker) {
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.qwen_speaker)}</span>`;
+                }
+                if (item.settings.language) {
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.language)}</span>`;
+                }
+            } else if (item.synthesizer === 'cosyvoice2') {
+                settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.cosy_mode || 'instruct')}</span>`;
+                if (item.settings.language) {
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.language)}</span>`;
+                }
+            } else if (item.synthesizer === 'fish-speech') {
+                if (item.settings.language) {
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.language)}</span>`;
+                }
+                if (item.settings.emotion_tag) {
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.emotion_tag)}</span>`;
                 }
             } else if (item.synthesizer === 'f5-tts') {
                 settingsHtml += `<span class="pg-meta-badge settings">cloning</span>`;
@@ -267,10 +343,31 @@ async function handleSynthesize(els) {
 
     } else if (synth === 'pocket-tts') {
         const params = getPocketVoiceParams({
-            modeSelector:  els.pocketModeSelector,
-            voiceSelect:   els.pocketVoiceSelect,
-            refAudioInput: els.pocketRefAudioInput,
+            modeSelector:        els.pocketModeSelector,
+            voiceSelect:         els.pocketVoiceSelect,
+            refAudioInput:       els.pocketRefAudioInput,
+            languageSelect:      els.pocketLanguageSelect,
+            dialogueVoiceSelect: els.pocketDialogueVoiceSelect,
+            tempInput:           els.pocketTempInput,
+            lsdInput:            els.pocketLsdInput,
+            noiseClampInput:     els.pocketNoiseClampInput,
+            eosInput:            els.pocketEosInput,
+            framesEosInput:      els.pocketFramesEosInput,
+            quantizeCheckbox:    els.pocketQuantizeCheckbox,
         });
+
+        body.append('pocket_language', params.pocket_language || 'english');
+        if (params.dialogue_voice) body.append('dialogue_voice', params.dialogue_voice);
+        body.append('temp', params.temp ?? 0.7);
+        body.append('lsd_decode_steps', params.lsd_decode_steps ?? 1);
+        if (params.noise_clamp !== null && !isNaN(params.noise_clamp)) {
+            body.append('noise_clamp', params.noise_clamp);
+        }
+        body.append('eos_threshold', params.eos_threshold ?? -4.0);
+        if (params.frames_after_eos !== null && !isNaN(params.frames_after_eos)) {
+            body.append('frames_after_eos', params.frames_after_eos);
+        }
+        body.append('quantize', params.quantize ? 'true' : 'false');
         
         if (params.mode === 'clone') {
             const savedVoiceId = els.pocketRefVoiceSelect ? els.pocketRefVoiceSelect.value : '';
@@ -289,6 +386,55 @@ async function handleSynthesize(els) {
         } else {
             if (params.pocket_voice) body.append('pocket_voice', params.pocket_voice);
         }
+
+    } else if (synth === 'qwen3-tts') {
+        const qwenMode = els.qwenModeSelect ? els.qwenModeSelect.value : 'custom_voice';
+        const qwenModel = els.qwenModelSelect ? els.qwenModelSelect.value : 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice';
+        const qwenSpeaker = els.qwenSpeakerSelect ? els.qwenSpeakerSelect.value : 'Chelsie';
+        const qwenLang = els.qwenLanguageSelect ? els.qwenLanguageSelect.value : 'Auto';
+        const instruct = els.instructInput ? els.instructInput.value.trim() : '';
+
+        body.append('qwen_mode', qwenMode);
+        body.append('qwen_model', qwenModel);
+        body.append('qwen_speaker', qwenSpeaker);
+        body.append('language', qwenLang);
+        if (instruct) body.append('instruct', instruct);
+
+        if (qwenMode === 'clone') {
+            const savedId = els.qwenRefVoiceSelect ? els.qwenRefVoiceSelect.value : '';
+            if (!savedId) {
+                showToast('Please select a saved reference voice from your Voice Library for Qwen3-TTS cloning.', 'error');
+                return;
+            }
+            body.append('ref_id', savedId);
+        } else if (qwenMode === 'voice_design' && !instruct) {
+            showToast('Please enter an Emotion & Intonation prompt to design a voice.', 'error');
+            return;
+        }
+
+    } else if (synth === 'cosyvoice2') {
+        const cosyMode = els.cosyModeSelect ? els.cosyModeSelect.value : 'instruct';
+        const cosyLang = els.cosyLanguageSelect ? els.cosyLanguageSelect.value : 'auto';
+        const instruct = els.instructInput ? els.instructInput.value.trim() : '';
+        const savedId = els.cosyRefVoiceSelect ? els.cosyRefVoiceSelect.value : '';
+
+        body.append('cosy_mode', cosyMode);
+        body.append('language', cosyLang);
+        if (instruct) body.append('instruct', instruct);
+        if (savedId) body.append('ref_id', savedId);
+
+    } else if (synth === 'fish-speech') {
+        const fishLang = els.fishLanguageSelect ? els.fishLanguageSelect.value : 'auto';
+        const emotionTag = els.fishEmotionSelect ? els.fishEmotionSelect.value : '';
+        const instruct = els.instructInput ? els.instructInput.value.trim() : '';
+        const savedId = els.fishRefVoiceSelect ? els.fishRefVoiceSelect.value : '';
+        const apiUrl = els.fishApiUrlInput ? els.fishApiUrlInput.value.trim() : '';
+
+        body.append('language', fishLang);
+        if (emotionTag) body.append('emotion_tag', emotionTag);
+        if (instruct) body.append('instruct', instruct);
+        if (savedId) body.append('ref_id', savedId);
+        if (apiUrl) body.append('fish_api_url', apiUrl);
 
     } else if (synth === 'f5-tts') {
         const savedVoiceId = els.f5RefVoiceSelect ? els.f5RefVoiceSelect.value : '';
@@ -571,7 +717,14 @@ export function initPlayground() {
 
     // Synthesizer pill switcher & installed status badges
     const installed = getInstalledSynthesizers();
-    const pkgHint = { 'f5-tts': 'f5', 'pocket-tts': 'pocket', kokoro: 'kokoro' };
+    const pkgHint = {
+        'f5-tts': 'f5',
+        'pocket-tts': 'pocket',
+        kokoro: 'kokoro',
+        'qwen3-tts': 'qwen',
+        cosyvoice2: 'cosyvoice',
+        'fish-speech': 'fish',
+    };
     if (els.synthSelector) {
         els.synthSelector.querySelectorAll('.pg-synth-pill').forEach(btn => {
             const synthKey = btn.getAttribute('data-synth');
@@ -604,7 +757,98 @@ export function initPlayground() {
         presetPanel:  els.pocketPresetPanel,
         clonePanel:   els.pocketClonePanel,
         voiceSelect:  els.pocketVoiceSelect,
+        dialogueVoiceSelect: els.pocketDialogueVoiceSelect,
     });
+
+    // Qwen3 mode change handler
+    if (els.qwenModeSelect) {
+        els.qwenModeSelect.addEventListener('change', () => {
+            const m = els.qwenModeSelect.value;
+            if (els.qwenRefGroup) els.qwenRefGroup.style.display = m === 'clone' ? 'block' : 'none';
+            if (els.qwenSpeakerGroup) els.qwenSpeakerGroup.style.display = m === 'custom_voice' ? 'flex' : 'none';
+            if (els.qwenModelSelect) {
+                if (m === 'voice_design') {
+                    els.qwenModelSelect.value = 'Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign';
+                } else if (m === 'clone' && !els.qwenModelSelect.value.includes('Base')) {
+                    els.qwenModelSelect.value = 'Qwen/Qwen3-TTS-12Hz-1.7B-Base';
+                } else if (m === 'custom_voice') {
+                    els.qwenModelSelect.value = 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice';
+                }
+            }
+        });
+    }
+
+    // Scenario Director Grid in Playground
+    const pgScenarioGrid = document.getElementById('pg-scenario-grid');
+    if (pgScenarioGrid) {
+        pgScenarioGrid.querySelectorAll('.scenario-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const key = card.getAttribute('data-scenario') || 'custom';
+                pgScenarioGrid.querySelectorAll('.scenario-card').forEach(c => c.classList.toggle('active', c === card));
+                const prof = SCENARIO_PROFILES[key];
+                if (!prof) return;
+                if (els.speedInput) els.speedInput.value = prof.speed;
+                if (els.pocketTempInput) els.pocketTempInput.value = prof.temp;
+                if (els.pocketLsdInput) els.pocketLsdInput.value = prof.lsd_decode_steps;
+                if (els.pocketNoiseClampInput) els.pocketNoiseClampInput.value = prof.noise_clamp !== undefined ? prof.noise_clamp : '';
+                if (els.pocketEosInput) els.pocketEosInput.value = prof.eos_threshold;
+                if (els.pocketFramesEosInput) els.pocketFramesEosInput.value = prof.frames_after_eos !== undefined ? prof.frames_after_eos : '';
+                if (els.instructInput && prof.instruct !== undefined) els.instructInput.value = prof.instruct;
+                if (els.fishEmotionSelect && prof.emotion_tag !== undefined) els.fishEmotionSelect.value = prof.emotion_tag;
+                showToast(`Audition scenario "${prof.label}" loaded.`, 'info');
+            });
+        });
+    }
+
+    // 8-Language Sample Text Switcher
+    const langSampleBar = document.getElementById('pg-lang-sample-bar');
+    if (langSampleBar && els.textArea) {
+        langSampleBar.querySelectorAll('.lang-sample-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const lang = chip.getAttribute('data-lang') || 'en';
+                langSampleBar.querySelectorAll('.lang-sample-chip').forEach(c => c.classList.toggle('active', c === chip));
+                if (LANGUAGE_SAMPLES[lang]) {
+                    els.textArea.value = LANGUAGE_SAMPLES[lang];
+                }
+                // Also auto-align language dropdowns where applicable
+                if (els.pocketLanguageSelect) {
+                    const pocketLangMap = { en: 'english', de: 'german_24l', es: 'spanish_24l' };
+                    if (pocketLangMap[lang]) els.pocketLanguageSelect.value = pocketLangMap[lang];
+                }
+                if (els.qwenLanguageSelect) {
+                    const qwenLangMap = {
+                        en: 'English', ru: 'Russian', ko: 'Korean', ja: 'Japanese',
+                        zh: 'Chinese', de: 'German', es: 'Spanish',
+                    };
+                    if (qwenLangMap[lang]) els.qwenLanguageSelect.value = qwenLangMap[lang];
+                }
+                if (els.cosyLanguageSelect && lang !== 'ar') {
+                    els.cosyLanguageSelect.value = lang;
+                }
+                if (els.fishLanguageSelect) {
+                    els.fishLanguageSelect.value = lang;
+                }
+            });
+        });
+    }
+
+    // Inline Prosody & Emotion Tag Inserter
+    const prosodyBar = document.getElementById('pg-prosody-tag-bar');
+    if (prosodyBar && els.textArea) {
+        prosodyBar.querySelectorAll('.prosody-tag-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const tag = chip.getAttribute('data-tag') || '';
+                const start = els.textArea.selectionStart ?? els.textArea.value.length;
+                const end = els.textArea.selectionEnd ?? els.textArea.value.length;
+                const before = els.textArea.value.slice(0, start);
+                const after = els.textArea.value.slice(end);
+                els.textArea.value = `${before}${tag}${after}`;
+                els.textArea.focus();
+                const cursor = start + tag.length;
+                els.textArea.setSelectionRange(cursor, cursor);
+            });
+        });
+    }
 
     // File upload zones
     setupUploadZone(els.pocketRefAudioZone, els.pocketRefAudioInput, els.pocketRefAudioName);

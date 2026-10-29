@@ -81,6 +81,16 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
         except Exception:
             pass
 
+    # Apply scenario defaults if --scenario is specified
+    from epuboverlay.normalization import NARRATION_SCENARIOS
+    scenario_id = getattr(parsed, "scenario", "custom") or "custom"
+    if scenario_id in NARRATION_SCENARIOS and scenario_id != "custom":
+        scen = NARRATION_SCENARIOS[scenario_id]
+        if getattr(parsed, "instruct", "") == "" and scen.get("instruct"):
+            parsed.instruct = scen["instruct"]
+        if getattr(parsed, "emotion_tag", "") == "" and scen.get("emotion_tag"):
+            parsed.emotion_tag = scen["emotion_tag"]
+
     # Validate synthesizer parameters
     if parsed.synthesizer == "f5-tts":
         if not parsed.ref_audio or not parsed.ref_text:
@@ -95,6 +105,16 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
     elif parsed.synthesizer == "kokoro":
         if not parsed.voice and not parsed.voice_formula:
             print("Error: Either --voice or --voice-formula must be specified when using the kokoro synthesizer.",
+                  file=sys.stderr)
+            return 1
+    elif parsed.synthesizer == "cosyvoice2":
+        if not parsed.ref_audio:
+            print("Error: --ref-audio (or --ref-id) is required when using the cosyvoice2 synthesizer.",
+                  file=sys.stderr)
+            return 1
+    elif parsed.synthesizer == "qwen3-tts":
+        if getattr(parsed, "qwen_mode", "custom_voice") == "clone" and not parsed.ref_audio:
+            print("Error: --ref-audio (or --ref-id) is required when using qwen3-tts in 'clone' mode.",
                   file=sys.stderr)
             return 1
 
@@ -241,9 +261,87 @@ def main(args: list[str] | None = None) -> int:
     )
     gen_parser.add_argument(
         "-s", "--synthesizer",
-        choices=["f5-tts", "kokoro", "pocket-tts", "dummy"],
+        choices=["f5-tts", "kokoro", "pocket-tts", "qwen3-tts", "cosyvoice2", "fish-speech", "dummy"],
         default="f5-tts",
         help="Synthesizer implementation to use (default: f5-tts)."
+    )
+    gen_parser.add_argument(
+        "--scenario",
+        choices=["custom", "fiction_audiobook", "technical_docs", "executive_briefing", "language_learning", "dramatic_dialogue"],
+        default="custom",
+        help="Narration scenario profile (default: custom)."
+    )
+    gen_parser.add_argument(
+        "--language",
+        type=str,
+        default="auto",
+        help="Target language code (e.g. en, ru, ko, ja, zh, de, es, ar, auto)."
+    )
+    gen_parser.add_argument(
+        "--instruct",
+        type=str,
+        default="",
+        help="Natural-language emotion and intonation instruction (for qwen3-tts and cosyvoice2)."
+    )
+    gen_parser.add_argument(
+        "--emotion-tag",
+        type=str,
+        default="",
+        help="Inline/prefix emotion marker for fish-speech, e.g. '(excited)', '(whispering)'."
+    )
+    gen_parser.add_argument(
+        "--pocket-language",
+        type=str,
+        default="english",
+        help="PocketTTS language model config (e.g. english, german_24l, spanish_24l, french_24l, italian_24l, portuguese_24l)."
+    )
+    gen_parser.add_argument(
+        "--temp",
+        type=float,
+        default=0.7,
+        help="Sampling temperature for PocketTTS / Qwen3-TTS / Fish-Speech (default: 0.7)."
+    )
+    gen_parser.add_argument(
+        "--lsd-decode-steps",
+        type=int,
+        default=1,
+        help="Flow-matching LSD decode steps for PocketTTS (1..8, default: 1)."
+    )
+    gen_parser.add_argument(
+        "--dialogue-voice",
+        type=str,
+        default="",
+        help="Secondary preset voice for quoted dialogue in PocketTTS (optional)."
+    )
+    gen_parser.add_argument(
+        "--qwen-model",
+        type=str,
+        default="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        help="Qwen3-TTS model variant."
+    )
+    gen_parser.add_argument(
+        "--qwen-mode",
+        choices=["custom_voice", "voice_design", "clone"],
+        default="custom_voice",
+        help="Qwen3-TTS voice mode (default: custom_voice)."
+    )
+    gen_parser.add_argument(
+        "--qwen-speaker",
+        type=str,
+        default="Chelsie",
+        help="Qwen3-TTS preset speaker name (default: Chelsie)."
+    )
+    gen_parser.add_argument(
+        "--cosy-mode",
+        choices=["instruct", "zero_shot", "cross_lingual"],
+        default="instruct",
+        help="CosyVoice2 mode (default: instruct)."
+    )
+    gen_parser.add_argument(
+        "--fish-api-url",
+        type=str,
+        default="",
+        help="Local or remote Fish-Speech HTTP API endpoint (e.g. http://127.0.0.1:8080/v1/tts)."
     )
     gen_parser.add_argument(
         "-a", "--ref-audio",

@@ -6,6 +6,17 @@ from epuboverlay.normalization import (
     resolve_heteronyms,
     apply_custom_lexicon,
     normalize_text,
+    detect_text_language,
+    NARRATION_SCENARIOS,
+)
+from epuboverlay.pipeline import split_into_sentences
+from epuboverlay.synthesizers import (
+    AVAILABLE_SYNTHESIZERS,
+    POCKET_LANGUAGES,
+    QWEN3_LANGUAGES,
+    COSYVOICE_LANGUAGES,
+    FISH_LANGUAGES,
+    FISH_EMOTION_TAGS,
 )
 
 class NormalizationTests(unittest.TestCase):
@@ -71,6 +82,71 @@ class NormalizationTests(unittest.TestCase):
         val = normalize_text(text, settings)
         self.assertTrue(val.startswith('"We will not use lama in'))
         self.assertTrue(val.endswith('twenty-six," I red yesterday.'))
+
+    def test_detect_text_language_scripts_and_hints(self) -> None:
+        self.assertEqual(detect_text_language("Привет, мир! Это тест."), "ru")
+        self.assertEqual(detect_text_language("안녕하세요, 반갑습니다."), "ko")
+        self.assertEqual(detect_text_language("こんにちは、世界。"), "ja")
+        self.assertEqual(detect_text_language("你好，世界。"), "zh")
+        self.assertEqual(detect_text_language("مرحبا بالعالم"), "ar")
+        self.assertEqual(detect_text_language("Guten Tag", hint="german_24l"), "de")
+        self.assertEqual(detect_text_language("Hola mundo", hint="Spanish"), "es")
+
+    def test_multilingual_normalization_never_injects_english_into_non_english(self) -> None:
+        settings = {
+            "expand_numerals": True,
+            "resolve_contractions": True,
+            "resolve_heteronyms": True,
+            "harmonize_punctuation": True,
+            "custom_lexicon": [],
+        }
+        ru_text = "В 2026 году вышло 5 книг."
+        ru_norm = normalize_text(ru_text, settings)
+        # Should never inject English words like "two thousand" into Russian text
+        self.assertNotIn("thousand", ru_norm)
+        self.assertNotIn("five", ru_norm)
+
+        ko_text = "2026년에 3권의 책을 읽었습니다."
+        ko_norm = normalize_text(ko_text, settings)
+        self.assertNotIn("thousand", ko_norm)
+        self.assertNotIn("three", ko_norm)
+
+        ar_text = "في عام 2026 قرأت 3 كتب."
+        ar_norm = normalize_text(ar_text, settings)
+        self.assertNotIn("thousand", ar_norm)
+
+    def test_multilingual_sentence_splitting(self) -> None:
+        ru_sentences = split_into_sentences("Первое предложение. Второе предложение! Третье?")
+        self.assertEqual(len(ru_sentences), 3)
+
+        cjk_sentences = split_into_sentences("これは最初の文です。これは二番目の文です！")
+        self.assertEqual(len(cjk_sentences), 2)
+
+        ar_sentences = split_into_sentences("هل هذا كتاب؟ نعم، إنه كتاب رائع.")
+        self.assertEqual(len(ar_sentences), 2)
+
+    def test_narration_scenarios_and_synthesizer_registry(self) -> None:
+        for key in (
+            "custom",
+            "fiction_audiobook",
+            "technical_docs",
+            "executive_briefing",
+            "language_learning",
+            "dramatic_dialogue",
+        ):
+            self.assertIn(key, NARRATION_SCENARIOS)
+
+        for synth in ("dummy", "kokoro", "pocket-tts", "qwen3-tts", "cosyvoice2", "fish-speech", "f5-tts"):
+            self.assertIn(synth, AVAILABLE_SYNTHESIZERS)
+
+        self.assertIn("german_24l", POCKET_LANGUAGES)
+        self.assertIn("spanish_24l", POCKET_LANGUAGES)
+        self.assertIn("ru", QWEN3_LANGUAGES)
+        self.assertIn("ko", QWEN3_LANGUAGES)
+        self.assertIn("ru", COSYVOICE_LANGUAGES)
+        self.assertIn("ko", COSYVOICE_LANGUAGES)
+        self.assertIn("ar", FISH_LANGUAGES)
+        self.assertTrue(any(item["tag"] == "(whispering)" for item in FISH_EMOTION_TAGS))
 
 if __name__ == "__main__":
     unittest.main()

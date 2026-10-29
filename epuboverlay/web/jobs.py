@@ -390,11 +390,15 @@ def run_job_process(
         def chapter_audio_cb(idref: str, mp3_path: Path):
             progress_queue.put(("chapter_audio", job_id, (idref, str(mp3_path))))
 
+        effective_frame_rate = float(config.get("frame_rate") or getattr(synth, "sample_rate", 24000.0))
+        if config.get("synthesizer") == "fish-speech" and effective_frame_rate == 24000.0:
+            effective_frame_rate = float(getattr(synth, "sample_rate", 44100.0))
+
         generate_media_overlay_epub(
             input_epub=input_epub_path,
             output_epub=output_epub_path,
             synthesizer=synth,
-            frame_rate_hz=config["frame_rate"],
+            frame_rate_hz=effective_frame_rate,
             max_chars=config["max_chars"],
             progress_callback=progress_cb,
             cancel_event=cancel_event,
@@ -407,6 +411,7 @@ def run_job_process(
                 "resolve_heteronyms": config.get("resolve_heteronyms", True),
                 "harmonize_punctuation": config.get("harmonize_punctuation", True),
                 "custom_lexicon": config.get("custom_lexicon", []),
+                "language": config.get("language") or config.get("pocket_language") or config.get("lang_code") or "auto",
             },
         )
         progress_queue.put(("completed", job_id, None))

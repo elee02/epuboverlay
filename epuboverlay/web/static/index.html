@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="epuboverlay Dashboard — Generate narrated EPUB 3 files with Media Overlays using AI voice cloning.">
-    <title>epuboverlay — Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css?v=3">
+    <title>epuboverlay — Multilingual Voice &amp; Audiobook Studio</title>
+    <link rel="stylesheet" href="/static/style.css?v=4">
     <script>
         window.onerror = function(msg, url, line, col, error) {
             console.error("Global JS Error:", msg, "at", url, ":", line);
@@ -26,7 +26,8 @@
             <!-- Brand -->
             <div class="sidebar-brand">
                 <h1>🎧 epuboverlay</h1>
-                <p class="subtitle">EPUB 3 Media Overlay Generator<br>with AI Voice Cloning</p>
+                <p class="subtitle">Multilingual Voice Director &amp;<br>EPUB 3 Media Overlay Studio</p>
+                <span class="studio-version-badge">✨ Studio Edition · 7 Engines</span>
             </div>
 
             <!-- Navigation -->
@@ -106,8 +107,15 @@
             <!-- ═══════════════════════════════════════ -->
             <div class="content-page" id="page-generate">
                 <div class="page-heading">
-                    <h2>🎙️ Generate Overlays</h2>
-                    <p>Create narrated EPUB 3 files with Media Overlays from any synthesizer.</p>
+                    <div>
+                        <h2>🎙️ Generate Overlays</h2>
+                        <p>Studio-grade EPUB 3 Media Overlays &amp; narrated documents across 8+ languages with emotion &amp; prosody control.</p>
+                    </div>
+                    <div class="capability-pills">
+                        <span class="capability-pill accent">🌍 EN · RU · KO · JA · ZH · DE · ES · AR</span>
+                        <span class="capability-pill cyan">🎭 Emotion &amp; Intonation Director</span>
+                        <span class="capability-pill emerald">⚡ 7 Neural TTS Engines</span>
+                    </div>
                 </div>
 
                 <!-- New Job Card -->
@@ -115,18 +123,80 @@
                     <div class="card-header">
                         <div class="card-title">
                             <span class="icon">📚</span>
-                            New Job
+                            New Narration Studio Job
                         </div>
                     </div>
 
                     <form id="job-form" enctype="multipart/form-data">
+                        <input type="hidden" id="scenario-input" name="scenario" value="custom">
+
+                        <!-- Scenario Director Preset Grid -->
+                        <div class="scenario-director-section">
+                            <div class="scenario-director-header">
+                                <div class="scenario-director-title">
+                                    <span>🎬</span> Narration Scenario Profile
+                                </div>
+                                <span class="scenario-director-subtitle">Auto-tunes speed, chunking, breath pauses, sampling temperature &amp; emotional delivery</span>
+                            </div>
+                            <div class="scenario-grid" id="generate-scenario-grid">
+                                <button type="button" class="scenario-card active" data-scenario="custom">
+                                    <div class="scenario-card-top">
+                                        <span class="scenario-icon">🎛️</span>
+                                        <span class="scenario-badge">1.0×</span>
+                                    </div>
+                                    <div class="scenario-title">Custom Studio</div>
+                                    <div class="scenario-desc">Manual control over all acoustic, emotion &amp; chunking parameters.</div>
+                                </button>
+                                <button type="button" class="scenario-card" data-scenario="fiction_audiobook">
+                                    <div class="scenario-card-top">
+                                        <span class="scenario-icon">📖</span>
+                                        <span class="scenario-badge">0.96×</span>
+                                    </div>
+                                    <div class="scenario-title">Fiction &amp; Literary</div>
+                                    <div class="scenario-desc">Expressive storytelling, warm intonation &amp; natural dramatic pauses.</div>
+                                </button>
+                                <button type="button" class="scenario-card" data-scenario="technical_docs">
+                                    <div class="scenario-card-top">
+                                        <span class="scenario-icon">🔬</span>
+                                        <span class="scenario-badge">1.02×</span>
+                                    </div>
+                                    <div class="scenario-title">Technical &amp; Academic</div>
+                                    <div class="scenario-desc">Crisp articulation, low temperature &amp; zero hallucination for specs.</div>
+                                </button>
+                                <button type="button" class="scenario-card" data-scenario="executive_briefing">
+                                    <div class="scenario-card-top">
+                                        <span class="scenario-icon">💼</span>
+                                        <span class="scenario-badge">1.12×</span>
+                                    </div>
+                                    <div class="scenario-title">Executive Briefing</div>
+                                    <div class="scenario-desc">Brisk, authoritative broadcast cadence for reports &amp; articles.</div>
+                                </button>
+                                <button type="button" class="scenario-card" data-scenario="language_learning">
+                                    <div class="scenario-card-top">
+                                        <span class="scenario-icon">🗣️</span>
+                                        <span class="scenario-badge">0.86×</span>
+                                    </div>
+                                    <div class="scenario-title">Language Shadowing</div>
+                                    <div class="scenario-desc">Deliberate pacing, short phrases &amp; crystal-clear multilingual phonetics.</div>
+                                </button>
+                                <button type="button" class="scenario-card" data-scenario="dramatic_dialogue">
+                                    <div class="scenario-card-top">
+                                        <span class="scenario-icon">🎭</span>
+                                        <span class="scenario-badge">0.95×</span>
+                                    </div>
+                                    <div class="scenario-title">Dramatic Dialogue</div>
+                                    <div class="scenario-desc">High dynamic range &amp; dual-voice switching on quoted dialogue.</div>
+                                </button>
+                            </div>
+                        </div>
+
                         <!-- EPUB Upload -->
                         <div class="form-group full-width" style="margin-bottom: 1rem;">
-                            <label>E-book File</label>
+                            <label>Document / E-book File</label>
                             <div class="file-upload-zone" id="epub-upload-zone">
                                 <div class="upload-icon">📖</div>
                                 <div class="upload-text">
-                                    <strong>Click to browse</strong> or drag &amp; drop your e-book file (EPUB, PDF, DOCX, MD, TXT)
+                                    <strong>Click to browse</strong> or drag &amp; drop your document (EPUB, PDF, DOCX, MD, TXT)
                                 </div>
                                 <div class="file-name" id="epub-file-name" style="display: none;"></div>
                                 <input type="file" id="epub-file" name="epub" accept=".epub,.pdf,.docx,.md,.txt" required>
@@ -136,37 +206,40 @@
                         <!-- Configuration -->
                         <div class="form-grid">
                             <div class="form-group">
-                                <label for="synthesizer-select">Synthesizer</label>
+                                <label for="synthesizer-select">Synthesizer Engine</label>
                                 <select id="synthesizer-select" name="synthesizer">
-                                    <option value="f5-tts">F5-TTS (Voice Cloning)</option>
-                                    <option value="kokoro">Kokoro-82M (Built-in Voices / Formulas)</option>
-                                    <option value="pocket-tts">PocketTTS (Preset &amp; Lightweight Cloning)</option>
-                                    <option value="dummy">Dummy (Silent / Testing)</option>
+                                    <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang 24L)</option>
+                                    <option value="kokoro">Kokoro-82M (Fast Presets &amp; Voice Blending)</option>
+                                    <option value="qwen3-tts">Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
+                                    <option value="cosyvoice2">CosyVoice2-0.5B (9-Lang Instruct &amp; Breath/Laughter Tags)</option>
+                                    <option value="fish-speech">Fish-Speech-1.5 / OpenAudio (8-Lang incl. Arabic &amp; Emotion Tags)</option>
+                                    <option value="f5-tts">F5-TTS (Diffusion Zero-Shot Voice Cloning)</option>
+                                    <option value="dummy">Dummy (Instant Silent Testing)</option>
                                 </select>
                             </div>
 
                             <div class="form-group">
-                                <label for="device-select">Device</label>
+                                <label for="device-select">Compute Device</label>
                                 <select id="device-select" name="device">
-                                    <option value="">Auto</option>
-                                    <option value="cuda">CUDA (GPU)</option>
+                                    <option value="">Auto (Best Available)</option>
+                                    <option value="cuda">CUDA (NVIDIA GPU)</option>
                                     <option value="cpu">CPU</option>
                                     <option value="mps">MPS (Apple Silicon)</option>
                                 </select>
                             </div>
 
                             <div class="form-group">
-                                <label for="speed-input">Speed</label>
-                                <input type="number" id="speed-input" name="speed" value="1.0" min="0.1" max="3.0" step="0.1">
+                                <label for="speed-input">Pacing Speed</label>
+                                <input type="number" id="speed-input" name="speed" value="1.0" min="0.1" max="3.0" step="0.02">
                             </div>
 
                             <div class="form-group">
                                 <label for="max-chars-input">Max Chars/Chunk</label>
-                                <input type="number" id="max-chars-input" name="max_chars" value="150" min="50" max="500" step="10">
+                                <input type="number" id="max-chars-input" name="max_chars" value="150" min="50" max="500" step="5">
                             </div>
 
                             <div class="form-group">
-                                <label for="concurrency-input">Concurrency</label>
+                                <label for="concurrency-input">Workers</label>
                                 <input type="number" id="concurrency-input" name="concurrency" value="2" min="1" max="16" step="1">
                             </div>
                         </div>
@@ -306,18 +379,39 @@
 
                         <!-- PocketTTS Specific Options -->
                         <div id="pocket-tts-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
-                            <div class="form-group">
-                                <label>Voice Mode</label>
-                                <div class="voice-mode-selector" id="pocket-voice-mode-selector">
-                                    <button type="button" class="mode-pill active" data-mode="preset">Preset Voice</button>
-                                    <button type="button" class="mode-pill" data-mode="clone">Clone Voice</button>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Voice Mode</label>
+                                    <div class="voice-mode-selector" id="pocket-voice-mode-selector">
+                                        <button type="button" class="mode-pill active" data-mode="preset">Preset Voice</button>
+                                        <button type="button" class="mode-pill" data-mode="clone">Clone Voice</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-language-select">Model Language Checkpoint</label>
+                                    <select id="pocket-language-select" name="pocket_language">
+                                        <option value="english">English (Standard v1)</option>
+                                        <option value="english_2026-04">English (2026-04 Enhanced)</option>
+                                        <option value="german_24l">German (24-Layer Native)</option>
+                                        <option value="spanish_24l">Spanish (24-Layer Native)</option>
+                                        <option value="french_24l">French (24-Layer Native)</option>
+                                        <option value="italian_24l">Italian (24-Layer Native)</option>
+                                        <option value="portuguese_24l">Portuguese (24-Layer Native)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-dialogue-voice-select">Quoted Dialogue Voice (Multi-Speaker)</label>
+                                    <select id="pocket-dialogue-voice-select" name="dialogue_voice">
+                                        <option value="">-- Same as Narrator --</option>
+                                        <!-- Populated dynamically via JS -->
+                                    </select>
                                 </div>
                             </div>
 
                             <!-- Preset sub-panel -->
                             <div id="pocket-preset-panel" style="margin-top: 1rem;">
                                 <div class="form-group">
-                                    <label for="pocket-voice-select">PocketTTS Preset Voice</label>
+                                    <label for="pocket-voice-select">Primary Narrator Voice</label>
                                     <select id="pocket-voice-select" name="pocket_voice">
                                         <!-- Populated dynamically via JS -->
                                     </select>
@@ -343,6 +437,181 @@
                                         <input type="file" id="pocket-ref-audio-file" name="ref_audio" accept=".wav,.mp3,.flac,.ogg">
                                     </div>
                                 </div>
+                            </div>
+
+                            <!-- Granular Acoustic Studio Controls -->
+                            <details class="acoustic-details" id="pocket-acoustic-details">
+                                <summary>
+                                    <span>🎚️ Granular Acoustic &amp; Prosody Studio (Temperature, LSD Steps, Noise Clamp, EOS)</span>
+                                    <span>▾</span>
+                                </summary>
+                                <div class="acoustic-details-body">
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="pocket-temp-input">Temperature (Expressiveness)</label>
+                                            <input type="number" id="pocket-temp-input" name="temp" value="0.7" min="0.1" max="1.5" step="0.05">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="pocket-lsd-input">LSD Decode Steps</label>
+                                            <input type="number" id="pocket-lsd-input" name="lsd_decode_steps" value="1" min="1" max="8" step="1">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="pocket-noise-clamp-input">Noise Clamp (Optional)</label>
+                                            <input type="number" id="pocket-noise-clamp-input" name="noise_clamp" placeholder="None (e.g. 2.5)" min="0.5" max="10.0" step="0.1">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="pocket-eos-input">EOS Threshold</label>
+                                            <input type="number" id="pocket-eos-input" name="eos_threshold" value="-4.0" min="-10.0" max="0.0" step="0.25">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="pocket-frames-eos-input">Trailing Tail Frames</label>
+                                            <input type="number" id="pocket-frames-eos-input" name="frames_after_eos" placeholder="Auto (0-12)" min="0" max="25" step="1">
+                                        </div>
+                                        <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; align-self: flex-end; padding-bottom: 0.5rem;">
+                                            <input type="checkbox" id="pocket-quantize-checkbox" name="quantize" style="width: auto; margin: 0; cursor: pointer;">
+                                            <label for="pocket-quantize-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">Dynamic INT8 Quantization</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+
+                        <!-- Qwen3-TTS Specific Options -->
+                        <div id="qwen3-tts-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="qwen-mode-select">Synthesis Mode</label>
+                                    <select id="qwen-mode-select" name="qwen_mode">
+                                        <option value="custom_voice">CustomVoice (Preset Speaker + Emotion Instruct)</option>
+                                        <option value="voice_design">VoiceDesign (Design Any Voice &amp; Emotion from Text)</option>
+                                        <option value="clone">Zero-Shot 3s Voice Cloning (1.7B / 0.6B Base)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen-model-select">Model Checkpoint</label>
+                                    <select id="qwen-model-select" name="qwen_model">
+                                        <option value="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice">Qwen3-TTS 1.7B CustomVoice (Emotion Instruct)</option>
+                                        <option value="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign">Qwen3-TTS 1.7B VoiceDesign (Persona Creator)</option>
+                                        <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base">Qwen3-TTS 1.7B Base (High-Fidelity Cloning)</option>
+                                        <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS 0.6B Base (Lightweight Fast Cloning)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen-speaker-select">Preset Speaker</label>
+                                    <select id="qwen-speaker-select" name="qwen_speaker">
+                                        <option value="Chelsie">Chelsie (Warm, Expressive Female)</option>
+                                        <option value="Ethan">Ethan (Clear, Confident Male)</option>
+                                        <option value="Serena">Serena (Calm, Narrative Female)</option>
+                                        <option value="Vivian">Vivian (Bright, Energetic Female)</option>
+                                        <option value="Ryan">Ryan (Deep, Authoritative Male)</option>
+                                        <option value="Aiden">Aiden (Natural, Conversational Male)</option>
+                                        <option value="Aria">Aria (Soft, Articulate Female)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="qwen-language-select">Target Language</label>
+                                    <select id="qwen-language-select" name="language">
+                                        <option value="Auto">Auto-Detect Script (EN/RU/KO/JA/ZH/DE/ES...)</option>
+                                        <option value="English">English</option>
+                                        <option value="Russian">Russian (Русский)</option>
+                                        <option value="Korean">Korean (한국어)</option>
+                                        <option value="Japanese">Japanese (日本語)</option>
+                                        <option value="Chinese">Chinese (中文)</option>
+                                        <option value="German">German (Deutsch)</option>
+                                        <option value="Spanish">Spanish (Español)</option>
+                                        <option value="French">French (Français)</option>
+                                        <option value="Italian">Italian (Italiano)</option>
+                                        <option value="Portuguese">Portuguese (Português)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CosyVoice2-0.5B Specific Options -->
+                        <div id="cosyvoice2-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="cosy-mode-select">CosyVoice2 Mode</label>
+                                    <select id="cosy-mode-select" name="cosy_mode">
+                                        <option value="instruct">Instruct2 (Natural-Language Emotion &amp; Dialect Control)</option>
+                                        <option value="zero_shot">Zero-Shot Voice Cloning (3-10s Reference)</option>
+                                        <option value="cross_lingual">Cross-Lingual Cloning (Clone EN Voice into RU/KO/JA/ZH/DE/ES)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cosy-language-select">Language Tag</label>
+                                    <select id="cosy-language-select" name="cosy_language">
+                                        <option value="auto">Auto-Detect (&lt;|en|&gt;, &lt;|ru|&gt;, &lt;|ko|&gt;, &lt;|jp|&gt;, &lt;|zh|&gt;...)</option>
+                                        <option value="en">English (&lt;|en|&gt;)</option>
+                                        <option value="ru">Russian (&lt;|ru|&gt;)</option>
+                                        <option value="ko">Korean (&lt;|ko|&gt;)</option>
+                                        <option value="ja">Japanese (&lt;|jp|&gt;)</option>
+                                        <option value="zh">Chinese (&lt;|zh|&gt;)</option>
+                                        <option value="de">German (&lt;|de|&gt;)</option>
+                                        <option value="es">Spanish (&lt;|es|&gt;)</option>
+                                        <option value="fr">French (&lt;|fr|&gt;)</option>
+                                        <option value="it">Italian (&lt;|it|&gt;)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Fish-Speech-1.5 / OpenAudio Specific Options -->
+                        <div id="fish-speech-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="fish-language-select">Target Language (incl. Arabic)</label>
+                                    <select id="fish-language-select" name="fish_language">
+                                        <option value="auto">Auto-Detect (EN/RU/KO/JA/ZH/DE/ES/AR)</option>
+                                        <option value="en">English</option>
+                                        <option value="ru">Russian (Русский)</option>
+                                        <option value="ko">Korean (한국어)</option>
+                                        <option value="ja">Japanese (日本語)</option>
+                                        <option value="zh">Chinese (中文)</option>
+                                        <option value="de">German (Deutsch)</option>
+                                        <option value="es">Spanish (Español)</option>
+                                        <option value="ar">Arabic (العربية)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="fish-emotion-tag-select">Default Emotion Marker</label>
+                                    <select id="fish-emotion-tag-select" name="emotion_tag">
+                                        <option value="">Neutral (Use inline markers or default)</option>
+                                        <option value="(calm)">(calm) Calm &amp; Composed</option>
+                                        <option value="(excited)">(excited) Excited &amp; Energetic</option>
+                                        <option value="(sad)">(sad) Melancholic &amp; Somber</option>
+                                        <option value="(angry)">(angry) Intense &amp; Frustrated</option>
+                                        <option value="(whispering)">(whispering) Husht &amp; Whispered</option>
+                                        <option value="(soft tone)">(soft tone) Gentle &amp; Intimate</option>
+                                        <option value="(empathetic)">(empathetic) Warm &amp; Empathetic</option>
+                                        <option value="(serious)">(serious) Authoritative &amp; Serious</option>
+                                        <option value="(in a hurry tone)">(in a hurry tone) Urgent &amp; Fast</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="fish-api-url-input">Fish-Speech Server URL (Optional)</label>
+                                    <input type="text" id="fish-api-url-input" name="fish_api_url" placeholder="http://127.0.0.1:8080/v1/tts (blank = local Python)">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Shared Emotion & Intonation Director Panel (for Qwen3-TTS, CosyVoice2, Fish-Speech) -->
+                        <div id="emotion-director-options" class="director-panel" style="display: none;">
+                            <div class="director-panel-header">
+                                <div class="director-panel-title">
+                                    <span>🎭</span> Emotion &amp; Intonation Director Prompt
+                                </div>
+                                <span style="font-size: 0.72rem; color: var(--text-muted);">Supports inline <code>[instruct: ...]</code> or paralinguistic tags in book text</span>
+                            </div>
+                            <div class="form-group">
+                                <input type="text" id="instruct-input" name="instruct" placeholder="e.g. Speak in a warm, captivating storytelling tone with gentle pauses and expressive intonation.">
+                            </div>
+                            <div class="instruct-chip-bar" data-target="instruct-input">
+                                <button type="button" class="instruct-chip" data-prompt="Speak in a warm, captivating storytelling tone with expressive cadence and natural breath pauses.">📖 Warm Storyteller</button>
+                                <button type="button" class="instruct-chip" data-prompt="Speak in a hushed, suspenseful whisper with slow, deliberate tension.">🤫 Suspenseful Whisper</button>
+                                <button type="button" class="instruct-chip" data-prompt="Speak with joyful excitement, bright intonation, and lively energy.">✨ Joyful &amp; Lively</button>
+                                <button type="button" class="instruct-chip" data-prompt="Speak in a calm, empathetic, and melancholic tone with soft delivery.">🌧️ Melancholic &amp; Soft</button>
+                                <button type="button" class="instruct-chip" data-prompt="Speak in a crisp, authoritative, and articulate documentary narrator voice.">🎙️ Documentary Authority</button>
                             </div>
                         </div>
 
@@ -401,15 +670,66 @@
             <!-- ═══════════════════════════════════════ -->
             <div class="content-page" id="page-playground" style="display: none;">
                 <div class="page-heading">
-                    <h2>🎵 Voice Playground</h2>
-                    <p>Test any voice with custom text — Kokoro presets &amp; blends, PocketTTS presets &amp; cloning, or F5-TTS cloning.</p>
+                    <div>
+                        <h2>🎵 Voice Playground &amp; Prosody Lab</h2>
+                        <p>Audition all 7 neural synthesizers, test 8 languages (EN, RU, KO, JA, ZH, DE, ES, AR), and direct emotional intonation in real time.</p>
+                    </div>
+                    <div class="capability-pills">
+                        <span class="capability-pill accent">🎛️ Live Acoustic Tuning</span>
+                        <span class="capability-pill cyan">🗣️ Multi-Speaker Quotes</span>
+                    </div>
                 </div>
 
                 <div class="card">
+                    <!-- Scenario Director in Playground -->
+                    <div class="scenario-director-section" style="margin-bottom: 1.25rem;">
+                        <div class="scenario-director-header">
+                            <div class="scenario-director-title">
+                                <span>🎬</span> Audition Scenario Preset
+                            </div>
+                            <span class="scenario-director-subtitle">Click a scenario to load its acoustic &amp; emotional profile</span>
+                        </div>
+                        <div class="scenario-grid" id="pg-scenario-grid">
+                            <button type="button" class="scenario-card active" data-scenario="custom">
+                                <div class="scenario-card-top"><span class="scenario-icon">🎛️</span><span class="scenario-badge">1.0×</span></div>
+                                <div class="scenario-title">Custom Studio</div>
+                                <div class="scenario-desc">Manual acoustic &amp; emotion parameters.</div>
+                            </button>
+                            <button type="button" class="scenario-card" data-scenario="fiction_audiobook">
+                                <div class="scenario-card-top"><span class="scenario-icon">📖</span><span class="scenario-badge">0.96×</span></div>
+                                <div class="scenario-title">Fiction &amp; Literary</div>
+                                <div class="scenario-desc">Warm storytelling &amp; lingering pauses.</div>
+                            </button>
+                            <button type="button" class="scenario-card" data-scenario="technical_docs">
+                                <div class="scenario-card-top"><span class="scenario-icon">🔬</span><span class="scenario-badge">1.02×</span></div>
+                                <div class="scenario-title">Technical &amp; Academic</div>
+                                <div class="scenario-desc">High precision, low temp (0.55).</div>
+                            </button>
+                            <button type="button" class="scenario-card" data-scenario="executive_briefing">
+                                <div class="scenario-card-top"><span class="scenario-icon">💼</span><span class="scenario-badge">1.12×</span></div>
+                                <div class="scenario-title">Executive Briefing</div>
+                                <div class="scenario-desc">Brisk, authoritative news cadence.</div>
+                            </button>
+                            <button type="button" class="scenario-card" data-scenario="language_learning">
+                                <div class="scenario-card-top"><span class="scenario-icon">🗣️</span><span class="scenario-badge">0.86×</span></div>
+                                <div class="scenario-title">Language Shadowing</div>
+                                <div class="scenario-desc">Slow, ultra-clear multilingual phonetics.</div>
+                            </button>
+                            <button type="button" class="scenario-card" data-scenario="dramatic_dialogue">
+                                <div class="scenario-card-top"><span class="scenario-icon">🎭</span><span class="scenario-badge">0.95×</span></div>
+                                <div class="scenario-title">Dramatic Dialogue</div>
+                                <div class="scenario-desc">High expressiveness &amp; dialogue voices.</div>
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Synthesizer Selector -->
                     <div class="pg-synth-selector" id="pg-synth-selector">
                         <button type="button" class="pg-synth-pill active" data-synth="kokoro">🗣 Kokoro-82M</button>
                         <button type="button" class="pg-synth-pill" data-synth="pocket-tts">📦 PocketTTS</button>
+                        <button type="button" class="pg-synth-pill" data-synth="qwen3-tts">🎭 Qwen3-TTS</button>
+                        <button type="button" class="pg-synth-pill" data-synth="cosyvoice2">✨ CosyVoice2</button>
+                        <button type="button" class="pg-synth-pill" data-synth="fish-speech">🐟 Fish-Speech</button>
                         <button type="button" class="pg-synth-pill" data-synth="f5-tts">🎤 F5-TTS</button>
                         <button type="button" class="pg-synth-pill" data-synth="dummy">🔇 Dummy</button>
                     </div>
@@ -497,11 +817,31 @@
 
                     <!-- ── PocketTTS Panel ── -->
                     <div id="pg-pocket-panel" style="display: none;">
-                        <div class="form-group" style="margin-bottom: 0.75rem;">
-                            <label>Voice Mode</label>
-                            <div class="voice-mode-selector pocket-mode-selector" id="pg-pocket-mode-selector">
-                                <button type="button" class="mode-pill active" data-mode="preset">Preset Voice</button>
-                                <button type="button" class="mode-pill" data-mode="clone">Clone Voice</button>
+                        <div class="form-grid" style="margin-bottom: 0.75rem;">
+                            <div class="form-group">
+                                <label>Voice Mode</label>
+                                <div class="voice-mode-selector pocket-mode-selector" id="pg-pocket-mode-selector">
+                                    <button type="button" class="mode-pill active" data-mode="preset">Preset Voice</button>
+                                    <button type="button" class="mode-pill" data-mode="clone">Clone Voice</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-pocket-language-select">Model Language Checkpoint</label>
+                                <select id="pg-pocket-language-select">
+                                    <option value="english">English (Standard v1)</option>
+                                    <option value="english_2026-04">English (2026-04 Enhanced)</option>
+                                    <option value="german_24l">German (24-Layer Native)</option>
+                                    <option value="spanish_24l">Spanish (24-Layer Native)</option>
+                                    <option value="french_24l">French (24-Layer Native)</option>
+                                    <option value="italian_24l">Italian (24-Layer Native)</option>
+                                    <option value="portuguese_24l">Portuguese (24-Layer Native)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-pocket-dialogue-voice-select">Quoted Dialogue Voice</label>
+                                <select id="pg-pocket-dialogue-voice-select">
+                                    <option value="">-- Same as Narrator --</option>
+                                </select>
                             </div>
                         </div>
 
@@ -558,6 +898,199 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Granular Acoustic Studio Controls -->
+                        <details class="acoustic-details" id="pg-pocket-acoustic-details">
+                            <summary>
+                                <span>🎚️ Granular Acoustic &amp; Prosody Studio (Temperature, LSD Steps, Noise Clamp, EOS)</span>
+                                <span>▾</span>
+                            </summary>
+                            <div class="acoustic-details-body">
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="pg-pocket-temp-input">Temperature (0.1–1.5)</label>
+                                        <input type="number" id="pg-pocket-temp-input" value="0.7" min="0.1" max="1.5" step="0.05">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pg-pocket-lsd-input">LSD Decode Steps (1–8)</label>
+                                        <input type="number" id="pg-pocket-lsd-input" value="1" min="1" max="8" step="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pg-pocket-noise-clamp-input">Noise Clamp (Optional)</label>
+                                        <input type="number" id="pg-pocket-noise-clamp-input" placeholder="None (e.g. 2.5)" min="0.5" max="10.0" step="0.1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pg-pocket-eos-input">EOS Threshold</label>
+                                        <input type="number" id="pg-pocket-eos-input" value="-4.0" min="-10.0" max="0.0" step="0.25">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pg-pocket-frames-eos-input">Trailing Tail Frames</label>
+                                        <input type="number" id="pg-pocket-frames-eos-input" placeholder="Auto (0-12)" min="0" max="25" step="1">
+                                    </div>
+                                    <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; align-self: flex-end; padding-bottom: 0.5rem;">
+                                        <input type="checkbox" id="pg-pocket-quantize-checkbox" style="width: auto; margin: 0; cursor: pointer;">
+                                        <label for="pg-pocket-quantize-checkbox" style="margin: 0; cursor: pointer; user-select: none; text-transform: none;">INT8 Quantize</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+
+                    <!-- ── Qwen3-TTS Panel ── -->
+                    <div id="pg-qwen3-panel" style="display: none;">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="pg-qwen-mode-select">Synthesis Mode</label>
+                                <select id="pg-qwen-mode-select">
+                                    <option value="custom_voice">CustomVoice (Preset Speaker + Emotion Instruct)</option>
+                                    <option value="voice_design">VoiceDesign (Design Persona &amp; Emotion from Prompt)</option>
+                                    <option value="clone">Zero-Shot 3s Voice Cloning (1.7B / 0.6B Base)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-qwen-model-select">Model Checkpoint</label>
+                                <select id="pg-qwen-model-select">
+                                    <option value="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice">Qwen3-TTS 1.7B CustomVoice</option>
+                                    <option value="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign">Qwen3-TTS 1.7B VoiceDesign</option>
+                                    <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base">Qwen3-TTS 1.7B Base (Clone)</option>
+                                    <option value="Qwen/Qwen3-TTS-12Hz-0.6B-Base">Qwen3-TTS 0.6B Base (Fast Clone)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="pg-qwen-speaker-group">
+                                <label for="pg-qwen-speaker-select">Preset Speaker</label>
+                                <select id="pg-qwen-speaker-select">
+                                    <option value="Chelsie">Chelsie (Warm, Expressive Female)</option>
+                                    <option value="Ethan">Ethan (Clear, Confident Male)</option>
+                                    <option value="Serena">Serena (Calm, Narrative Female)</option>
+                                    <option value="Vivian">Vivian (Bright, Energetic Female)</option>
+                                    <option value="Ryan">Ryan (Deep, Authoritative Male)</option>
+                                    <option value="Aiden">Aiden (Natural, Conversational Male)</option>
+                                    <option value="Aria">Aria (Soft, Articulate Female)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-qwen-language-select">Target Language</label>
+                                <select id="pg-qwen-language-select">
+                                    <option value="Auto">Auto-Detect Script</option>
+                                    <option value="English">English</option>
+                                    <option value="Russian">Russian (Русский)</option>
+                                    <option value="Korean">Korean (한국어)</option>
+                                    <option value="Japanese">Japanese (日本語)</option>
+                                    <option value="Chinese">Chinese (中文)</option>
+                                    <option value="German">German (Deutsch)</option>
+                                    <option value="Spanish">Spanish (Español)</option>
+                                    <option value="French">French (Français)</option>
+                                    <option value="Italian">Italian (Italiano)</option>
+                                    <option value="Portuguese">Portuguese (Português)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group" id="pg-qwen-ref-group" style="margin-top: 0.75rem; display: none;">
+                            <label for="pg-qwen-ref-voice-select">Reference Voice (from Voice Library)</label>
+                            <select id="pg-qwen-ref-voice-select">
+                                <option value="">-- Select Saved Voice --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- ── CosyVoice2-0.5B Panel ── -->
+                    <div id="pg-cosyvoice2-panel" style="display: none;">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="pg-cosy-mode-select">CosyVoice2 Mode</label>
+                                <select id="pg-cosy-mode-select">
+                                    <option value="instruct">Instruct2 (Emotion Prompt + Reference Voice)</option>
+                                    <option value="zero_shot">Zero-Shot Voice Cloning</option>
+                                    <option value="cross_lingual">Cross-Lingual Voice Cloning (EN/RU/KO/JA/ZH/DE/ES)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-cosy-language-select">Language Tag</label>
+                                <select id="pg-cosy-language-select">
+                                    <option value="auto">Auto-Detect (&lt;|en|&gt;, &lt;|ru|&gt;, &lt;|ko|&gt;, &lt;|jp|&gt;, &lt;|zh|&gt;...)</option>
+                                    <option value="en">English (&lt;|en|&gt;)</option>
+                                    <option value="ru">Russian (&lt;|ru|&gt;)</option>
+                                    <option value="ko">Korean (&lt;|ko|&gt;)</option>
+                                    <option value="ja">Japanese (&lt;|jp|&gt;)</option>
+                                    <option value="zh">Chinese (&lt;|zh|&gt;)</option>
+                                    <option value="de">German (&lt;|de|&gt;)</option>
+                                    <option value="es">Spanish (&lt;|es|&gt;)</option>
+                                    <option value="fr">French (&lt;|fr|&gt;)</option>
+                                    <option value="it">Italian (&lt;|it|&gt;)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-cosy-ref-voice-select">Reference Voice (Voice Library)</label>
+                                <select id="pg-cosy-ref-voice-select">
+                                    <option value="">-- Built-in SFT / Select Saved Voice --</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Fish-Speech-1.5 / OpenAudio Panel ── -->
+                    <div id="pg-fish-panel" style="display: none;">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="pg-fish-language-select">Target Language (incl. Arabic)</label>
+                                <select id="pg-fish-language-select">
+                                    <option value="auto">Auto-Detect (EN/RU/KO/JA/ZH/DE/ES/AR)</option>
+                                    <option value="en">English</option>
+                                    <option value="ru">Russian (Русский)</option>
+                                    <option value="ko">Korean (한국어)</option>
+                                    <option value="ja">Japanese (日本語)</option>
+                                    <option value="zh">Chinese (中文)</option>
+                                    <option value="de">German (Deutsch)</option>
+                                    <option value="es">Spanish (Español)</option>
+                                    <option value="ar">Arabic (العربية)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-fish-emotion-select">Emotion / Delivery Marker</label>
+                                <select id="pg-fish-emotion-select">
+                                    <option value="">Neutral (or use inline tags below)</option>
+                                    <option value="(calm)">(calm) Calm &amp; Composed</option>
+                                    <option value="(excited)">(excited) Excited &amp; Energetic</option>
+                                    <option value="(sad)">(sad) Melancholic &amp; Somber</option>
+                                    <option value="(angry)">(angry) Intense &amp; Frustrated</option>
+                                    <option value="(whispering)">(whispering) Hushed &amp; Whispered</option>
+                                    <option value="(soft tone)">(soft tone) Gentle &amp; Intimate</option>
+                                    <option value="(empathetic)">(empathetic) Warm &amp; Empathetic</option>
+                                    <option value="(serious)">(serious) Authoritative &amp; Serious</option>
+                                    <option value="(in a hurry tone)">(in a hurry tone) Urgent &amp; Fast</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-fish-ref-voice-select">Reference Voice (Optional Clone)</label>
+                                <select id="pg-fish-ref-voice-select">
+                                    <option value="">-- Default Voice --</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-fish-api-url-input">Fish API Server URL (Optional)</label>
+                                <input type="text" id="pg-fish-api-url-input" placeholder="http://127.0.0.1:8080/v1/tts">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Shared Emotion & Intonation Director in Playground ── -->
+                    <div id="pg-emotion-director-panel" class="director-panel" style="display: none;">
+                        <div class="director-panel-header">
+                            <div class="director-panel-title">
+                                <span>🎭</span> Emotion &amp; Intonation Instruction (`instruct`)
+                            </div>
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">Natural-language style prompt for Qwen3-TTS &amp; CosyVoice2</span>
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="pg-instruct-input" placeholder="e.g. Speak in a warm, captivating storytelling tone with expressive cadence.">
+                        </div>
+                        <div class="instruct-chip-bar" data-target="pg-instruct-input">
+                            <button type="button" class="instruct-chip" data-prompt="Speak in a warm, captivating storytelling tone with expressive cadence and natural breath pauses.">📖 Warm Storyteller</button>
+                            <button type="button" class="instruct-chip" data-prompt="Speak in a hushed, suspenseful whisper with slow, deliberate tension.">🤫 Suspenseful Whisper</button>
+                            <button type="button" class="instruct-chip" data-prompt="Speak with joyful excitement, bright intonation, and lively energy.">✨ Joyful &amp; Lively</button>
+                            <button type="button" class="instruct-chip" data-prompt="Speak in a calm, empathetic, and melancholic tone with soft delivery.">🌧️ Melancholic &amp; Soft</button>
+                            <button type="button" class="instruct-chip" data-prompt="Speak in a crisp, authoritative, and articulate documentary narrator voice.">🎙️ Documentary Authority</button>
                         </div>
                     </div>
 
@@ -631,15 +1164,40 @@
                         </div>
                     </div>
 
-                    <!-- Text Input -->
+                    <!-- Text Input + 8-Language Sample Switcher + Inline Prosody Tags -->
                     <div class="form-group" style="margin-top: 1rem;">
-                        <label for="pg-text-input">Text to Synthesize</label>
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <label for="pg-text-input" style="margin-bottom: 0;">Text to Synthesize</label>
+                            <div class="lang-sample-bar" id="pg-lang-sample-bar" style="margin-top: 0;">
+                                <button type="button" class="lang-sample-chip active" data-lang="en">🇺🇸 EN</button>
+                                <button type="button" class="lang-sample-chip" data-lang="ru">🇷🇺 RU</button>
+                                <button type="button" class="lang-sample-chip" data-lang="ko">🇰🇷 KO</button>
+                                <button type="button" class="lang-sample-chip" data-lang="ja">🇯🇵 JA</button>
+                                <button type="button" class="lang-sample-chip" data-lang="zh">🇨🇳 ZH</button>
+                                <button type="button" class="lang-sample-chip" data-lang="de">🇩🇪 DE</button>
+                                <button type="button" class="lang-sample-chip" data-lang="es">🇪🇸 ES</button>
+                                <button type="button" class="lang-sample-chip" data-lang="ar">🇸🇦 AR</button>
+                            </div>
+                        </div>
                         <textarea
                             id="pg-text-input"
                             class="pg-textarea"
                             placeholder="Type or paste the text you want the voice to speak..."
                             rows="5"
-                        >The quick brown fox jumps over the lazy dog. In a world where technology and humanity intertwine, voices carry stories across time.</textarea>
+                        >The quick brown fox jumps over the lazy dog. "Wait a moment," she whispered, "do you hear that voice echoing across the library?"</textarea>
+                        <div class="prosody-tag-bar" id="pg-prosody-tag-bar" title="Click to insert inline prosody, paralinguistic, or multi-speaker tags at cursor">
+                            <span style="font-size: 0.68rem; color: var(--text-muted); align-self: center; margin-right: 0.25rem;">Insert Tag:</span>
+                            <button type="button" class="prosody-tag-chip" data-tag="[breath]">[breath]</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="[sigh]">[sigh]</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="[laughter]">[laughter]</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="<strong>important</strong>">&lt;strong&gt;</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="(whispering) ">(whispering)</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="(excited) ">(excited)</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="(sad) ">(sad)</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="(soft tone) ">(soft tone)</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="[voice:javert] ">[voice:javert]</button>
+                            <button type="button" class="prosody-tag-chip" data-tag="[instruct: Speak in a dramatic whisper] ">[instruct:...]</button>
+                        </div>
                     </div>
 
                     <!-- Synthesize Button -->
@@ -989,10 +1547,13 @@
                                     <div class="form-group">
                                         <label for="default-synthesizer">Synthesizer</label>
                                         <select id="default-synthesizer">
-                                            <option value="f5-tts">F5-TTS (Voice Cloning)</option>
-                                            <option value="kokoro">Kokoro-82M (Built-in Voices / Formulas)</option>
-                                            <option value="pocket-tts">PocketTTS (Preset &amp; Lightweight Cloning)</option>
-                                            <option value="dummy">Dummy (Silent / Testing)</option>
+                                            <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang 24L)</option>
+                                            <option value="kokoro">Kokoro-82M (Fast Presets &amp; Voice Blending)</option>
+                                            <option value="qwen3-tts">Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
+                                            <option value="cosyvoice2">CosyVoice2-0.5B (9-Lang Instruct &amp; Breath/Laughter Tags)</option>
+                                            <option value="fish-speech">Fish-Speech-1.5 / OpenAudio (8-Lang incl. Arabic &amp; Emotion Tags)</option>
+                                            <option value="f5-tts">F5-TTS (Diffusion Zero-Shot Voice Cloning)</option>
+                                            <option value="dummy">Dummy (Instant Silent Testing)</option>
                                         </select>
                                     </div>
 

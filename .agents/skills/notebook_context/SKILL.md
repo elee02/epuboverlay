@@ -4,7 +4,8 @@ description: >-
   Epuboverlay architectural blueprints, document layout preprocessing strategies, TTS synthesizer contracts,
   web/pipeline internals, and security practices. Use when modifying or extending document preprocessors
   (EPUB/PDF/DOCX/TXT/MD), troubleshooting TOC and section extraction, adding or configuring TTS synthesizers
-  (Kokoro-82M, PocketTTS, F5-TTS), working on the FastAPI web dashboard, or managing project dependency tiers.
+  (PocketTTS, Kokoro-82M, Qwen3-TTS, CosyVoice2-0.5B, Fish-Speech-1.5, F5-TTS), working on the FastAPI web
+  dashboard, or managing project dependency tiers.
 ---
 
 # Epuboverlay Architectural & Development Blueprint
@@ -75,8 +76,11 @@ All synthesizers register in `epuboverlay/synthesizers/__init__.py` (`_REGISTRY`
    - **Thread Safety**: Because `pipeline.py` uses `ThreadPoolExecutor(max_workers=concurrency)` to synthesize chunks concurrently, stateful GPU/CPU pipelines that are not thread-safe must serialize inference with a lock (see `KokoroSynthesizer._lock` in `kokoro.py#L92`).
 3. **Engine Capabilities & Hardware Profiles**:
    - `dummy`: Pure stdlib (`wave`, `io`) silent WAV generator (`15.0 * speed` chars/sec) for zero-dependency testing.
+   - `pocket-tts` (`pocket.py`): Kyutai Labs ~100M parameter CPU model (`POCKET_VOICES` presets or zero-shot `ref_audio` cloning). Supports 7 native language checkpoints (`POCKET_LANGUAGES`: `english`, `english_2026-04`, `german_24l`, `spanish_24l`, `french_24l`, `italian_24l`, `portuguese_24l`), granular acoustic tuning (`temp`, `lsd_decode_steps`, `noise_clamp`, `eos_threshold`, `frames_after_eos`, `quantize`), thread-safety via `self._lock`, and multi-speaker quoted-dialogue state switching (`dialogue_voice` and inline `[voice:name]` / `[emotion:name]` tags).
    - `kokoro` (`kokoro.py`): Kokoro-82M (`hexgrad/Kokoro-82M`), supports 54 built-in voices (`KOKORO_VOICES`), 9 language codes (`a,b,e,f,h,i,j,p,z`), and weighted voice blending formulas (`"af_heart*0.6+af_sky*0.4"` via `_parse_voice_formula`).
-   - `pocket-tts` (`pocket.py`): Kyutai Labs ~100M parameter CPU model (`POCKET_VOICES` presets or zero-shot `ref_audio` cloning). Uses `scipy.signal.resample` when `speed != 1.0`.
+   - `qwen3-tts` (`qwen3.py`): Alibaba Qwen3-TTS (`Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`, `1.7B-VoiceDesign`, `1.7B-Base`, `0.6B-Base`). Supports 10 languages (**EN, RU, KO, JA, ZH, DE, ES**, FR, IT, PT), free-form natural-language emotion & intonation prompts (`instruct` + inline `[instruct: ...]` overrides), text-to-voice persona design (`voice_design`), and 3-second zero-shot cloning (`clone`).
+   - `cosyvoice2` (`cosyvoice.py`): FunAudioLLM `CosyVoice2-0.5B` (`iic/CosyVoice2-0.5B`). Supports 9 languages (**EN, RU, KO, JA, ZH, DE, ES**, FR, IT) via language tokens (`<|en|>`, `<|ru|>`, `<|ko|>`, `<|jp|>`, `<|zh|>`, `<|de|>`, `<|es|>`, `<|fr|>`, `<|it|>`), `instruct` emotion control (`inference_instruct2`), cross-lingual cloning (`inference_cross_lingual`), and inline paralinguistic tags (`[breath]`, `[sigh]`, `[laughter]`, `<strong>emphasis</strong>`).
+   - `fish-speech` (`fish.py`): FishAudio `Fish-Speech-1.5` / `OpenAudio-S1-Mini`. Supports all **8 core target languages** (**EN, RU, KO, JA, ZH, DE, ES, and AR Arabic**), inline emotion/tone markers (`(excited)`, `(sad)`, `(angry)`, `(whispering)`, `(soft tone)`, `(empathetic)`, `(serious)`, `(in a hurry tone)`), and both local Python inference (`fish_speech`) and HTTP API server (`fish_api_url`, default `http://127.0.0.1:8080/v1/tts`).
    - `f5-tts` (`f5tts.py`): ~300M parameter flow-matching voice cloner; requires both `ref_audio` and `ref_text`, caches preprocessed reference audio/mel tensors across chunks, and supports `nfe_step` (10–64) and `torch.compile`.
    - See [Lightweight TTS Models: Advanced Options](./references/Lightweight%20TTS%20Models:%20Advanced%20Options.md) for benchmarks.
 
@@ -90,8 +94,10 @@ All synthesizers register in `epuboverlay/synthesizers/__init__.py` (`_REGISTRY`
    - **Self-Healing Split Cache (`pipeline.py#L1450-L1460`)**: If `selected_chapters` contains split IDs (`_sec_`) but the cached OPF spine does not, `.extracted` is invalidated and `_prepare_workspace()` re-runs `preprocess_epub_workspace()`.
 2. **Sentence Splitting & Span Injection (`process_element`)**:
    - Wraps sentences/chunks (capped at `max_chars`, default 150) in `<span id="epuboverlay-s-{n}">` inside the XHTML DOM.
-3. **Pre-Pass & Resumable Chunk Synthesis (`_synthesize_chapter_chunks`)**:
-   - Before synthesis, `normalize_text(text, normalization_settings)` in `normalization.py` applies CPU text normalization (`harmonize_punctuation` -> `apply_custom_lexicon` -> `resolve_contractions` -> `resolve_heteronyms` -> `expand_numerals`) **without** altering the visible XHTML text.
+   - `split_into_sentences()` and `split_recursive()` are multilingual-aware, supporting Latin, Cyrillic (`А-ЯЁ`), Hangul (`가-힣`), CJK (`。！？`), and Arabic (`؟،؛`) sentence boundaries.
+3. **Pre-Pass, Narration Scenarios & Multilingual Normalization (`_synthesize_chapter_chunks`, `normalization.py`)**:
+   - `NARRATION_SCENARIOS` (`custom`, `fiction_audiobook`, `technical_docs`, `executive_briefing`, `language_learning`, `dramatic_dialogue`) in `normalization.py` defines scenario presets for `speed`, `max_chars`, `temp`, `lsd_decode_steps`, `noise_clamp`, `eos_threshold`, `frames_after_eos`, `instruct`, and `emotion_tag`.
+   - Before synthesis, `normalize_text(text, normalization_settings, language=...)` uses `detect_text_language(text, hint)` (Unicode script + ISO hint detection) so English-only rules (`resolve_contractions`, `resolve_heteronyms`, and `fallback_num2words`) only run when `lang == "en"`, while `num2words(num, lang=lang)` expands numerals in Russian, Korean, Japanese, Chinese, German, Spanish, and Arabic without corrupting non-English text.
    - Each chunk is cached on disk as `_chunks_{idref}/chunk_{idx:06d}_{text_hash}.wav`. Valid existing WAV chunks and completed chapter `.m4a` + `.smil` pairs are automatically reused on resume (unless `EPUB_BYPASS_CACHE=1`).
 4. **Audio Encoding & SMIL Registration**:
    - Chunk WAVs are concatenated via `stream_concat_wav_to_file()` and converted to AAC `.m4a` (`64k`, `media-type="audio/mp4"`) using external `ffmpeg` (`convert_wav_file_to_m4a`).
@@ -116,8 +122,9 @@ All synthesizers register in `epuboverlay/synthesizers/__init__.py` (`_REGISTRY`
 - **Installation Tiers (`pyproject.toml`)**:
   - **Minimal (Default)**: `fastapi`, `uvicorn`, `psutil`, `python-multipart` (`uv run epuboverlay-web`).
   - **Standard (`--extra standard`)**: Adds `kokoro`, `pocket-tts`, `scipy`, `pypdf`, `python-docx`.
-  - **Full (`--extra full` / `all`)**: Adds `f5-tts` (PyTorch + CUDA stack).
-  - `server.py:get_installed_synthesizers()` uses `importlib.util.find_spec()` to detect installed engines at runtime.
+  - **Multilingual & Emotional Engines (`--extra qwen`, `--extra cosyvoice`, `--extra fish`, or `--extra multilingual`)**: Adds `qwen-tts` (`Qwen3-TTS`), `cosyvoice` (`CosyVoice2-0.5B`), and `fish-speech` (`Fish-Speech-1.5` / `OpenAudio-S1-Mini`).
+  - **Full (`--extra full` / `all`)**: Adds `f5-tts` + all multilingual neural engines (PyTorch + CUDA stack).
+  - `server.py:get_installed_synthesizers()` uses `importlib.util.find_spec()` to detect installed engines at runtime (and enables `fish-speech` whenever a local/remote `fish_api_url` is configured).
 
 ---
 

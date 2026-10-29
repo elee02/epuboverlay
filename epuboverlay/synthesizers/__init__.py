@@ -7,10 +7,30 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from epuboverlay.synthesizers.base import BaseSynthesizer, FrameTimedSynthesizer
+from epuboverlay.synthesizers.cosyvoice import (
+    COSYVOICE_LANGUAGES,
+    COSYVOICE_MODES,
+    CosyVoice2Synthesizer,
+)
 from epuboverlay.synthesizers.dummy import DummySynthesizer
 from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
-from epuboverlay.synthesizers.kokoro import KokoroSynthesizer, KOKORO_VOICES
-from epuboverlay.synthesizers.pocket import PocketSynthesizer, POCKET_VOICES
+from epuboverlay.synthesizers.fish import (
+    FISH_EMOTION_TAGS,
+    FISH_LANGUAGES,
+    FishSpeechSynthesizer,
+)
+from epuboverlay.synthesizers.kokoro import KOKORO_VOICES, KokoroSynthesizer
+from epuboverlay.synthesizers.pocket import (
+    POCKET_LANGUAGES,
+    POCKET_VOICES,
+    PocketSynthesizer,
+)
+from epuboverlay.synthesizers.qwen3 import (
+    QWEN3_LANGUAGES,
+    QWEN3_MODELS,
+    QWEN3_VOICES,
+    Qwen3TTSSynthesizer,
+)
 
 # Registry mapping backend ID string -> factory callable
 _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
@@ -38,15 +58,61 @@ _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
         ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
         voice=kw.get("pocket_voice", "") or kw.get("voice", ""),
         speed=float(kw.get("speed", 1.0)),
+        pocket_language=kw.get("pocket_language", "english") or "english",
+        temp=float(kw.get("temp", 0.7) if kw.get("temp") not in (None, "") else 0.7),
+        lsd_decode_steps=int(kw.get("lsd_decode_steps", 1) if kw.get("lsd_decode_steps") not in (None, "") else 1),
+        noise_clamp=float(kw["noise_clamp"]) if kw.get("noise_clamp") not in (None, "") else None,
+        eos_threshold=float(kw.get("eos_threshold", -4.0) if kw.get("eos_threshold") not in (None, "") else -4.0),
+        frames_after_eos=int(kw["frames_after_eos"]) if kw.get("frames_after_eos") not in (None, "") else None,
+        quantize=bool(kw.get("quantize", False)),
+        truncate_prompt=bool(kw.get("truncate_prompt", False)),
+        dialogue_voice=kw.get("dialogue_voice", "") or "",
+    ),
+    "qwen3-tts": lambda **kw: Qwen3TTSSynthesizer(
+        model_name=kw.get("qwen_model") or kw.get("model_name") or "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        mode=kw.get("qwen_mode") or kw.get("mode") or "custom_voice",
+        speaker=kw.get("qwen_speaker") or kw.get("speaker") or kw.get("voice") or "Chelsie",
+        instruct=kw.get("instruct", "") or "",
+        language=kw.get("language") or kw.get("lang_code") or "auto",
+        ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
+        ref_text=kw.get("ref_text", "") or "",
+        speed=float(kw.get("speed", 1.0)),
+        temp=float(kw.get("temp", 0.7) if kw.get("temp") not in (None, "") else 0.7),
+        device=kw.get("device"),
+    ),
+    "cosyvoice2": lambda **kw: CosyVoice2Synthesizer(
+        model_name=kw.get("cosy_model") or kw.get("model_name") or "iic/CosyVoice2-0.5B",
+        mode=kw.get("cosy_mode") or kw.get("mode") or "instruct",
+        ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
+        ref_text=kw.get("ref_text", "") or "",
+        instruct=kw.get("instruct", "") or "",
+        language=kw.get("language") or kw.get("lang_code") or "auto",
+        speed=float(kw.get("speed", 1.0)),
+        device=kw.get("device"),
+    ),
+    "fish-speech": lambda **kw: FishSpeechSynthesizer(
+        ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
+        ref_text=kw.get("ref_text", "") or "",
+        emotion_tag=kw.get("emotion_tag", "") or "",
+        language=kw.get("language") or kw.get("lang_code") or "auto",
+        temp=float(kw.get("temp", 0.7) if kw.get("temp") not in (None, "") else 0.7),
+        top_p=float(kw.get("top_p", 0.7) if kw.get("top_p") not in (None, "") else 0.7),
+        repetition_penalty=float(kw.get("repetition_penalty", 1.2) if kw.get("repetition_penalty") not in (None, "") else 1.2),
+        speed=float(kw.get("speed", 1.0)),
+        api_url=kw.get("fish_api_url") or kw.get("api_url") or "",
+        device=kw.get("device"),
     ),
 }
+
+AVAILABLE_SYNTHESIZERS: list[str] = list(_REGISTRY.keys())
 
 
 def create_synthesizer(synth_id: str, **kwargs: Any) -> BaseSynthesizer:
     """Create and return a synthesizer instance for the given identifier.
 
     Args:
-        synth_id: One of 'dummy', 'f5-tts', 'kokoro', 'pocket-tts'.
+        synth_id: One of 'dummy', 'f5-tts', 'kokoro', 'pocket-tts',
+            'qwen3-tts', 'cosyvoice2', 'fish-speech'.
         **kwargs: Synthesizer-specific configuration options.
     """
     if synth_id not in _REGISTRY:
@@ -64,7 +130,19 @@ __all__ = [
     "F5TTSSynthesizer",
     "KokoroSynthesizer",
     "PocketSynthesizer",
+    "Qwen3TTSSynthesizer",
+    "CosyVoice2Synthesizer",
+    "FishSpeechSynthesizer",
     "KOKORO_VOICES",
     "POCKET_VOICES",
+    "POCKET_LANGUAGES",
+    "QWEN3_MODELS",
+    "QWEN3_VOICES",
+    "QWEN3_LANGUAGES",
+    "COSYVOICE_LANGUAGES",
+    "COSYVOICE_MODES",
+    "FISH_LANGUAGES",
+    "FISH_EMOTION_TAGS",
+    "AVAILABLE_SYNTHESIZERS",
     "create_synthesizer",
 ]

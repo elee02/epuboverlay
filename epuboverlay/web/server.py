@@ -112,11 +112,19 @@ async def _save_upload_to_temp(
 def get_installed_synthesizers() -> dict[str, bool]:
     """Detect which TTS synthesizers are installed in the current environment."""
     import importlib.util
+    import os
 
+    fish_installed = (
+        importlib.util.find_spec("fish_speech") is not None
+        or bool(os.environ.get("FISH_SPEECH_API_URL"))
+    )
     return {
         "dummy": True,
         "kokoro": importlib.util.find_spec("kokoro") is not None,
         "pocket-tts": importlib.util.find_spec("pocket_tts") is not None,
+        "qwen3-tts": importlib.util.find_spec("qwen_tts") is not None,
+        "cosyvoice2": importlib.util.find_spec("cosyvoice") is not None,
+        "fish-speech": fish_installed,
         "f5-tts": importlib.util.find_spec("f5_tts") is not None,
     }
 
@@ -252,20 +260,42 @@ _PLAYGROUND_HISTORY: list[dict] = []
 
 @app.get("/api/config")
 async def get_config():
-    """Return available synthesizers and defaults."""
-    from epuboverlay.synthesizers import KOKORO_VOICES, POCKET_VOICES
+    """Return available synthesizers, voices, languages, scenarios, and defaults."""
+    from epuboverlay.normalization import NARRATION_SCENARIOS
+    from epuboverlay.synthesizers import (
+        COSYVOICE_LANGUAGES,
+        COSYVOICE_MODES,
+        FISH_EMOTION_TAGS,
+        FISH_LANGUAGES,
+        KOKORO_VOICES,
+        POCKET_LANGUAGES,
+        POCKET_VOICES,
+        QWEN3_LANGUAGES,
+        QWEN3_MODELS,
+        QWEN3_VOICES,
+    )
     data = load_settings_data()
     current = data.get("current_settings", {})
     installed = get_installed_synthesizers()
+
+    # If user configured a custom fish_api_url in settings, mark fish-speech available
+    if current.get("fish_api_url"):
+        installed["fish-speech"] = True
 
     # Pick default synthesizer based on what is actually installed
     saved_synth = current.get("synthesizer")
     if saved_synth and installed.get(saved_synth, False):
         default_synth = saved_synth
-    elif installed.get("kokoro", False):
-        default_synth = "kokoro"
     elif installed.get("pocket-tts", False):
         default_synth = "pocket-tts"
+    elif installed.get("kokoro", False):
+        default_synth = "kokoro"
+    elif installed.get("qwen3-tts", False):
+        default_synth = "qwen3-tts"
+    elif installed.get("cosyvoice2", False):
+        default_synth = "cosyvoice2"
+    elif installed.get("fish-speech", False):
+        default_synth = "fish-speech"
     elif installed.get("f5-tts", False):
         default_synth = "f5-tts"
     else:
@@ -273,6 +303,7 @@ async def get_config():
 
     defaults = {
         "synthesizer": default_synth,
+        "scenario": current.get("scenario", "custom"),
         "speed": current.get("speed", 1.0),
         "max_chars": current.get("max_chars", 150),
         "frame_rate": current.get("frame_rate", 24000.0),
@@ -282,15 +313,48 @@ async def get_config():
         "voice": current.get("voice", "af_heart"),
         "voice_formula": current.get("voice_formula", ""),
         "lang_code": current.get("lang_code", "a"),
+        "language": current.get("language", "auto"),
         "device": current.get("device", ""),
         "pocket_voice": current.get("pocket_voice", "alba"),
+        "pocket_language": current.get("pocket_language", "english"),
+        "temp": current.get("temp", 0.7),
+        "lsd_decode_steps": current.get("lsd_decode_steps", 1),
+        "noise_clamp": current.get("noise_clamp", ""),
+        "eos_threshold": current.get("eos_threshold", -4.0),
+        "frames_after_eos": current.get("frames_after_eos", ""),
+        "quantize": current.get("quantize", False),
+        "dialogue_voice": current.get("dialogue_voice", ""),
+        "qwen_model": current.get("qwen_model", "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
+        "qwen_mode": current.get("qwen_mode", "custom_voice"),
+        "qwen_speaker": current.get("qwen_speaker", "Chelsie"),
+        "cosy_mode": current.get("cosy_mode", "instruct"),
+        "instruct": current.get("instruct", ""),
+        "emotion_tag": current.get("emotion_tag", ""),
+        "fish_api_url": current.get("fish_api_url", ""),
     }
 
     return {
-        "synthesizers": ["f5-tts", "kokoro", "pocket-tts", "dummy"],
+        "synthesizers": [
+            "pocket-tts",
+            "kokoro",
+            "qwen3-tts",
+            "cosyvoice2",
+            "fish-speech",
+            "f5-tts",
+            "dummy",
+        ],
         "installed_synthesizers": installed,
         "kokoro_voices": KOKORO_VOICES,
         "pocket_voices": POCKET_VOICES,
+        "pocket_languages": POCKET_LANGUAGES,
+        "qwen3_models": QWEN3_MODELS,
+        "qwen3_voices": QWEN3_VOICES,
+        "qwen3_languages": QWEN3_LANGUAGES,
+        "cosyvoice_languages": COSYVOICE_LANGUAGES,
+        "cosyvoice_modes": COSYVOICE_MODES,
+        "fish_languages": FISH_LANGUAGES,
+        "fish_emotion_tags": FISH_EMOTION_TAGS,
+        "scenarios": NARRATION_SCENARIOS,
         "defaults": defaults,
     }
 
@@ -509,10 +573,21 @@ async def list_jobs():
     return [job.to_dict() for job in job_manager.list_jobs()]
 
 
+_PKG_ALIASES = {
+    "f5-tts": "f5",
+    "pocket-tts": "pocket",
+    "qwen3-tts": "qwen",
+    "cosyvoice2": "cosyvoice",
+    "fish-speech": "fish",
+    "kokoro": "kokoro",
+}
+
+
 @app.post("/api/jobs")
 async def create_job(
     epub: UploadFile = File(...),
     synthesizer: str = Form("f5-tts"),
+    scenario: str = Form("custom"),
     ref_audio: UploadFile | None = File(None),
     ref_text: str = Form(""),
     ref_id: str = Form(""),
@@ -526,7 +601,25 @@ async def create_job(
     voice: str = Form(""),
     voice_formula: str = Form(""),
     lang_code: str = Form("a"),
+    language: str = Form("auto"),
     pocket_voice: str = Form(""),        # PocketTTS preset voice name
+    pocket_language: str = Form("english"),
+    temp: float = Form(0.7),
+    lsd_decode_steps: int = Form(1),
+    noise_clamp: str = Form(""),
+    eos_threshold: float = Form(-4.0),
+    frames_after_eos: str = Form(""),
+    quantize: bool = Form(False),
+    dialogue_voice: str = Form(""),
+    qwen_model: str = Form("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
+    qwen_mode: str = Form("custom_voice"),
+    qwen_speaker: str = Form("Chelsie"),
+    cosy_mode: str = Form("instruct"),
+    instruct: str = Form(""),
+    emotion_tag: str = Form(""),
+    fish_api_url: str = Form(""),
+    top_p: float = Form(0.7),
+    repetition_penalty: float = Form(1.2),
     selected_chapters: str = Form(""),  # JSON array of idref strings
 ):
     """Submit a new EPUB overlay generation job."""
@@ -538,8 +631,10 @@ async def create_job(
 
     # Validate synthesizer availability
     installed = get_installed_synthesizers()
+    if synthesizer == "fish-speech" and fish_api_url.strip():
+        installed["fish-speech"] = True
     if not installed.get(synthesizer, False):
-        pkg_alias = "f5" if synthesizer == "f5-tts" else ("pocket" if synthesizer == "pocket-tts" else synthesizer)
+        pkg_alias = _PKG_ALIASES.get(synthesizer, synthesizer)
         raise HTTPException(
             status_code=400,
             detail=(
@@ -568,6 +663,18 @@ async def create_job(
                 status_code=400,
                 detail="Either voice or voice_formula is required for kokoro synthesizer.",
             )
+    elif synthesizer == "qwen3-tts":
+        if qwen_mode == "clone" and not ref_id.strip() and not ref_audio:
+            raise HTTPException(
+                status_code=400,
+                detail="Reference audio (or saved ref_id) is required for Qwen3-TTS clone mode.",
+            )
+    elif synthesizer == "cosyvoice2":
+        if not ref_id.strip() and not ref_audio:
+            raise HTTPException(
+                status_code=400,
+                detail="Reference audio (or saved ref_id) is required for CosyVoice2-0.5B.",
+            )
 
     parsed_chapters = None
     if selected_chapters:
@@ -588,11 +695,12 @@ async def create_job(
 
     try:
         norm_settings = load_settings_data().get("current_settings", {})
+        clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "cosyvoice2", "fish-speech")
 
-        # Save ref audio if provided (only for models that require voice cloning)
+        # Save ref audio if provided
         ref_audio_path = None
         resolved_ref_text = ref_text
-        if ref_id.strip() and synthesizer in ("f5-tts", "pocket-tts"):
+        if ref_id.strip() and synthesizer in clone_capable:
             refs = load_references()
             ref = next((r for r in refs if r["id"] == ref_id), None)
             if not ref:
@@ -601,15 +709,16 @@ async def create_job(
             if not audio_file.exists():
                 raise HTTPException(status_code=404, detail="Selected reference audio file not found")
             ref_audio_path = audio_file
-            if synthesizer == "f5-tts" and not ref_text.strip():
+            if not ref_text.strip() and ref.get("text"):
                 resolved_ref_text = ref["text"]
-        elif ref_audio and synthesizer in ("f5-tts", "pocket-tts"):
+        elif ref_audio and ref_audio.filename and synthesizer in clone_capable:
             ref_suffix = Path(ref_audio.filename or "ref.wav").suffix or ".wav"
             tmp_ref_audio_path = await _save_upload_to_temp(ref_audio, suffix=ref_suffix)
             ref_audio_path = tmp_ref_audio_path
 
         config = {
             "synthesizer": synthesizer,
+            "scenario": scenario or "custom",
             "ref_text": resolved_ref_text,
             "device": device or None,
             "speed": speed,
@@ -621,7 +730,25 @@ async def create_job(
             "voice": voice,
             "voice_formula": voice_formula,
             "lang_code": lang_code,
+            "language": language or "auto",
             "pocket_voice": pocket_voice,
+            "pocket_language": pocket_language or "english",
+            "temp": temp,
+            "lsd_decode_steps": lsd_decode_steps,
+            "noise_clamp": float(noise_clamp) if noise_clamp.strip() else None,
+            "eos_threshold": eos_threshold,
+            "frames_after_eos": int(frames_after_eos) if frames_after_eos.strip() else None,
+            "quantize": quantize,
+            "dialogue_voice": dialogue_voice,
+            "qwen_model": qwen_model,
+            "qwen_mode": qwen_mode,
+            "qwen_speaker": qwen_speaker,
+            "cosy_mode": cosy_mode,
+            "instruct": instruct,
+            "emotion_tag": emotion_tag,
+            "fish_api_url": fish_api_url,
+            "top_p": top_p,
+            "repetition_penalty": repetition_penalty,
             "selected_chapters": parsed_chapters,
             "expand_numerals": norm_settings.get("expand_numerals", True),
             "resolve_contractions": norm_settings.get("resolve_contractions", True),
@@ -671,6 +798,7 @@ async def cancel_job(job_id: str):
 async def resume_job(
     job_id: str,
     synthesizer: str | None = Form(None),
+    scenario: str | None = Form(None),
     device: str | None = Form(None),
     speed: float | None = Form(None),
     max_chars: int | None = Form(None),
@@ -681,7 +809,23 @@ async def resume_job(
     voice: str | None = Form(None),
     voice_formula: str | None = Form(None),
     lang_code: str | None = Form(None),
+    language: str | None = Form(None),
     pocket_voice: str | None = Form(None),
+    pocket_language: str | None = Form(None),
+    temp: float | None = Form(None),
+    lsd_decode_steps: int | None = Form(None),
+    noise_clamp: str | None = Form(None),
+    eos_threshold: float | None = Form(None),
+    frames_after_eos: str | None = Form(None),
+    quantize: bool | None = Form(None),
+    dialogue_voice: str | None = Form(None),
+    qwen_model: str | None = Form(None),
+    qwen_mode: str | None = Form(None),
+    qwen_speaker: str | None = Form(None),
+    cosy_mode: str | None = Form(None),
+    instruct: str | None = Form(None),
+    emotion_tag: str | None = Form(None),
+    fish_api_url: str | None = Form(None),
     ref_id: str | None = Form(None),
     ref_text: str | None = Form(None),
     ref_audio: UploadFile | None = File(None),
@@ -706,8 +850,11 @@ async def resume_job(
 
     target_synth = synthesizer if synthesizer is not None else job.config.get("synthesizer", "f5-tts")
     installed = get_installed_synthesizers()
+    effective_fish_url = fish_api_url if fish_api_url is not None else job.config.get("fish_api_url", "")
+    if target_synth == "fish-speech" and effective_fish_url:
+        installed["fish-speech"] = True
     if not installed.get(target_synth, False):
-        pkg_alias = "f5" if target_synth == "f5-tts" else ("pocket" if target_synth == "pocket-tts" else target_synth)
+        pkg_alias = _PKG_ALIASES.get(target_synth, target_synth)
         raise HTTPException(
             status_code=400,
             detail=(
@@ -719,44 +866,47 @@ async def resume_job(
     # Update job config with any options provided
     has_changes = False
 
-    if synthesizer is not None:
-        job.config["synthesizer"] = synthesizer
-        has_changes = True
+    for key, val in [
+        ("synthesizer", synthesizer),
+        ("scenario", scenario),
+        ("speed", speed),
+        ("max_chars", max_chars),
+        ("frame_rate", frame_rate),
+        ("concurrency", concurrency),
+        ("nfe_step", nfe_step),
+        ("compile", compile),
+        ("voice", voice),
+        ("voice_formula", voice_formula),
+        ("lang_code", lang_code),
+        ("language", language),
+        ("pocket_voice", pocket_voice),
+        ("pocket_language", pocket_language),
+        ("temp", temp),
+        ("lsd_decode_steps", lsd_decode_steps),
+        ("eos_threshold", eos_threshold),
+        ("quantize", quantize),
+        ("dialogue_voice", dialogue_voice),
+        ("qwen_model", qwen_model),
+        ("qwen_mode", qwen_mode),
+        ("qwen_speaker", qwen_speaker),
+        ("cosy_mode", cosy_mode),
+        ("instruct", instruct),
+        ("emotion_tag", emotion_tag),
+        ("fish_api_url", fish_api_url),
+        ("ref_text", ref_text),
+    ]:
+        if val is not None:
+            job.config[key] = val
+            has_changes = True
+
     if device is not None:
         job.config["device"] = device if device else None
         has_changes = True
-    if speed is not None:
-        job.config["speed"] = speed
+    if noise_clamp is not None:
+        job.config["noise_clamp"] = float(noise_clamp) if noise_clamp.strip() else None
         has_changes = True
-    if max_chars is not None:
-        job.config["max_chars"] = max_chars
-        has_changes = True
-    if frame_rate is not None:
-        job.config["frame_rate"] = frame_rate
-        has_changes = True
-    if concurrency is not None:
-        job.config["concurrency"] = concurrency
-        has_changes = True
-    if nfe_step is not None:
-        job.config["nfe_step"] = nfe_step
-        has_changes = True
-    if compile is not None:
-        job.config["compile"] = compile
-        has_changes = True
-    if voice is not None:
-        job.config["voice"] = voice
-        has_changes = True
-    if voice_formula is not None:
-        job.config["voice_formula"] = voice_formula
-        has_changes = True
-    if lang_code is not None:
-        job.config["lang_code"] = lang_code
-        has_changes = True
-    if pocket_voice is not None:
-        job.config["pocket_voice"] = pocket_voice
-        has_changes = True
-    if ref_text is not None:
-        job.config["ref_text"] = ref_text
+    if frames_after_eos is not None:
+        job.config["frames_after_eos"] = int(frames_after_eos) if frames_after_eos.strip() else None
         has_changes = True
 
     if ref_id and ref_id.strip():
@@ -1167,21 +1317,42 @@ _MAX_CACHE_SIZE = 3
 @app.post("/api/preview")
 async def preview_voice(
     synthesizer: str = Form("kokoro"),
+    scenario: str = Form("custom"),
     # Kokoro params
     voice: str = Form(""),
     voice_formula: str = Form(""),
     lang_code: str = Form("a"),
+    language: str = Form("auto"),
     # PocketTTS params
     pocket_voice: str = Form(""),           # preset voice name
-    ref_audio: UploadFile | None = File(None),  # for clone / F5-TTS
-    ref_text: str = Form(""),               # F5-TTS only
-    ref_id: str = Form(""),                 # saved reference voice
+    pocket_language: str = Form("english"),
+    temp: float = Form(0.7),
+    lsd_decode_steps: int = Form(1),
+    noise_clamp: str = Form(""),
+    eos_threshold: float = Form(-4.0),
+    frames_after_eos: str = Form(""),
+    quantize: bool = Form(False),
+    dialogue_voice: str = Form(""),
+    # Qwen3 / CosyVoice2 / Fish-Speech params
+    qwen_model: str = Form("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
+    qwen_mode: str = Form("custom_voice"),
+    qwen_speaker: str = Form("Chelsie"),
+    cosy_mode: str = Form("instruct"),
+    instruct: str = Form(""),
+    emotion_tag: str = Form(""),
+    fish_api_url: str = Form(""),
+    top_p: float = Form(0.7),
+    repetition_penalty: float = Form(1.2),
+    # Cloning & Reference
+    ref_audio: UploadFile | None = File(None),
+    ref_text: str = Form(""),
+    ref_id: str = Form(""),
     # Common
     speed: float = Form(1.0),
     device: str = Form(""),
     text: str = Form("Hello, this is a preview of the selected voice."),
 ):
-    """Generate a quick audio preview for Kokoro, PocketTTS, or F5-TTS."""
+    """Generate a quick audio preview for any configured synthesizer."""
     from fastapi import Response
 
     if not text.strip():
@@ -1189,8 +1360,10 @@ async def preview_voice(
 
     # 0. Check synthesizer availability
     installed = get_installed_synthesizers()
+    if synthesizer == "fish-speech" and fish_api_url.strip():
+        installed["fish-speech"] = True
     if not installed.get(synthesizer, False):
-        pkg_alias = "f5" if synthesizer == "f5-tts" else ("pocket" if synthesizer == "pocket-tts" else synthesizer)
+        pkg_alias = _PKG_ALIASES.get(synthesizer, synthesizer)
         raise HTTPException(
             status_code=400,
             detail=(
@@ -1203,7 +1376,8 @@ async def preview_voice(
     # 0. Resolve reference voice if ref_id is provided
     resolved_ref_bytes = b""
     resolved_ref_text = ""
-    if ref_id.strip() and synthesizer in ("f5-tts", "pocket-tts"):
+    clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "cosyvoice2", "fish-speech")
+    if ref_id.strip() and synthesizer in clone_capable:
         refs = load_references()
         ref = next((r for r in refs if r["id"] == ref_id), None)
         if not ref:
@@ -1222,24 +1396,76 @@ async def preview_voice(
     if resolved_ref_bytes:
         ref_audio_bytes = resolved_ref_bytes
         ref_audio_hash = hashlib.md5(ref_audio_bytes).hexdigest()
-        if synthesizer == "f5-tts" and not ref_text.strip():
+        if not ref_text.strip() and resolved_ref_text:
             resolved_f5_ref_text = resolved_ref_text
     elif ref_audio and ref_audio.filename:
         ref_audio_bytes = await _read_upload_bytes(ref_audio)
         ref_audio_hash = hashlib.md5(ref_audio_bytes).hexdigest()
+
+    parsed_noise_clamp = float(noise_clamp) if noise_clamp.strip() else None
+    parsed_frames_after_eos = int(frames_after_eos) if frames_after_eos.strip() else None
 
     # 2. Build a unique cache key based on the settings
     cache_key = None
     if synthesizer == "kokoro":
         cache_key = ("kokoro", voice, voice_formula, lang_code, speed, device or "cpu")
     elif synthesizer == "pocket-tts":
-        if pocket_voice:
-            cache_key = ("pocket-tts", "preset", pocket_voice, speed)
-        else:
-            cache_key = ("pocket-tts", "clone", ref_audio_hash, speed)
+        cache_key = (
+            "pocket-tts",
+            pocket_voice or "clone",
+            ref_audio_hash,
+            pocket_language,
+            temp,
+            lsd_decode_steps,
+            parsed_noise_clamp,
+            eos_threshold,
+            parsed_frames_after_eos,
+            quantize,
+            dialogue_voice,
+            speed,
+        )
     elif synthesizer == "f5-tts":
         ref_text_hash = hashlib.md5(resolved_f5_ref_text.encode("utf-8")).hexdigest()
         cache_key = ("f5-tts", ref_audio_hash, ref_text_hash, speed, device or "cpu")
+    elif synthesizer == "qwen3-tts":
+        cache_key = (
+            "qwen3-tts",
+            qwen_model,
+            qwen_mode,
+            qwen_speaker,
+            instruct,
+            language,
+            ref_audio_hash,
+            resolved_f5_ref_text,
+            temp,
+            speed,
+            device or "auto",
+        )
+    elif synthesizer == "cosyvoice2":
+        cache_key = (
+            "cosyvoice2",
+            cosy_mode,
+            instruct,
+            language,
+            ref_audio_hash,
+            resolved_f5_ref_text,
+            speed,
+            device or "auto",
+        )
+    elif synthesizer == "fish-speech":
+        cache_key = (
+            "fish-speech",
+            emotion_tag,
+            language,
+            ref_audio_hash,
+            resolved_f5_ref_text,
+            temp,
+            top_p,
+            repetition_penalty,
+            fish_api_url,
+            speed,
+            device or "auto",
+        )
     elif synthesizer == "dummy":
         cache_key = ("dummy", speed)
     else:
@@ -1289,6 +1515,14 @@ async def preview_voice(
                         voice=pocket_voice,
                         ref_audio=tmp_ref_path,
                         speed=speed,
+                        pocket_language=pocket_language,
+                        temp=temp,
+                        lsd_decode_steps=lsd_decode_steps,
+                        noise_clamp=parsed_noise_clamp,
+                        eos_threshold=eos_threshold,
+                        frames_after_eos=parsed_frames_after_eos,
+                        quantize=quantize,
+                        dialogue_voice=dialogue_voice,
                     )
 
                 elif synthesizer == "f5-tts":
@@ -1308,6 +1542,58 @@ async def preview_voice(
                         ref_text=resolved_f5_ref_text,
                         device=device or None,
                         speed=speed,
+                    )
+
+                elif synthesizer == "qwen3-tts":
+                    if qwen_mode == "clone" and not tmp_ref_path:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="ref_audio (or saved ref_id) is required for Qwen3-TTS clone mode.",
+                        )
+                    from epuboverlay.synthesizers.qwen3 import Qwen3TTSSynthesizer
+                    synth = Qwen3TTSSynthesizer(
+                        model_name=qwen_model,
+                        mode=qwen_mode,
+                        speaker=qwen_speaker,
+                        instruct=instruct,
+                        language=language,
+                        ref_audio=tmp_ref_path,
+                        ref_text=resolved_f5_ref_text,
+                        speed=speed,
+                        temp=temp,
+                        device=device or None,
+                    )
+
+                elif synthesizer == "cosyvoice2":
+                    if not tmp_ref_path:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="ref_audio (or saved ref_id) is required for CosyVoice2-0.5B.",
+                        )
+                    from epuboverlay.synthesizers.cosyvoice import CosyVoice2Synthesizer
+                    synth = CosyVoice2Synthesizer(
+                        mode=cosy_mode,
+                        ref_audio=tmp_ref_path,
+                        ref_text=resolved_f5_ref_text,
+                        instruct=instruct,
+                        language=language,
+                        speed=speed,
+                        device=device or None,
+                    )
+
+                elif synthesizer == "fish-speech":
+                    from epuboverlay.synthesizers.fish import FishSpeechSynthesizer
+                    synth = FishSpeechSynthesizer(
+                        ref_audio=tmp_ref_path,
+                        ref_text=resolved_f5_ref_text,
+                        emotion_tag=emotion_tag,
+                        language=language,
+                        temp=temp,
+                        top_p=top_p,
+                        repetition_penalty=repetition_penalty,
+                        speed=speed,
+                        api_url=fish_api_url,
+                        device=device or None,
                     )
 
                 elif synthesizer == "dummy":
@@ -1342,7 +1628,8 @@ async def preview_voice(
     # 4. Perform synthesis
     try:
         from epuboverlay.normalization import normalize_text
-        norm_settings = load_settings_data().get("current_settings", {})
+        norm_settings = dict(load_settings_data().get("current_settings", {}))
+        norm_settings["language"] = language if language != "auto" else (pocket_language if synthesizer == "pocket-tts" else lang_code)
         normalized_text = normalize_text(text, norm_settings)
         
         wav_bytes, _ = synth.synthesize(normalized_text)
@@ -1354,6 +1641,7 @@ async def preview_voice(
         settings_dict = {
             "speed": speed,
             "device": device or "cpu",
+            "scenario": scenario,
         }
         if synthesizer == "kokoro":
             settings_dict["voice"] = voice
@@ -1361,9 +1649,27 @@ async def preview_voice(
             settings_dict["lang_code"] = lang_code
         elif synthesizer == "pocket-tts":
             settings_dict["pocket_voice"] = pocket_voice
+            settings_dict["pocket_language"] = pocket_language
+            settings_dict["temp"] = temp
+            settings_dict["lsd_decode_steps"] = lsd_decode_steps
             settings_dict["mode"] = "preset" if pocket_voice else "clone"
             if ref_id:
                 settings_dict["ref_id"] = ref_id
+        elif synthesizer == "qwen3-tts":
+            settings_dict["mode"] = qwen_mode
+            settings_dict["speaker"] = qwen_speaker
+            settings_dict["language"] = language
+            if instruct:
+                settings_dict["instruct"] = instruct
+        elif synthesizer == "cosyvoice2":
+            settings_dict["mode"] = cosy_mode
+            settings_dict["language"] = language
+            if instruct:
+                settings_dict["instruct"] = instruct
+        elif synthesizer == "fish-speech":
+            settings_dict["language"] = language
+            if emotion_tag:
+                settings_dict["emotion_tag"] = emotion_tag
         elif synthesizer == "f5-tts":
             settings_dict["mode"] = "clone"
             if ref_id:

@@ -327,17 +327,24 @@ def replace_html_entities(xhtml_str: str) -> str:
 
 
 def split_into_sentences(text: str) -> list[str]:
-    """Split a paragraph into a list of sentences by protecting common abbreviations."""
-    abbreviations = ["Mr.", "Mrs.", "Ms.", "Dr.", "St.", "Co.", "Ltd.", "Inc.", "e.g.", "i.e.", "vs."]
-    
+    """Split a paragraph into a list of sentences across Latin, Cyrillic, Korean, CJK, and Arabic scripts."""
+    abbreviations = [
+        "Mr.", "Mrs.", "Ms.", "Dr.", "St.", "Co.", "Ltd.", "Inc.", "e.g.", "i.e.", "vs.",
+        "г.", "ул.", "проф.", "акад.", "т.е.", "т.д.", "т.п.", "др.",
+    ]
+
     protected_text = text
     for abbr in abbreviations:
         protected_text = re.sub(rf'\b{re.escape(abbr)}', abbr.replace(".", "_@_PERIOD_@_"), protected_text, flags=re.IGNORECASE)
-        
-    protected_text = re.sub(r'\b([A-Z])\.', r'\1_@_PERIOD_@_', protected_text)
-    
-    sentence_end = re.compile(r'(?<=[.!?])\s+(?=[A-Z0-9"\'])')
-    
+
+    protected_text = re.sub(r'\b([A-ZА-ЯЁ])\.', r'\1_@_PERIOD_@_', protected_text)
+
+    # Support Latin/Cyrillic/Arabic sentence endings + CJK/Japanese full-width sentence terminators
+    sentence_end = re.compile(
+        r'(?<=[.!?؟])\s+(?=[A-ZА-ЯЁÄÖÜÁÉÍÓÚÑ¡¿0-9"\'“«(\[\uAC00-\uD7AF\u0600-\u06FF\u4E00-\u9FFF\u3040-\u30FF])'
+        r'|(?<=[。！？])\s*'
+    )
+
     paragraphs = re.split(r'\n+', protected_text)
     sentences = []
     for para in paragraphs:
@@ -346,6 +353,8 @@ def split_into_sentences(text: str) -> list[str]:
             continue
         splits = sentence_end.split(para)
         for s in splits:
+            if not s:
+                continue
             s_clean = s.strip()
             if s_clean:
                 s_restored = s_clean.replace("_@_PERIOD_@_", ".")
@@ -361,9 +370,9 @@ def split_recursive(text: str, max_chars: int, level: int = 0) -> list[str]:
     if len(text) <= max_chars:
         return [text]
 
-    # Level 0: Clause punctuation (commas, semicolons, colons, em-dashes, en-dashes, parentheses, brackets)
+    # Level 0: Clause punctuation (commas, semicolons, colons, em-dashes, en-dashes, CJK/Arabic commas)
     if level == 0:
-        splits = re.split(r"(?<=[,;:\u2014\u2013\(\)\[\]])\s+", text)
+        splits = re.split(r"(?<=[,;:\u2014\u2013\(\)\[\]—–，、；：،؛])\s*", text)
     # Level 1: Coordinating conjunctions
     elif level == 1:
         splits = re.split(r"(\s+(?:and|but|or|yet|so)\s+)", text, flags=re.IGNORECASE)
@@ -795,13 +804,35 @@ def _compute_config_hash(
         f"max_chars:{max_chars}",
         f"synth_type:{synthesizer.__class__.__name__}",
     ]
-    if hasattr(synthesizer, "speed"):
-        config_parts.append(f"speed:{synthesizer.speed}")
-    if hasattr(synthesizer, "nfe_step"):
-        config_parts.append(f"nfe_step:{synthesizer.nfe_step}")
-    if hasattr(synthesizer, "ref_text"):
-        config_parts.append(f"ref_text:{synthesizer.ref_text}")
-    if hasattr(synthesizer, "ref_audio"):
+    for attr in (
+        "speed",
+        "nfe_step",
+        "ref_text",
+        "voice",
+        "voice_formula",
+        "lang_code",
+        "pocket_language",
+        "temp",
+        "lsd_decode_steps",
+        "noise_clamp",
+        "eos_threshold",
+        "frames_after_eos",
+        "quantize",
+        "dialogue_voice",
+        "model_name",
+        "mode",
+        "speaker",
+        "instruct",
+        "language",
+        "emotion_tag",
+        "top_p",
+        "repetition_penalty",
+    ):
+        if hasattr(synthesizer, attr):
+            val = getattr(synthesizer, attr)
+            if val not in (None, ""):
+                config_parts.append(f"{attr}:{val}")
+    if hasattr(synthesizer, "ref_audio") and getattr(synthesizer, "ref_audio"):
         ref_audio_path = Path(synthesizer.ref_audio)
         if ref_audio_path.exists():
             stat = ref_audio_path.stat()
@@ -998,6 +1029,16 @@ def _synthesize_chapter_chunks(
     chunk_total = len(id_to_text_list)
     results: list = [None] * chunk_total
 
+    effective_norm_settings = dict(normalization_settings) if normalization_settings else None
+    if effective_norm_settings is not None and not effective_norm_settings.get("language"):
+        synth_lang = (
+            getattr(synthesizer, "language", None)
+            or getattr(synthesizer, "pocket_language", None)
+            or getattr(synthesizer, "lang_code", None)
+        )
+        if synth_lang:
+            effective_norm_settings["language"] = synth_lang
+
     if concurrency > 1 and executor is not None:
         import threading as _threading
         from concurrent.futures import as_completed
@@ -1009,7 +1050,7 @@ def _synthesize_chapter_chunks(
             nonlocal completed_chunks
             check_cancel_fn()
 
-            normalized_text = normalize_text(text, normalization_settings)
+            normalized_text = normalize_text(text, effective_norm_settings)
             text_hash = hashlib.md5(normalized_text.encode("utf-8")).hexdigest()[:16]
             chunk_path = chapter_chunks_dir / f"chunk_{idx:06d}_{text_hash}.wav"
 
@@ -1106,7 +1147,7 @@ def _synthesize_chapter_chunks(
         for chunk_idx, (_span_id, text) in enumerate(id_to_text_list):
             check_cancel_fn()
 
-            normalized_text = normalize_text(text, normalization_settings)
+            normalized_text = normalize_text(text, effective_norm_settings)
             text_hash = hashlib.md5(normalized_text.encode("utf-8")).hexdigest()[:16]
             chunk_path = chapter_chunks_dir / f"chunk_{chunk_idx:06d}_{text_hash}.wav"
 
