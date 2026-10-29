@@ -4,7 +4,8 @@ import {
     fetchReferences,
     saveReference,
     deleteReference,
-    updateReference
+    updateReference,
+    testFishConnection,
 } from './api.js?v=8';
 import {
     showToast,
@@ -78,6 +79,10 @@ function applySettingsToUI(settings) {
     document.getElementById('default-max-chars').value = settings.max_chars || 150;
     document.getElementById('default-concurrency').value = settings.concurrency || 2;
     document.getElementById('default-frame-rate').value = settings.frame_rate || 24000.0;
+    const fishKeyEl = document.getElementById('default-fish-api-key');
+    if (fishKeyEl) fishKeyEl.value = settings.fish_api_key || '';
+    const fishUrlEl = document.getElementById('default-fish-api-url');
+    if (fishUrlEl) fishUrlEl.value = settings.fish_api_url || '';
 }
 
 function getSettingsFromUI() {
@@ -92,6 +97,8 @@ function getSettingsFromUI() {
         max_chars: parseInt(document.getElementById('default-max-chars').value) || 150,
         concurrency: parseInt(document.getElementById('default-concurrency').value) || 2,
         frame_rate: parseFloat(document.getElementById('default-frame-rate').value) || 24000.0,
+        fish_api_key: document.getElementById('default-fish-api-key')?.value.trim() || '',
+        fish_api_url: document.getElementById('default-fish-api-url')?.value.trim() || '',
         custom_lexicon: currentSettings.custom_lexicon || [],
         voice: currentSettings.voice || 'af_heart',
         voice_formula: currentSettings.voice_formula || '',
@@ -174,6 +181,10 @@ function setupSettingsHandlers() {
                 document.getElementById('default-max-chars').value = 150;
                 document.getElementById('default-concurrency').value = 2;
                 document.getElementById('default-frame-rate').value = 24000.0;
+                const fk = document.getElementById('default-fish-api-key');
+                if (fk) fk.value = '';
+                const fu = document.getElementById('default-fish-api-url');
+                if (fu) fu.value = '';
                 showToast('Generator defaults reset to default values.', 'info');
             } else {
                 const defaults = {
@@ -223,6 +234,34 @@ function setupSettingsHandlers() {
             wordInput.value = '';
             replacementInput.value = '';
             showToast(`Added rule: "${word}" ➔ "${replacement}"`, 'success');
+        });
+    }
+
+    // Fish Audio Connection Test
+    const testFishBtn = document.getElementById('settings-test-fish-btn');
+    const fishStatusBadge = document.getElementById('settings-fish-status-badge');
+    if (testFishBtn && fishStatusBadge) {
+        testFishBtn.addEventListener('click', async () => {
+            const apiKey = document.getElementById('default-fish-api-key')?.value.trim() || '';
+            const apiUrl = document.getElementById('default-fish-api-url')?.value.trim() || '';
+            fishStatusBadge.textContent = 'Testing...';
+            fishStatusBadge.style.color = 'var(--text-secondary)';
+            try {
+                const res = await testFishConnection(apiKey, apiUrl);
+                if (res.connected) {
+                    fishStatusBadge.textContent = `✓ Connected (${res.type === 'cloud' ? 'Cloud' : 'Local'})`;
+                    fishStatusBadge.style.color = 'var(--accent-emerald)';
+                    showToast(`Fish Audio connected! ${res.message || ''}`, 'success');
+                } else {
+                    fishStatusBadge.textContent = '✗ Failed';
+                    fishStatusBadge.style.color = 'var(--accent-rose)';
+                    showToast(res.error || 'Failed to connect to Fish Audio', 'error');
+                }
+            } catch (err) {
+                fishStatusBadge.textContent = '✗ Error';
+                fishStatusBadge.style.color = 'var(--accent-rose)';
+                showToast(err.message, 'error');
+            }
         });
     }
 }

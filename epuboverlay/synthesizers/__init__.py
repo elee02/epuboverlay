@@ -86,6 +86,7 @@ _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
         repetition_penalty=float(kw.get("repetition_penalty", 1.2) if kw.get("repetition_penalty") not in (None, "") else 1.2),
         speed=float(kw.get("speed", 1.0)),
         api_url=kw.get("fish_api_url") or kw.get("api_url") or "",
+        api_key=kw.get("fish_api_key") or kw.get("api_key") or "",
         device=kw.get("device"),
     ),
 }

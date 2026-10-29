@@ -551,8 +551,12 @@
                                     </select>
                                 </div>
                                 <div class="form-group">
-                                    <label for="fish-api-url-input">Fish-Speech Server URL (Optional)</label>
-                                    <input type="text" id="fish-api-url-input" name="fish_api_url" placeholder="http://127.0.0.1:8080/v1/tts (blank = local Python)">
+                                    <label for="fish-api-key-input">Fish Audio API Key (Cloud)</label>
+                                    <input type="password" id="fish-api-key-input" name="fish_api_key" placeholder="Enter API Key from fish.audio/go-api" autocomplete="off">
+                                </div>
+                                <div class="form-group">
+                                    <label for="fish-api-url-input">Fish-Speech Server URL (Local / Custom)</label>
+                                    <input type="text" id="fish-api-url-input" name="fish_api_url" placeholder="http://127.0.0.1:8080/v1/tts (blank = Cloud)">
                                 </div>
                             </div>
                         </div>
@@ -1036,8 +1040,16 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="pg-fish-api-url-input">Fish API Server URL (Optional)</label>
+                                <label for="pg-fish-api-key-input">Fish Audio API Key (Cloud)</label>
+                                <input type="password" id="pg-fish-api-key-input" placeholder="Enter API Key from fish.audio/go-api" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-fish-api-url-input">Fish API Server URL (Local / Custom)</label>
                                 <input type="text" id="pg-fish-api-url-input" placeholder="http://127.0.0.1:8080/v1/tts">
+                            </div>
+                            <div class="form-group full-width" style="display: flex; align-items: center; gap: 0.75rem; margin-top: -0.25rem;">
+                                <button type="button" class="btn btn-xs btn-ghost" id="pg-fish-test-btn">⚡ Test Connection</button>
+                                <span id="pg-fish-status-badge" style="font-size: 0.8rem; font-weight: 500;"></span>
                             </div>
                         </div>
                     </div>
@@ -1552,6 +1564,31 @@
                                     <div class="form-group">
                                         <label for="default-frame-rate">Frame Rate (Hz)</label>
                                         <input type="number" id="default-frame-rate" value="24000.0" min="8000" max="48000" step="1000">
+                                    </div>
+                                </div>
+
+                                <div class="settings-subcard" style="margin-top: 1.5rem; padding: 1.25rem; background: var(--bg-secondary); border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                                        <h4 style="margin: 0; font-size: 1rem; color: var(--text-primary); display: flex; align-items: center; gap: 0.4rem;">
+                                            🐟 Fish Audio (Cloud &amp; Local Server)
+                                        </h4>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <button type="button" class="btn btn-xs btn-ghost" id="settings-test-fish-btn">⚡ Test Connection</button>
+                                            <span id="settings-fish-status-badge" style="font-size: 0.8rem; font-weight: 500;"></span>
+                                        </div>
+                                    </div>
+                                    <p style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                                        Connect to Fish Audio's official Cloud API (<a href="https://fish.audio/go-api" target="_blank" rel="noopener noreferrer" style="color: var(--accent-indigo); text-decoration: underline;">get API key with free tier</a>) or enter your local self-hosted OpenAudio server address.
+                                    </p>
+                                    <div class="form-grid">
+                                        <div class="form-group">
+                                            <label for="default-fish-api-key">Fish Audio API Key (Cloud)</label>
+                                            <input type="password" id="default-fish-api-key" placeholder="Enter API Key from fish.audio/go-api" autocomplete="off">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="default-fish-api-url">Server URL (Local / Custom)</label>
+                                            <input type="text" id="default-fish-api-url" placeholder="http://127.0.0.1:8080/v1/tts (blank = Cloud/Python)">
+                                        </div>
                                     </div>
                                 </div>
                             </form>

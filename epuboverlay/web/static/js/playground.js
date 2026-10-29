@@ -9,7 +9,8 @@ import {
     previewVoice,
     fetchPlaygroundHistory,
     clearPlaygroundCache,
-    saveReference
+    saveReference,
+    testFishConnection,
 } from './api.js?v=8';
 import {
     showToast,
@@ -108,7 +109,10 @@ function getElements() {
         fishEmotionSelect:  document.getElementById('pg-fish-emotion-select'),
         fishRefGroup:       document.getElementById('pg-fish-ref-group'),
         fishRefVoiceSelect: document.getElementById('pg-fish-ref-voice-select'),
+        fishApiKeyInput:    document.getElementById('pg-fish-api-key-input'),
         fishApiUrlInput:    document.getElementById('pg-fish-api-url-input'),
+        fishTestBtn:        document.getElementById('pg-fish-test-btn'),
+        fishStatusBadge:    document.getElementById('pg-fish-status-badge'),
         // Shared Emotion Instruct
         instructInput:      document.getElementById('pg-instruct-input'),
         // F5-TTS sub-elements
@@ -456,12 +460,14 @@ async function handleSynthesize(els) {
         const fishLang = els.fishLanguageSelect ? els.fishLanguageSelect.value : 'auto';
         const emotionTag = els.fishEmotionSelect ? els.fishEmotionSelect.value : '';
         const instruct = els.instructInput ? els.instructInput.value.trim() : '';
+        const apiKey = els.fishApiKeyInput ? els.fishApiKeyInput.value.trim() : '';
         const apiUrl = els.fishApiUrlInput ? els.fishApiUrlInput.value.trim() : '';
         const fishMode = getActiveFishPlaygroundMode(els);
 
         body.append('language', fishLang);
         if (emotionTag) body.append('emotion_tag', emotionTag);
         if (instruct) body.append('instruct', instruct);
+        if (apiKey) body.append('fish_api_key', apiKey);
         if (apiUrl) body.append('fish_api_url', apiUrl);
 
         if (fishMode === 'clone') {
@@ -854,6 +860,32 @@ export function initPlayground() {
                 });
                 updatePlaygroundClonePanelVisibility(els);
             });
+        });
+    }
+
+    // Fish Audio test connection
+    if (els.fishTestBtn && els.fishStatusBadge) {
+        els.fishTestBtn.addEventListener('click', async () => {
+            const apiKey = els.fishApiKeyInput ? els.fishApiKeyInput.value.trim() : '';
+            const apiUrl = els.fishApiUrlInput ? els.fishApiUrlInput.value.trim() : '';
+            els.fishStatusBadge.textContent = 'Testing...';
+            els.fishStatusBadge.style.color = 'var(--text-secondary)';
+            try {
+                const res = await testFishConnection(apiKey, apiUrl);
+                if (res.connected) {
+                    els.fishStatusBadge.textContent = `✓ Connected (${res.type === 'cloud' ? 'Cloud' : 'Local'})`;
+                    els.fishStatusBadge.style.color = 'var(--accent-emerald)';
+                    showToast(`Fish Audio connected! ${res.message || ''}`, 'success');
+                } else {
+                    els.fishStatusBadge.textContent = '✗ Failed';
+                    els.fishStatusBadge.style.color = 'var(--accent-rose)';
+                    showToast(res.error || 'Failed to connect to Fish Audio', 'error');
+                }
+            } catch (err) {
+                els.fishStatusBadge.textContent = '✗ Error';
+                els.fishStatusBadge.style.color = 'var(--accent-rose)';
+                showToast(err.message, 'error');
+            }
         });
     }
 

@@ -177,6 +177,26 @@ function applyConfigDefaults(defaults) {
     if (qwenSpeakerSelect && defaults.qwen_speaker) {
         qwenSpeakerSelect.value = defaults.qwen_speaker;
     }
+
+    const fishKeyInput = document.getElementById('fish-api-key-input');
+    if (fishKeyInput && defaults.fish_api_key) {
+        fishKeyInput.value = defaults.fish_api_key;
+    }
+
+    const fishUrlInput = document.getElementById('fish-api-url-input');
+    if (fishUrlInput && defaults.fish_api_url) {
+        fishUrlInput.value = defaults.fish_api_url;
+    }
+
+    const pgFishKeyInput = document.getElementById('pg-fish-api-key-input');
+    if (pgFishKeyInput && defaults.fish_api_key) {
+        pgFishKeyInput.value = defaults.fish_api_key;
+    }
+
+    const pgFishUrlInput = document.getElementById('pg-fish-api-url-input');
+    if (pgFishUrlInput && defaults.fish_api_url) {
+        pgFishUrlInput.value = defaults.fish_api_url;
+    }
 }
 
 // ── Global SSE update callback ──────────────────────────────────────────────

@@ -120,10 +120,14 @@ def get_installed_synthesizers() -> dict[str, bool]:
     import importlib.util
     import os
 
+    settings = load_settings_data().get("current_settings", {})
     fish_installed = (
         importlib.util.find_spec("fish_speech") is not None
         or importlib.util.find_spec("fish_audio_sdk") is not None
+        or bool(settings.get("fish_api_url"))
+        or bool(settings.get("fish_api_key"))
         or bool(os.environ.get("FISH_SPEECH_API_URL"))
+        or bool(os.environ.get("FISH_API_KEY"))
     )
     return {
         "dummy": True,
@@ -332,6 +336,7 @@ async def get_config():
         "instruct": current.get("instruct", ""),
         "emotion_tag": current.get("emotion_tag", ""),
         "fish_api_url": current.get("fish_api_url", ""),
+        "fish_api_key": current.get("fish_api_key", ""),
     }
 
     return {
@@ -372,6 +377,80 @@ async def save_settings(settings: dict = Body(...)):
     data["current_settings"] = settings
     save_settings_data(data)
     return {"status": "saved", "settings": data["current_settings"]}
+
+
+@app.post("/api/fish/test")
+async def test_fish_connection(data: dict = Body(...)):
+    """Test Fish Audio connection (Cloud API or Local Server)."""
+    import urllib.request
+    import urllib.error
+
+    api_key = (data.get("api_key") or "").strip()
+    api_url = (data.get("api_url") or "").strip()
+
+    saved = load_settings_data().get("current_settings", {})
+    if not api_key:
+        api_key = (saved.get("fish_api_key") or os.environ.get("FISH_API_KEY", "")).strip()
+    if not api_url:
+        api_url = (saved.get("fish_api_url") or os.environ.get("FISH_SPEECH_API_URL", "")).strip()
+
+    # 1. Test Cloud API if api_key is present
+    if api_key:
+        try:
+            from fish_audio_sdk import Session
+            session = Session(api_key)
+            credit_info = session.get_api_credit()
+            credit_val = getattr(credit_info, "credit", None)
+            if credit_val is None:
+                credit_val = getattr(credit_info, "balance", "Active")
+            return {
+                "ok": True,
+                "type": "cloud",
+                "message": f"Connected to Fish Audio Cloud API! (Balance: {credit_val} credits)",
+                "credits": credit_val,
+            }
+        except Exception as e:
+            err_msg = str(e)
+            if "401" in err_msg or "Invalid token" in err_msg:
+                return {
+                    "ok": False,
+                    "type": "cloud",
+                    "message": "Fish Audio API Key is invalid or expired. Get a free key at https://fish.audio/go-api.",
+                }
+            return {
+                "ok": False,
+                "type": "cloud",
+                "message": f"Fish Audio Cloud error: {err_msg}",
+            }
+
+    # 2. Test local / custom server URL
+    target_url = api_url or "http://127.0.0.1:8080/v1/tts"
+    try:
+        req = urllib.request.Request(target_url, headers={"User-Agent": "epuboverlay"}, method="GET")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            return {
+                "ok": True,
+                "type": "local",
+                "message": f"Connected to local Fish-Speech server at {target_url} (HTTP {resp.status})",
+            }
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 405, 422, 200, 400):
+            return {
+                "ok": True,
+                "type": "local",
+                "message": f"Connected to Fish-Speech server at {target_url} (Server is online)",
+            }
+        return {
+            "ok": False,
+            "type": "local",
+            "message": f"Fish-Speech server at {target_url} returned HTTP {e.code}",
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "type": "unreachable",
+            "message": f"No server reached at {target_url} ({e}). To use Fish-Speech, start your local server or enter a Cloud API key.",
+        }
 
 
 VOICE_BLENDS_FILE = Path.home() / ".epuboverlay" / "voice_blends.json"
@@ -614,6 +693,7 @@ async def create_job(
     instruct: str = Form(""),
     emotion_tag: str = Form(""),
     fish_api_url: str = Form(""),
+    fish_api_key: str = Form(""),
     top_p: float = Form(0.7),
     repetition_penalty: float = Form(1.2),
     selected_chapters: str = Form(""),  # JSON array of idref strings
@@ -735,7 +815,8 @@ async def create_job(
             "qwen_speaker": qwen_speaker,
             "instruct": instruct,
             "emotion_tag": emotion_tag,
-            "fish_api_url": fish_api_url,
+            "fish_api_url": fish_api_url or norm_settings.get("fish_api_url", "") or os.environ.get("FISH_SPEECH_API_URL", ""),
+            "fish_api_key": fish_api_key or norm_settings.get("fish_api_key", "") or os.environ.get("FISH_API_KEY", ""),
             "top_p": top_p,
             "repetition_penalty": repetition_penalty,
             "selected_chapters": parsed_chapters,
@@ -814,6 +895,7 @@ async def resume_job(
     instruct: str | None = Form(None),
     emotion_tag: str | None = Form(None),
     fish_api_url: str | None = Form(None),
+    fish_api_key: str | None = Form(None),
     ref_id: str | None = Form(None),
     ref_text: str | None = Form(None),
     ref_audio: UploadFile | None = File(None),
@@ -880,6 +962,7 @@ async def resume_job(
         ("instruct", instruct),
         ("emotion_tag", emotion_tag),
         ("fish_api_url", fish_api_url),
+        ("fish_api_key", fish_api_key),
         ("ref_text", ref_text),
     ]:
         if val is not None:
@@ -1338,6 +1421,7 @@ async def preview_voice(
     instruct: str = Form(""),
     emotion_tag: str = Form(""),
     fish_api_url: str = Form(""),
+    fish_api_key: str = Form(""),
     top_p: float = Form(0.7),
     repetition_penalty: float = Form(1.2),
     # Cloning & Reference
@@ -1452,6 +1536,8 @@ async def preview_voice(
             device or "auto",
         )
     elif synthesizer == "fish-speech":
+        effective_fish_key = fish_api_key or load_settings_data().get("current_settings", {}).get("fish_api_key", "") or os.environ.get("FISH_API_KEY", "")
+        effective_fish_url = fish_api_url or load_settings_data().get("current_settings", {}).get("fish_api_url", "") or os.environ.get("FISH_SPEECH_API_URL", "")
         cache_key = (
             "fish-speech",
             emotion_tag,
@@ -1461,7 +1547,8 @@ async def preview_voice(
             temp,
             top_p,
             repetition_penalty,
-            fish_api_url,
+            effective_fish_url,
+            effective_fish_key,
             speed,
             device or "auto",
         )
@@ -1570,6 +1657,8 @@ async def preview_voice(
                     )
 
                 elif synthesizer == "fish-speech":
+                    effective_fish_key = fish_api_key or load_settings_data().get("current_settings", {}).get("fish_api_key", "") or os.environ.get("FISH_API_KEY", "")
+                    effective_fish_url = fish_api_url or load_settings_data().get("current_settings", {}).get("fish_api_url", "") or os.environ.get("FISH_SPEECH_API_URL", "")
                     from epuboverlay.synthesizers.fish import FishSpeechSynthesizer
                     synth = FishSpeechSynthesizer(
                         ref_audio=active_ref_path,
@@ -1580,7 +1669,8 @@ async def preview_voice(
                         top_p=top_p,
                         repetition_penalty=repetition_penalty,
                         speed=speed,
-                        api_url=fish_api_url,
+                        api_url=effective_fish_url,
+                        api_key=effective_fish_key,
                         device=device or None,
                     )
 

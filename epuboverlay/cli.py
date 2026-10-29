@@ -333,6 +333,12 @@ def main(args: list[str] | None = None) -> int:
         help="Local or remote Fish-Speech HTTP API endpoint (e.g. http://127.0.0.1:8080/v1/tts)."
     )
     gen_parser.add_argument(
+        "--fish-api-key",
+        type=str,
+        default="",
+        help="Fish Audio Cloud API key (can also be set via FISH_API_KEY environment variable)."
+    )
+    gen_parser.add_argument(
         "-a", "--ref-audio",
         type=Path,
         help="Path to the reference audio clip (required for f5-tts and pocket-tts unless --ref-id or --pocket-voice is used)."
