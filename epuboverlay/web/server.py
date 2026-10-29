@@ -5,17 +5,20 @@ import argparse
 import asyncio
 import json
 import psutil
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlparse
 import zipfile
 from pathlib import Path
 from queue import Empty
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 # Synthesizer imports moved to jobs.py runner process
 from epuboverlay.web.jobs import JobManager, Job, JobStatus
@@ -27,6 +30,83 @@ job_manager = JobManager()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MiB
+
+
+@app.middleware("http")
+async def verify_same_origin(request: Request, call_next):
+    """Block cross-origin CSRF requests to mutating /api/* endpoints."""
+    if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.url.path.startswith("/api/"):
+        origin = request.headers.get("origin")
+        if origin:
+            parsed_origin = urlparse(origin)
+            origin_host = (parsed_origin.hostname or "").lower()
+            host_header = (request.headers.get("host") or "").split(":")[0].lower()
+            allowed_hosts = {"127.0.0.1", "localhost", "::1", "testserver"}
+            if host_header:
+                allowed_hosts.add(host_header)
+            if origin_host not in allowed_hosts:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": f"Cross-origin request blocked from origin: {origin}"},
+                )
+    return await call_next(request)
+
+
+async def _read_upload_bytes(upload: UploadFile, max_bytes: int = MAX_UPLOAD_BYTES) -> bytes:
+    """Read an UploadFile in chunks while enforcing a maximum byte limit."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Uploaded file exceeds maximum allowed size ({max_bytes // (1024 * 1024)} MiB).",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+async def _save_upload_to_temp(
+    upload: UploadFile,
+    suffix: str = ".tmp",
+    max_bytes: int = MAX_UPLOAD_BYTES,
+) -> Path:
+    """Stream an UploadFile to a temporary file while enforcing a maximum byte limit."""
+    safe_suffix = re.sub(r"[^.A-Za-z0-9_-]", "", suffix) or ".tmp"
+    if not safe_suffix.startswith("."):
+        safe_suffix = "." + safe_suffix
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=safe_suffix)
+    tmp_path = Path(tmp.name)
+    total = 0
+    try:
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                tmp.close()
+                tmp_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Uploaded file exceeds maximum allowed size ({max_bytes // (1024 * 1024)} MiB).",
+                )
+            tmp.write(chunk)
+        tmp.close()
+        return tmp_path
+    except Exception:
+        try:
+            tmp.close()
+        except Exception:
+            pass
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def get_installed_synthesizers() -> dict[str, bool]:
@@ -296,11 +376,11 @@ async def create_reference(
     ref_id = f"ref_{int(time.time() * 1000)}"
     REFERENCES_DIR.mkdir(parents=True, exist_ok=True)
     
-    suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
+    suffix = re.sub(r"[^.A-Za-z0-9]", "", Path(audio.filename or "audio.wav").suffix) or ".wav"
     audio_filename = f"{ref_id}{suffix}"
     audio_path = REFERENCES_DIR / audio_filename
     
-    audio_bytes = await audio.read()
+    audio_bytes = await _read_upload_bytes(audio)
     with open(audio_path, "wb") as f:
         f.write(audio_bytes)
         
@@ -501,67 +581,69 @@ async def create_job(
                 detail="selected_chapters must be a valid JSON list of strings.",
             )
 
-    # Save uploaded EPUB to temp file
-    tmp_epub = tempfile.NamedTemporaryFile(delete=False, suffix=".epub")
-    content = await epub.read()
-    tmp_epub.write(content)
-    tmp_epub.close()
-
-    norm_settings = load_settings_data().get("current_settings", {})
-
-    # Save ref audio if provided (only for models that require voice cloning)
-    ref_audio_path = None
-    resolved_ref_text = ref_text
-    if ref_id.strip() and synthesizer in ("f5-tts", "pocket-tts"):
-        refs = load_references()
-        ref = next((r for r in refs if r["id"] == ref_id), None)
-        if not ref:
-            raise HTTPException(status_code=404, detail="Selected reference voice not found")
-        audio_file = REFERENCES_DIR / ref["audio_filename"]
-        if not audio_file.exists():
-            raise HTTPException(status_code=404, detail="Selected reference audio file not found")
-        ref_audio_path = audio_file
-        if synthesizer == "f5-tts" and not ref_text.strip():
-            resolved_ref_text = ref["text"]
-    elif ref_audio and synthesizer in ("f5-tts", "pocket-tts"):
-        ref_audio_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        ref_audio_content = await ref_audio.read()
-        ref_audio_tmp.write(ref_audio_content)
-        ref_audio_tmp.close()
-        ref_audio_path = Path(ref_audio_tmp.name)
-
-    config = {
-        "synthesizer": synthesizer,
-        "ref_text": resolved_ref_text,
-        "device": device or None,
-        "speed": speed,
-        "max_chars": max_chars,
-        "frame_rate": frame_rate,
-        "concurrency": concurrency,
-        "nfe_step": nfe_step,
-        "compile": compile,
-        "voice": voice,
-        "voice_formula": voice_formula,
-        "lang_code": lang_code,
-        "pocket_voice": pocket_voice,
-        "selected_chapters": parsed_chapters,
-        "expand_numerals": norm_settings.get("expand_numerals", True),
-        "resolve_contractions": norm_settings.get("resolve_contractions", True),
-        "resolve_heteronyms": norm_settings.get("resolve_heteronyms", True),
-        "harmonize_punctuation": norm_settings.get("harmonize_punctuation", True),
-        "custom_lexicon": norm_settings.get("custom_lexicon", []),
-    }
-    if ref_audio_path:
-        config["ref_audio_path"] = str(ref_audio_path)
+    # Save uploaded document (EPUB, PDF, DOCX, MD, TXT) to temp file preserving extension
+    upload_suffix = Path(epub.filename or "book.epub").suffix or ".epub"
+    tmp_epub_path = await _save_upload_to_temp(epub, suffix=upload_suffix)
+    tmp_ref_audio_path: Path | None = None
 
     try:
-        job = job_manager.create_job(
-            input_epub_path=Path(tmp_epub.name),
-            original_filename=epub.filename or "output.epub",
-            config=config,
-        )
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        norm_settings = load_settings_data().get("current_settings", {})
+
+        # Save ref audio if provided (only for models that require voice cloning)
+        ref_audio_path = None
+        resolved_ref_text = ref_text
+        if ref_id.strip() and synthesizer in ("f5-tts", "pocket-tts"):
+            refs = load_references()
+            ref = next((r for r in refs if r["id"] == ref_id), None)
+            if not ref:
+                raise HTTPException(status_code=404, detail="Selected reference voice not found")
+            audio_file = REFERENCES_DIR / ref["audio_filename"]
+            if not audio_file.exists():
+                raise HTTPException(status_code=404, detail="Selected reference audio file not found")
+            ref_audio_path = audio_file
+            if synthesizer == "f5-tts" and not ref_text.strip():
+                resolved_ref_text = ref["text"]
+        elif ref_audio and synthesizer in ("f5-tts", "pocket-tts"):
+            ref_suffix = Path(ref_audio.filename or "ref.wav").suffix or ".wav"
+            tmp_ref_audio_path = await _save_upload_to_temp(ref_audio, suffix=ref_suffix)
+            ref_audio_path = tmp_ref_audio_path
+
+        config = {
+            "synthesizer": synthesizer,
+            "ref_text": resolved_ref_text,
+            "device": device or None,
+            "speed": speed,
+            "max_chars": max_chars,
+            "frame_rate": frame_rate,
+            "concurrency": concurrency,
+            "nfe_step": nfe_step,
+            "compile": compile,
+            "voice": voice,
+            "voice_formula": voice_formula,
+            "lang_code": lang_code,
+            "pocket_voice": pocket_voice,
+            "selected_chapters": parsed_chapters,
+            "expand_numerals": norm_settings.get("expand_numerals", True),
+            "resolve_contractions": norm_settings.get("resolve_contractions", True),
+            "resolve_heteronyms": norm_settings.get("resolve_heteronyms", True),
+            "harmonize_punctuation": norm_settings.get("harmonize_punctuation", True),
+            "custom_lexicon": norm_settings.get("custom_lexicon", []),
+        }
+        if ref_audio_path:
+            config["ref_audio_path"] = str(ref_audio_path)
+
+        try:
+            job = job_manager.create_job(
+                input_epub_path=tmp_epub_path,
+                original_filename=epub.filename or "output.epub",
+                config=config,
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+    finally:
+        tmp_epub_path.unlink(missing_ok=True)
+        if tmp_ref_audio_path is not None:
+            tmp_ref_audio_path.unlink(missing_ok=True)
 
     job_manager.start_job(job.id)
 
@@ -599,6 +681,10 @@ async def resume_job(
     voice: str | None = Form(None),
     voice_formula: str | None = Form(None),
     lang_code: str | None = Form(None),
+    pocket_voice: str | None = Form(None),
+    ref_id: str | None = Form(None),
+    ref_text: str | None = Form(None),
+    ref_audio: UploadFile | None = File(None),
     selected_chapters: str | None = Form(None),
 ):
     """Resume a failed or cancelled job, optionally updating its configuration options."""
@@ -616,6 +702,18 @@ async def resume_job(
         raise HTTPException(
             status_code=400,
             detail=f"Only failed or cancelled jobs can be resumed. Current status: {job.status}",
+        )
+
+    target_synth = synthesizer if synthesizer is not None else job.config.get("synthesizer", "f5-tts")
+    installed = get_installed_synthesizers()
+    if not installed.get(target_synth, False):
+        pkg_alias = "f5" if target_synth == "f5-tts" else ("pocket" if target_synth == "pocket-tts" else target_synth)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Synthesizer '{target_synth}' is not installed in this environment. "
+                f"To install it, run: uv add 'epuboverlay[{pkg_alias}]'"
+            ),
         )
 
     # Update job config with any options provided
@@ -654,6 +752,39 @@ async def resume_job(
     if lang_code is not None:
         job.config["lang_code"] = lang_code
         has_changes = True
+    if pocket_voice is not None:
+        job.config["pocket_voice"] = pocket_voice
+        has_changes = True
+    if ref_text is not None:
+        job.config["ref_text"] = ref_text
+        has_changes = True
+
+    if ref_id and ref_id.strip():
+        refs = load_references()
+        ref = next((r for r in refs if r["id"] == ref_id.strip()), None)
+        if not ref:
+            raise HTTPException(status_code=404, detail="Selected reference voice not found")
+        audio_file = REFERENCES_DIR / ref["audio_filename"]
+        if not audio_file.exists():
+            raise HTTPException(status_code=404, detail="Selected reference audio file not found")
+        safe_ext = re.sub(r"[^.A-Za-z0-9]", "", audio_file.suffix) or ".wav"
+        stored_ref_audio = job.job_dir / f"ref_audio{safe_ext}"
+        shutil.copy2(audio_file, stored_ref_audio)
+        job.config["ref_audio_path"] = str(stored_ref_audio)
+        if target_synth == "f5-tts" and not (ref_text and ref_text.strip()):
+            job.config["ref_text"] = ref.get("text", "")
+        has_changes = True
+    elif ref_audio and ref_audio.filename:
+        ref_suffix = re.sub(r"[^.A-Za-z0-9]", "", Path(ref_audio.filename).suffix) or ".wav"
+        tmp_ref = await _save_upload_to_temp(ref_audio, suffix=ref_suffix)
+        try:
+            stored_ref_audio = job.job_dir / f"ref_audio{ref_suffix}"
+            shutil.copy2(tmp_ref, stored_ref_audio)
+            job.config["ref_audio_path"] = str(stored_ref_audio)
+            has_changes = True
+        finally:
+            tmp_ref.unlink(missing_ok=True)
+
     if selected_chapters is not None:
         try:
             parsed = json.loads(selected_chapters)
@@ -691,9 +822,12 @@ async def download_job(job_id: str):
         raise HTTPException(status_code=400, detail="Job is not completed yet.")
     if not job.output_epub_path.exists():
         raise HTTPException(status_code=404, detail="Output file not found.")
+    download_name = Path(job.original_filename or "output.epub").name
+    if not download_name.lower().endswith(".epub"):
+        download_name = f"{Path(download_name).stem}.epub"
     return FileResponse(
         path=str(job.output_epub_path),
-        filename=job.original_filename,
+        filename=download_name,
         media_type="application/epub+zip",
     )
 
@@ -752,15 +886,14 @@ async def convert_job_to_audio(
 
     output_dir = Path(tempfile.mkdtemp(prefix="epuboverlay_convert_"))
     tmp_cover_path = None
+    keep_output_dir = False
 
     try:
         # Save cover art if provided
         if cover_art and cover_art.filename:
-            tmp_cover = tempfile.NamedTemporaryFile(delete=False, suffix=Path(cover_art.filename).suffix)
-            cover_content = await cover_art.read()
-            tmp_cover.write(cover_content)
-            tmp_cover.close()
-            tmp_cover_path = Path(tmp_cover.name)
+            tmp_cover_path = await _save_upload_to_temp(
+                cover_art, suffix=Path(cover_art.filename).suffix or ".jpg"
+            )
 
         # Normalize audio format
         audio_fmt = audio_format.strip().lower() if audio_format else "m4b"
@@ -800,13 +933,16 @@ async def convert_job_to_audio(
                 for sub in subtitles:
                     zout.write(sub, sub.name)
 
+        keep_output_dir = True
         return FileResponse(
             path=str(zip_path),
             filename=f"{zip_name}.zip",
             media_type="application/zip",
-            background=None,
+            background=BackgroundTask(shutil.rmtree, output_dir, ignore_errors=True),
         )
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -817,6 +953,8 @@ async def convert_job_to_audio(
                 tmp_cover_path.unlink(missing_ok=True)
             except Exception:
                 pass
+        if not keep_output_dir:
+            shutil.rmtree(output_dir, ignore_errors=True)
 
 
 @app.delete("/api/cache")
@@ -897,14 +1035,10 @@ async def get_chapters(epub: UploadFile = File(...)):
     """Extract chapter metadata and previews from an uploaded EPUB or other formats."""
     from epuboverlay.preprocessors import get_preprocessor
     suffix = Path(epub.filename).suffix if epub.filename else ".epub"
-    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = await _save_upload_to_temp(epub, suffix=suffix)
     try:
-        content = await epub.read()
-        tmp_file.write(content)
-        tmp_file.close()
-
-        preprocessor = get_preprocessor(Path(tmp_file.name))
-        sections = preprocessor.extract_sections(Path(tmp_file.name))
+        preprocessor = get_preprocessor(tmp_path)
+        sections = preprocessor.extract_sections(tmp_path)
         return [
             {
                 "idref": s.id,
@@ -914,11 +1048,13 @@ async def get_chapters(epub: UploadFile = File(...)):
             }
             for s in sections
         ]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         try:
-            Path(tmp_file.name).unlink(missing_ok=True)
+            tmp_path.unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -942,23 +1078,17 @@ async def extract_audio_lrc(
     from epuboverlay.extract import epub_to_audio_subtitles
 
     # Save uploaded EPUB to temp file
-    tmp_epub = tempfile.NamedTemporaryFile(delete=False, suffix=".epub")
-    content = await epub.read()
-    tmp_epub.write(content)
-    tmp_epub.close()
-
+    tmp_epub_path = await _save_upload_to_temp(epub, suffix=".epub")
     tmp_cover_path = None
-    # Create temp output directory
     output_dir = Path(tempfile.mkdtemp(prefix="epuboverlay_extract_"))
+    keep_output_dir = False
 
     try:
         # Save cover art if provided
         if cover_art and cover_art.filename:
-            tmp_cover = tempfile.NamedTemporaryFile(delete=False, suffix=Path(cover_art.filename).suffix)
-            cover_content = await cover_art.read()
-            tmp_cover.write(cover_content)
-            tmp_cover.close()
-            tmp_cover_path = Path(tmp_cover.name)
+            tmp_cover_path = await _save_upload_to_temp(
+                cover_art, suffix=Path(cover_art.filename).suffix or ".jpg"
+            )
 
         # Normalize audio format
         audio_fmt = audio_format.strip().lower() if audio_format else "m4b"
@@ -970,7 +1100,7 @@ async def extract_audio_lrc(
         else:
             formats_list = [f.strip() for f in formats.split(",") if f.strip()]
         results = epub_to_audio_subtitles(
-            epub_path=Path(tmp_epub.name),
+            epub_path=tmp_epub_path,
             output_dir=output_dir,
             merge=merge,
             formats=formats_list,
@@ -998,21 +1128,23 @@ async def extract_audio_lrc(
                 for sub in subtitles:
                     zout.write(sub, sub.name)
 
+        keep_output_dir = True
         return FileResponse(
             path=str(zip_path),
             filename=f"{zip_name}.zip",
             media_type="application/zip",
-            background=None,  # Don't clean up immediately
+            background=BackgroundTask(shutil.rmtree, output_dir, ignore_errors=True),
         )
 
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Clean up temp epub and cover
         try:
-            Path(tmp_epub.name).unlink(missing_ok=True)
+            tmp_epub_path.unlink(missing_ok=True)
         except Exception:
             pass
         if tmp_cover_path:
@@ -1020,8 +1152,8 @@ async def extract_audio_lrc(
                 tmp_cover_path.unlink(missing_ok=True)
             except Exception:
                 pass
-        # Note: output_dir cleanup is deferred — FileResponse needs the file.
-        # FastAPI/Starlette will handle response completion.
+        if not keep_output_dir:
+            shutil.rmtree(output_dir, ignore_errors=True)
 
 
 import hashlib
@@ -1093,7 +1225,7 @@ async def preview_voice(
         if synthesizer == "f5-tts" and not ref_text.strip():
             resolved_f5_ref_text = resolved_ref_text
     elif ref_audio and ref_audio.filename:
-        ref_audio_bytes = await ref_audio.read()
+        ref_audio_bytes = await _read_upload_bytes(ref_audio)
         ref_audio_hash = hashlib.md5(ref_audio_bytes).hexdigest()
 
     # 2. Build a unique cache key based on the settings

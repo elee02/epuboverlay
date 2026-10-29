@@ -6,7 +6,13 @@ import {
     deleteReference,
     updateReference
 } from './api.js';
-import { showToast, escapeHtml } from './utils.js';
+import {
+    showToast,
+    escapeHtml,
+    applyInstalledSynthesizersToSelect,
+    getPreferredInstalledSynthesizer,
+    setupAudioRecorder,
+} from './utils.js';
 import { showConfirmModal } from './modal.js';
 import { loadSavedReferencesGlobal } from './app.js';
 
@@ -62,7 +68,11 @@ function applySettingsToUI(settings) {
     document.getElementById('setting-resolve-heteronyms').checked = !!settings.resolve_heteronyms;
     document.getElementById('setting-harmonize-punctuation').checked = !!settings.harmonize_punctuation;
 
-    document.getElementById('default-synthesizer').value = settings.synthesizer || 'f5-tts';
+    const defaultSynthEl = document.getElementById('default-synthesizer');
+    if (defaultSynthEl) {
+        defaultSynthEl.value = settings.synthesizer || getPreferredInstalledSynthesizer('dummy');
+        applyInstalledSynthesizersToSelect(defaultSynthEl);
+    }
     document.getElementById('default-device').value = settings.device || '';
     document.getElementById('default-speed').value = settings.speed || 1.0;
     document.getElementById('default-max-chars').value = settings.max_chars || 150;
@@ -86,6 +96,9 @@ function getSettingsFromUI() {
         voice: currentSettings.voice || 'af_heart',
         voice_formula: currentSettings.voice_formula || '',
         lang_code: currentSettings.lang_code || 'a',
+        pocket_voice: currentSettings.pocket_voice || 'alba',
+        nfe_step: currentSettings.nfe_step || 32,
+        compile: !!currentSettings.compile,
     };
 }
 
@@ -138,26 +151,49 @@ function setupSettingsHandlers() {
         });
     });
 
-    // Reset Defaults Buttons
+    // Reset Defaults Buttons (scoped to active tab)
     document.querySelectorAll('.settings-reset-btn').forEach(resetBtn => {
         resetBtn.addEventListener('click', () => {
-            const defaults = {
-                expand_numerals: true,
-                resolve_contractions: true,
-                resolve_heteronyms: true,
-                harmonize_punctuation: true,
-                synthesizer: 'f5-tts',
-                device: '',
-                speed: 1.0,
-                max_chars: 150,
-                concurrency: 2,
-                frame_rate: 24000.0,
-                custom_lexicon: []
-            };
-            applySettingsToUI(defaults);
-            currentSettings.custom_lexicon = [];
-            renderLexiconTable([]);
-            showToast('Form reset to default values.', 'info');
+            const scope = resetBtn.getAttribute('data-reset-scope');
+            if (scope === 'normalization') {
+                document.getElementById('setting-expand-numerals').checked = true;
+                document.getElementById('setting-resolve-contractions').checked = true;
+                document.getElementById('setting-resolve-heteronyms').checked = true;
+                document.getElementById('setting-harmonize-punctuation').checked = true;
+                currentSettings.custom_lexicon = [];
+                renderLexiconTable([]);
+                showToast('Normalization settings reset to default values.', 'info');
+            } else if (scope === 'generator') {
+                const defaultSynthEl = document.getElementById('default-synthesizer');
+                if (defaultSynthEl) {
+                    defaultSynthEl.value = getPreferredInstalledSynthesizer('dummy');
+                    applyInstalledSynthesizersToSelect(defaultSynthEl);
+                }
+                document.getElementById('default-device').value = '';
+                document.getElementById('default-speed').value = 1.0;
+                document.getElementById('default-max-chars').value = 150;
+                document.getElementById('default-concurrency').value = 2;
+                document.getElementById('default-frame-rate').value = 24000.0;
+                showToast('Generator defaults reset to default values.', 'info');
+            } else {
+                const defaults = {
+                    expand_numerals: true,
+                    resolve_contractions: true,
+                    resolve_heteronyms: true,
+                    harmonize_punctuation: true,
+                    synthesizer: getPreferredInstalledSynthesizer('dummy'),
+                    device: '',
+                    speed: 1.0,
+                    max_chars: 150,
+                    concurrency: 2,
+                    frame_rate: 24000.0,
+                    custom_lexicon: []
+                };
+                applySettingsToUI(defaults);
+                currentSettings.custom_lexicon = [];
+                renderLexiconTable([]);
+                showToast('Form reset to default values.', 'info');
+            }
         });
     });
 
@@ -193,10 +229,6 @@ function setupSettingsHandlers() {
 
 // ── Voice Library (References Management & Recording) ─────────────────────────
 
-let libMediaRecorder = null;
-let libAudioChunks = [];
-let libRecordTimer = null;
-let libRecordSeconds = 0;
 let libRecordedBlob = null;
 let activeAudioEl = null;
 
@@ -255,62 +287,9 @@ function setupVoiceLibraryHandlers() {
     }
 
     // Microphone Recording events
-    const startMicBtn = document.querySelector('#library-recorder-container .rec-btn-start');
-    const stopMicBtn = document.querySelector('#library-recorder-container .rec-btn-stop');
-    const statusText = document.querySelector('#library-recorder-container .rec-status');
-    const timerText = document.querySelector('#library-recorder-container .rec-timer');
-    const audioPreview = document.querySelector('#library-recorder-container .rec-audio-preview');
-
-    if (startMicBtn && stopMicBtn && statusText && timerText && audioPreview) {
-        startMicBtn.addEventListener('click', async () => {
-            libAudioChunks = [];
-            libRecordSeconds = 0;
-            timerText.textContent = '00:00';
-            statusText.textContent = 'Recording...';
-            statusText.previousElementSibling.classList.add('pulsing');
-            audioPreview.style.display = 'none';
-            libRecordedBlob = null;
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                libMediaRecorder = new MediaRecorder(stream);
-                libMediaRecorder.ondataavailable = e => {
-                    if (e.data.size > 0) libAudioChunks.push(e.data);
-                };
-                libMediaRecorder.onstop = () => {
-                    libRecordedBlob = new Blob(libAudioChunks, { type: 'audio/wav' });
-                    audioPreview.src = URL.createObjectURL(libRecordedBlob);
-                    audioPreview.style.display = 'block';
-                    statusText.textContent = 'Recording completed';
-                    statusText.previousElementSibling.classList.remove('pulsing');
-                    stream.getTracks().forEach(track => track.stop());
-                };
-                libMediaRecorder.start();
-                startMicBtn.disabled = true;
-                stopMicBtn.disabled = false;
-
-                libRecordTimer = setInterval(() => {
-                    libRecordSeconds++;
-                    const m = Math.floor(libRecordSeconds / 60).toString().padStart(2, '0');
-                    const s = (libRecordSeconds % 60).toString().padStart(2, '0');
-                    timerText.textContent = `${m}:${s}`;
-                }, 1000);
-            } catch (err) {
-                showToast('Could not access microphone: ' + err.message, 'error');
-                statusText.textContent = 'Microphone error';
-                statusText.previousElementSibling.classList.remove('pulsing');
-            }
-        });
-
-        stopMicBtn.addEventListener('click', () => {
-            if (libMediaRecorder && libMediaRecorder.state !== 'inactive') {
-                libMediaRecorder.stop();
-                clearInterval(libRecordTimer);
-                startMicBtn.disabled = false;
-                stopMicBtn.disabled = true;
-            }
-        });
-    }
+    const libRecorderCtrl = setupAudioRecorder('#library-recorder-container', blob => {
+        libRecordedBlob = blob;
+    });
 
     // Save Reference Voice Button
     const saveVoiceBtn = document.getElementById('library-voice-save-btn');
@@ -357,12 +336,8 @@ function setupVoiceLibraryHandlers() {
                     const fileInput = document.getElementById('library-audio-file');
                     fileInput.value = '';
                     document.getElementById('library-audio-name').style.display = 'none';
-                } else {
-                    libRecordedBlob = null;
-                    audioPreview.src = '';
-                    audioPreview.style.display = 'none';
-                    timerText.textContent = '00:00';
-                    statusText.textContent = 'Ready to record';
+                } else if (libRecorderCtrl) {
+                    libRecorderCtrl.reset();
                 }
 
                 // Sync Global references dropdowns

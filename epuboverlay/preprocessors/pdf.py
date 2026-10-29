@@ -31,7 +31,10 @@ class PDFPreprocessor(BasePreprocessor):
             return sections
         except ImportError:
             filename = file_path.name
-            dummy_text = f"This is a placeholder for the PDF file '{filename}'. Please install 'pypdf' to enable full extraction."
+            dummy_text = (
+                f"This is a placeholder for the PDF file '{filename}'. "
+                "Please install 'pypdf' (uv add \"epuboverlay[pdf]\") to enable full extraction."
+            )
             return [DocumentSection(
                 id="pdf_placeholder",
                 title="PDF Content",

@@ -1,5 +1,12 @@
 import { fetchConfig, fetchChapters, purgeAllCache, fetchReferences } from './api.js';
-import { showToast } from './utils.js';
+import {
+    showToast,
+    escapeHtml,
+    setInstalledSynthesizers,
+    applyInstalledSynthesizersToSelect,
+    getPreferredInstalledSynthesizer,
+    setupExportCheckboxDependencies,
+} from './utils.js';
 import { startStatsPolling } from './stats.js';
 import { setupKokoroMixer, updateFilteredVoices, setKokoroVoices } from './kokoro.js';
 import { refreshJobsList, connectSSE } from './jobs.js';
@@ -77,6 +84,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 1. Fetch config and setup defaults
     try {
         const config = await fetchConfig();
+        setInstalledSynthesizers(config.installed_synthesizers || {});
+        applyInstalledSynthesizersToSelect(synthSelect);
+        applyInstalledSynthesizersToSelect(document.getElementById('default-synthesizer'));
         setKokoroVoices(config.kokoro_voices || []);
         setPocketVoices(config.pocket_voices || []);
         applyConfigDefaults(config.defaults || {});
@@ -114,21 +124,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const purgeBtn = document.getElementById('purge-cache-btn');
     if (purgeBtn) {
         purgeBtn.addEventListener('click', async () => {
-            const confirmed1 = await showConfirmModal(
+            const confirmed = await showConfirmModal(
                 "Purge All Cache",
-                "Are you sure you want to clear all pipeline cache and jobs?",
-                "Purge All",
-                "btn-danger"
-            );
-            if (!confirmed1) return;
-
-            const confirmed2 = await showConfirmModal(
-                "Confirm Purge",
-                "This will permanently delete all cached chapter audio/SMIL data and all non-running jobs. Are you absolutely sure?",
+                "This will permanently delete all cached chapter audio/SMIL data and all non-running jobs. Are you sure you want to continue?",
                 "Yes, Purge Everything",
                 "btn-danger"
             );
-            if (!confirmed2) return;
+            if (!confirmed) return;
 
             try {
                 await purgeAllCache();
@@ -144,7 +146,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ── Config defaults ─────────────────────────────────────────────────────────
 
 function applyConfigDefaults(defaults) {
-    if (synthSelect) synthSelect.value = defaults.synthesizer || 'f5-tts';
+    if (synthSelect) {
+        synthSelect.value = defaults.synthesizer || getPreferredInstalledSynthesizer('dummy');
+        applyInstalledSynthesizersToSelect(synthSelect);
+    }
 
     const deviceSelect = document.getElementById('device-select');
     if (deviceSelect) deviceSelect.value = defaults.device || '';
@@ -321,7 +326,7 @@ function setupChapterSelection() {
             renderChaptersList(chapters);
         } catch (err) {
             showToast(err.message, 'error');
-            wrapper.innerHTML = `<div class="error-chapters" style="padding: 1rem; color: var(--danger); text-align: center;">✗ Error loading chapters: ${err.message}</div>`;
+            wrapper.innerHTML = `<div class="error-chapters" style="padding: 1rem; color: var(--danger); text-align: center;">✗ Error loading chapters: ${escapeHtml(err.message)}</div>`;
         }
     });
 
@@ -364,14 +369,14 @@ function renderChaptersList(chapters) {
         item.innerHTML = `
             <div class="chapter-item-header" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color); gap: 1rem;">
                 <label class="chapter-checkbox-label" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; flex: 1; user-select: none; margin: 0; text-transform: none;">
-                    <input type="checkbox" class="chapter-checkbox" data-idref="${ch.idref}" ${checkedAttr} style="width: auto; margin: 0; cursor: pointer;">
-                    <span class="chapter-title" style="font-weight: 500; font-size: 0.9rem;">${ch.title}</span>
+                    <input type="checkbox" class="chapter-checkbox" data-idref="${escapeHtml(ch.idref)}" ${checkedAttr} style="width: auto; margin: 0; cursor: pointer;">
+                    <span class="chapter-title" style="font-weight: 500; font-size: 0.9rem;">${escapeHtml(ch.title)}</span>
                 </label>
-                <span class="chapter-char-count" style="font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap;">${ch.char_count} chars</span>
+                <span class="chapter-char-count" style="font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap;">${Number(ch.char_count) || 0} chars</span>
                 <button type="button" class="btn btn-xs btn-ghost toggle-preview-btn" style="white-space: nowrap; font-size: 0.8rem; padding: 0.2rem 0.5rem; line-height: 1.2;">Show Preview</button>
             </div>
             <div class="chapter-preview-container hidden" style="padding: 0.75rem; background: var(--bg-secondary); border-radius: 4px; margin-top: 0.25rem;">
-                <pre class="chapter-preview-text" style="margin: 0; font-family: inherit; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; color: var(--text-secondary); max-height: 200px; overflow-y: auto;">${ch.preview || 'No text preview available.'}</pre>
+                <pre class="chapter-preview-text" style="margin: 0; font-family: inherit; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; color: var(--text-secondary); max-height: 200px; overflow-y: auto;">${escapeHtml(ch.preview || 'No text preview available.')}</pre>
             </div>
         `;
         wrapper.appendChild(item);
@@ -543,147 +548,26 @@ function setupForm() {
 // ── Extraction Form Submission ──────────────────────────────────────────────
 
 function setupExtractForm() {
-    function updateCheckboxDependencies() {
-        const audioChecked = extractAudioFormat.value !== 'none';
-        const mp4Checked = extractMp4Checkbox.checked;
-        const embedSubsChecked = extractEmbedSubsCheckbox.checked;
-        const mp4Label = extractMp4Checkbox.closest('label');
-
-        if (audioChecked) {
-            extractMp4Checkbox.disabled = false;
-            if (mp4Label) mp4Label.style.opacity = '1';
-
-            extractEmbedSubsCheckbox.disabled = !mp4Checked;
-            extractEmbedSubsGroup.style.opacity = mp4Checked ? '1' : '0.5';
-            if (!mp4Checked) extractEmbedSubsCheckbox.checked = false;
-        } else {
-            extractMp4Checkbox.disabled = true;
-            extractMp4Checkbox.checked = false;
-            if (mp4Label) mp4Label.style.opacity = '0.5';
-
-            extractEmbedSubsCheckbox.disabled = true;
-            extractEmbedSubsCheckbox.checked = false;
-            extractEmbedSubsGroup.style.opacity = '0.5';
-        }
-
-        const isMp4 = extractMp4Checkbox.checked;
-        const isEmbed = extractEmbedSubsCheckbox.checked;
-
-        const fmtAss = document.getElementById('extract-fmt-ass');
-        const fmtSrt = document.getElementById('extract-fmt-srt');
-        const fmtVtt = document.getElementById('extract-fmt-vtt');
-        const fmtTtml = document.getElementById('extract-fmt-ttml');
-        const fmtSbv = document.getElementById('extract-fmt-sbv');
-        const fmtLrc = document.getElementById('extract-fmt-lrc');
-        const fmtTxt = document.getElementById('extract-fmt-txt');
-
-        function setFmtState(el, enabled) {
-            if (!el) return;
-            el.disabled = !enabled;
-            const parentLabel = el.closest('label');
-            if (parentLabel) {
-                parentLabel.style.opacity = enabled ? '1' : '0.5';
-            }
-            if (!enabled) {
-                el.checked = false;
-            }
-        }
-
-        setFmtState(fmtTxt, true);
-
-        const audioFmt = extractAudioFormat.value;
-        if (audioFmt === 'm4a') {
-            setFmtState(fmtAss, true);
-            setFmtState(fmtSrt, true);
-            setFmtState(fmtVtt, true);
-            setFmtState(fmtTtml, true);
-            setFmtState(fmtSbv, true);
-            setFmtState(fmtLrc, true);
-        } else if (isMp4) {
-            setFmtState(fmtAss, true);
-            setFmtState(fmtSrt, true);
-            setFmtState(fmtVtt, true);
-            setFmtState(fmtTtml, true);
-            setFmtState(fmtSbv, true);
-            setFmtState(fmtLrc, false);
-        } else {
-            setFmtState(fmtAss, false);
-            setFmtState(fmtSrt, false);
-            setFmtState(fmtVtt, false);
-            setFmtState(fmtTtml, false);
-            setFmtState(fmtSbv, false);
-            setFmtState(fmtLrc, false);
-        }
-
-        const anyFmtChecked = [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].some(el => el && el.checked);
-        const audioOrAnyFmtSelected = audioChecked || anyFmtChecked;
-
-        const mergeCb = document.getElementById('extract-merge-checkbox');
-        if (mergeCb) {
-            mergeCb.disabled = !audioOrAnyFmtSelected;
-            const mergeLabel = mergeCb.closest('label');
-            if (mergeLabel) {
-                mergeLabel.style.opacity = audioOrAnyFmtSelected ? '1' : '0.5';
-            }
-            if (!audioOrAnyFmtSelected) {
-                mergeCb.checked = false;
-            }
-        }
-
-        const centerApplicableChecked = isEmbed || [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv].some(el => el && el.checked && !el.disabled);
-        const centerCb = document.getElementById('extract-center-checkbox');
-        if (centerCb) {
-            centerCb.disabled = !centerApplicableChecked;
-            const centerLabel = centerCb.closest('label');
-            if (centerLabel) {
-                centerLabel.style.opacity = centerApplicableChecked ? '1' : '0.5';
-            }
-            if (!centerApplicableChecked) {
-                centerCb.checked = false;
-            }
-        }
-
-        if (extractSubmitBtn) {
-            extractSubmitBtn.disabled = !audioOrAnyFmtSelected;
-        }
-
-        if (extractCoverFile) {
-            const enableCover = (audioFmt === 'm4b');
-            extractCoverFile.disabled = !enableCover;
-            if (extractCoverUploadZone) {
-                extractCoverUploadZone.style.opacity = enableCover ? '1' : '0.5';
-                extractCoverUploadZone.style.pointerEvents = enableCover ? 'auto' : 'none';
-            }
-            if (!enableCover) {
-                extractCoverFile.value = '';
-                if (extractCoverFileName) {
-                    extractCoverFileName.style.display = 'none';
-                    extractCoverFileName.textContent = '';
-                }
-            }
-        }
-    }
-
-    if (extractAudioFormat && extractMp4Checkbox) {
-        extractAudioFormat.addEventListener('change', updateCheckboxDependencies);
-        extractMp4Checkbox.addEventListener('change', updateCheckboxDependencies);
-        if (extractEmbedSubsCheckbox) {
-            extractEmbedSubsCheckbox.addEventListener('change', () => {
-                if (extractEmbedSubsCheckbox.checked) {
-                    const centerCb = document.getElementById('extract-center-checkbox');
-                    if (centerCb) centerCb.checked = true;
-                }
-                updateCheckboxDependencies();
-            });
-        }
-        ['ass', 'srt', 'vtt', 'ttml', 'sbv', 'lrc', 'txt'].forEach(fmt => {
-            const el = document.getElementById(`extract-fmt-${fmt}`);
-            if (el) {
-                el.addEventListener('change', updateCheckboxDependencies);
-            }
-        });
-        updateCheckboxDependencies();
-    }
+    setupExportCheckboxDependencies({
+        audioFmtSelect: extractAudioFormat,
+        mp4Cb: extractMp4Checkbox,
+        mp4Group: extractMp4Checkbox ? extractMp4Checkbox.closest('label') : null,
+        embedSubsCb: extractEmbedSubsCheckbox,
+        embedSubsGroup: extractEmbedSubsGroup,
+        fmtAss: document.getElementById('extract-fmt-ass'),
+        fmtSrt: document.getElementById('extract-fmt-srt'),
+        fmtVtt: document.getElementById('extract-fmt-vtt'),
+        fmtTtml: document.getElementById('extract-fmt-ttml'),
+        fmtSbv: document.getElementById('extract-fmt-sbv'),
+        fmtLrc: document.getElementById('extract-fmt-lrc'),
+        fmtTxt: document.getElementById('extract-fmt-txt'),
+        mergeCb: document.getElementById('extract-merge-checkbox'),
+        centerCb: document.getElementById('extract-center-checkbox'),
+        submitBtn: extractSubmitBtn,
+        coverInput: extractCoverFile,
+        coverContainer: extractCoverUploadZone,
+        coverNameEl: extractCoverFileName,
+    });
 
     extractForm.addEventListener('submit', async (e) => {
         e.preventDefault();

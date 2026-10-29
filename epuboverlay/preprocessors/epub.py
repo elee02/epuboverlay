@@ -7,7 +7,12 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Dict, Tuple
 
-from epuboverlay.preprocessors.base import BasePreprocessor, DocumentSection, ends_with_terminal_punctuation
+from epuboverlay.preprocessors.base import (
+    BasePreprocessor,
+    DocumentSection,
+    ends_with_terminal_punctuation,
+    resolve_safe_path,
+)
 
 # --- Helpers ---
 
@@ -525,6 +530,80 @@ def regenerate_ncx_file(ncx_path: Path, new_toc_entries: List[Tuple[str, str]], 
         print(f"Error regenerating NCX file: {e}")
 
 
+def parse_epub_toc_zip(
+    zf: zipfile.ZipFile,
+    opf_dir: Path,
+    opf_root: ET.Element,
+) -> Tuple[Dict[str, str], Dict[str, List[Tuple[str, str]]]]:
+    """Parse NAV or NCX from an open ZipFile archive, returning (toc_map, anchor_map)."""
+    from epuboverlay.pipeline import parse_epub_toc, replace_html_entities
+
+    opf_path_str = (opf_dir / "content.opf").as_posix()
+    toc_map = parse_epub_toc(zf, opf_path_str, opf_root)
+    anchor_map: Dict[str, List[Tuple[str, str]]] = {}
+
+    def _normalize(base: Path, hr: str) -> str:
+        combined = (base / hr).as_posix()
+        return os.path.normpath(combined).replace("\\", "/").lstrip("./").lstrip("/")
+
+    nav_href = None
+    for item in opf_root.findall(".//{*}manifest/{*}item"):
+        if "nav" in item.attrib.get("properties", "").split():
+            nav_href = item.attrib.get("href")
+            break
+
+    if nav_href:
+        try:
+            nav_zip_path = _normalize(opf_dir, nav_href)
+            nav_content = zf.read(nav_zip_path)
+            nav_content = replace_html_entities(
+                nav_content.decode("utf-8", errors="ignore")
+            ).encode("utf-8")
+            nav_root = ET.fromstring(nav_content)
+            nav_dir = Path(nav_zip_path).parent
+
+            for a_el in nav_root.findall(".//{*}a"):
+                href = a_el.attrib.get("href", "").strip()
+                if href:
+                    clean_href = href.split("#")[0]
+                    anchor = href.split("#")[1] if "#" in href else ""
+                    resolved_href = _normalize(nav_dir, clean_href)
+                    title = "".join(a_el.itertext()).strip()
+                    if title:
+                        anchor_map.setdefault(resolved_href, []).append((anchor, title))
+        except Exception:
+            pass
+
+    if not anchor_map:
+        ncx_href = None
+        for item in opf_root.findall(".//{*}manifest/{*}item"):
+            if item.attrib.get("media-type") == "application/x-dtbncx+xml":
+                ncx_href = item.attrib.get("href")
+                break
+        if ncx_href:
+            try:
+                ncx_zip_path = _normalize(opf_dir, ncx_href)
+                ncx_content = zf.read(ncx_zip_path)
+                ncx_root = ET.fromstring(ncx_content)
+                ncx_dir = Path(ncx_zip_path).parent
+
+                for nav_point in ncx_root.findall(".//{*}navPoint"):
+                    content_el = nav_point.find("{*}content")
+                    label_el = nav_point.find(".//{*}navLabel/{*}text")
+                    if content_el is not None and label_el is not None:
+                        src = content_el.attrib.get("src", "").strip()
+                        text = (label_el.text or "").strip()
+                        if src and text:
+                            clean_src = src.split("#")[0]
+                            anchor = src.split("#")[1] if "#" in src else ""
+                            resolved_src = _normalize(ncx_dir, clean_src)
+                            anchor_map.setdefault(resolved_src, []).append((anchor, text))
+            except Exception:
+                pass
+
+    return toc_map, anchor_map
+
+
 def preprocess_epub_workspace(workspace_dir: Path) -> None:
     """Preprocesses an extracted EPUB workspace.
     
@@ -548,11 +627,15 @@ def preprocess_epub_workspace(workspace_dir: Path) -> None:
     if not opf_rel_path:
         return
         
-    opf_path = workspace_dir / opf_rel_path
+    opf_path = resolve_safe_path(workspace_dir, workspace_dir / opf_rel_path)
     opf_dir = opf_path.parent
     
     opf_tree = ET.parse(opf_path)
     opf_root = opf_tree.getroot()
+    
+    # Skip re-splitting if the EPUB was generated from pre-split DocumentSections
+    if opf_root.find(".//{*}meta[@property='epuboverlay:preprocessed']") is not None:
+        return
     
     toc_map, anchor_map = parse_epub_toc_filesystem(opf_dir, opf_root)
     use_heuristics = (len(anchor_map) <= 1)
@@ -593,7 +676,7 @@ def preprocess_epub_workspace(workspace_dir: Path) -> None:
         if not is_html_media_type(item_el.attrib.get("media-type"), href):
             continue
             
-        html_path = (opf_dir / href).resolve()
+        html_path = resolve_safe_path(workspace_dir, opf_dir / href)
         rel_html_path = os.path.relpath(html_path, opf_dir).replace("\\", "/")
         
         if not html_path.exists():
@@ -735,7 +818,7 @@ class EPUBPreprocessor(BasePreprocessor):
         return file_path.suffix.lower() == ".epub"
         
     def extract_sections(self, file_path: Path) -> List[DocumentSection]:
-        from epuboverlay.pipeline import parse_epub_toc, replace_html_entities
+        from epuboverlay.pipeline import replace_html_entities
         
         results: List[DocumentSection] = []
         with zipfile.ZipFile(file_path, "r") as zf:
@@ -748,8 +831,11 @@ class EPUBPreprocessor(BasePreprocessor):
             opf_path = rootfile.attrib.get("full-path", "")
             opf_root = ET.fromstring(zf.read(opf_path))
             opf_dir = Path(opf_path).parent
+            is_preprocessed = (
+                opf_root.find(".//{*}meta[@property='epuboverlay:preprocessed']") is not None
+            )
             
-            toc_map = parse_epub_toc(zf, opf_path, opf_root)
+            toc_map, anchor_map = parse_epub_toc_zip(zf, opf_dir, opf_root)
             
             manifest: Dict[str, str] = {}
             for item in opf_root.findall(".//{*}manifest/{*}item"):
@@ -758,63 +844,9 @@ class EPUBPreprocessor(BasePreprocessor):
                 if item_id and href:
                     manifest[item_id] = href
                     
-            anchor_map: Dict[str, List[Tuple[str, str]]] = {}
-            
-            nav_href = None
-            for item in opf_root.findall(".//{*}manifest/{*}item"):
-                if "nav" in item.attrib.get("properties", "").split():
-                    nav_href = item.attrib.get("href")
-                    break
-                    
             def _normalize(base: Path, hr: str) -> str:
                 combined = (base / hr).as_posix()
                 return os.path.normpath(combined).replace("\\", "/").lstrip("./").lstrip("/")
-                
-            if nav_href:
-                try:
-                    nav_zip_path = _normalize(opf_dir, nav_href)
-                    nav_content = zf.read(nav_zip_path)
-                    nav_root = ET.fromstring(nav_content)
-                    nav_dir = Path(nav_zip_path).parent
-                    
-                    for a_el in nav_root.findall(".//{*}a"):
-                        href = a_el.attrib.get("href", "").strip()
-                        if href:
-                            clean_href = href.split("#")[0]
-                            anchor = href.split("#")[1] if "#" in href else ""
-                            resolved_href = _normalize(nav_dir, clean_href)
-                            title = "".join(a_el.itertext()).strip()
-                            if title:
-                                anchor_map.setdefault(resolved_href, []).append((anchor, title))
-                except Exception:
-                    pass
-            
-            if not anchor_map:
-                ncx_href = None
-                for item in opf_root.findall(".//{*}manifest/{*}item"):
-                    if item.attrib.get("media-type") == "application/x-dtbncx+xml":
-                        ncx_href = item.attrib.get("href")
-                        break
-                if ncx_href:
-                    try:
-                        ncx_zip_path = _normalize(opf_dir, ncx_href)
-                        ncx_content = zf.read(ncx_zip_path)
-                        ncx_root = ET.fromstring(ncx_content)
-                        ncx_dir = Path(ncx_zip_path).parent
-                        
-                        for nav_point in ncx_root.findall(".//{*}navPoint"):
-                            content_el = nav_point.find("{*}content")
-                            label_el = nav_point.find(".//{*}navLabel/{*}text")
-                            if content_el is not None and label_el is not None:
-                                src = content_el.attrib.get("src", "").strip()
-                                text = (label_el.text or "").strip()
-                                if src and text:
-                                    clean_src = src.split("#")[0]
-                                    anchor = src.split("#")[1] if "#" in src else ""
-                                    resolved_src = _normalize(ncx_dir, clean_src)
-                                    anchor_map.setdefault(resolved_src, []).append((anchor, text))
-                    except Exception:
-                        pass
             
             for itemref in opf_root.findall(".//{*}spine/{*}itemref"):
                 idref = itemref.attrib.get("idref", "")
@@ -841,8 +873,11 @@ class EPUBPreprocessor(BasePreprocessor):
                     continue
                 
                 # Detect heuristic headings BEFORE merging paragraphs
-                use_heuristics = (len(anchor_map) <= 1)
-                if use_heuristics:
+                use_heuristics = (not is_preprocessed) and (len(anchor_map) <= 1)
+                if is_preprocessed:
+                    anchors = []
+                    doc_anchors_info = []
+                elif use_heuristics:
                     heur_anchors = find_heuristic_anchors(xhtml_root)
                     anchors = [a[0] for a in heur_anchors]
                     doc_anchors_info = heur_anchors

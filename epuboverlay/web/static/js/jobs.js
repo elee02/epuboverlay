@@ -1,7 +1,9 @@
 import { cancelJob, deleteJob as deleteJobApi, resumeJob as resumeJobApi, fetchJobDetails, loadJobs, convertJobToAudio } from './api.js';
-import { showToast, formatTime, escapeHtml } from './utils.js';
+import { showToast, formatTime, escapeHtml, setupExportCheckboxDependencies, applyInstalledSynthesizersToSelect } from './utils.js';
 import { showConfirmModal } from './modal.js';
 import { setupKokoroMixer, updateFilteredVoices, getVoiceMetadata, setVoiceMode, renderBlendMixer } from './kokoro.js';
+import { setupPocketModeToggle, populatePocketVoiceSelect } from './pocket.js';
+import { savedReferences } from './app.js';
 
 export let activeSSE = null;
 
@@ -481,132 +483,27 @@ export function renderCompletedJobs(completedJobs) {
         const mergeCb = card.querySelector(`.merge-chapters-cb`);
         const centerCb = card.querySelector(`.center-subtitles-cb`);
         const convertBtn = card.querySelector(`.convert-audio-btn`);
+        const coverArtInput = card.querySelector(`#cover-art-${job.id}`);
 
-        function updateCardCheckboxDependencies() {
-            const audioFmt = audioFmtSelect.value;
-            const audioChecked = (audioFmt !== 'none');
-            const mp4Checked = mp4Cb.checked;
-
-            if (audioChecked) {
-                mp4Cb.disabled = false;
-                if (mp4Group) mp4Group.style.opacity = '1';
-
-                embedSubsCb.disabled = !mp4Checked;
-                if (embedSubsGroup) {
-                    embedSubsGroup.style.opacity = mp4Checked ? '1' : '0.5';
-                }
-                if (!mp4Checked) embedSubsCb.checked = false;
-            } else {
-                mp4Cb.disabled = true;
-                mp4Cb.checked = false;
-                if (mp4Group) mp4Group.style.opacity = '0.5';
-
-                embedSubsCb.disabled = true;
-                embedSubsCb.checked = false;
-                if (embedSubsGroup) embedSubsGroup.style.opacity = '0.5';
-            }
-
-            const isMp4 = mp4Cb.checked;
-            const isEmbed = embedSubsCb.checked;
-
-            function setFmtState(el, enabled) {
-                if (!el) return;
-                el.disabled = !enabled;
-                const parentLabel = el.closest('label');
-                if (parentLabel) {
-                    parentLabel.style.opacity = enabled ? '1' : '0.5';
-                }
-                if (!enabled) {
-                    el.checked = false;
-                }
-            }
-
-            setFmtState(fmtTxt, true);
-
-            if (audioFmt === 'm4a') {
-                setFmtState(fmtAss, true);
-                setFmtState(fmtSrt, true);
-                setFmtState(fmtVtt, true);
-                setFmtState(fmtTtml, true);
-                setFmtState(fmtSbv, true);
-                setFmtState(fmtLrc, true);
-            } else if (isMp4) {
-                setFmtState(fmtAss, true);
-                setFmtState(fmtSrt, true);
-                setFmtState(fmtVtt, true);
-                setFmtState(fmtTtml, true);
-                setFmtState(fmtSbv, true);
-                setFmtState(fmtLrc, false);
-            } else {
-                setFmtState(fmtAss, false);
-                setFmtState(fmtSrt, false);
-                setFmtState(fmtVtt, false);
-                setFmtState(fmtTtml, false);
-                setFmtState(fmtSbv, false);
-                setFmtState(fmtLrc, false);
-            }
-
-            const anyFmtChecked = [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].some(el => el && el.checked);
-            const audioOrAnyFmtSelected = audioChecked || anyFmtChecked;
-
-            if (mergeCb) {
-                mergeCb.disabled = !audioOrAnyFmtSelected;
-                const mergeLabel = mergeCb.closest('label');
-                if (mergeLabel) {
-                    mergeLabel.style.opacity = audioOrAnyFmtSelected ? '1' : '0.5';
-                }
-                if (!audioOrAnyFmtSelected) {
-                    mergeCb.checked = false;
-                }
-            }
-
-            const centerApplicableChecked = isEmbed || [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv].some(el => el && el.checked && !el.disabled);
-            if (centerCb) {
-                centerCb.disabled = !centerApplicableChecked;
-                const centerLabel = centerCb.closest('label');
-                if (centerLabel) {
-                    centerLabel.style.opacity = centerApplicableChecked ? '1' : '0.5';
-                }
-                if (!centerApplicableChecked) {
-                    centerCb.checked = false;
-                }
-            }
-
-            if (convertBtn) {
-                convertBtn.disabled = !audioOrAnyFmtSelected;
-            }
-
-            const coverArtInput = card.querySelector(`#cover-art-${job.id}`);
-            if (coverArtInput) {
-                const coverArtGroup = coverArtInput.closest('.options-group-sub');
-                const enableCover = (audioFmt === 'm4b');
-                coverArtInput.disabled = !enableCover;
-                if (coverArtGroup) {
-                    coverArtGroup.style.opacity = enableCover ? '1' : '0.5';
-                    coverArtGroup.style.pointerEvents = enableCover ? 'auto' : 'none';
-                }
-                if (!enableCover) {
-                    coverArtInput.value = '';
-                }
-            }
-        }
-
-        if (audioFmtSelect && mp4Cb) {
-            audioFmtSelect.addEventListener('change', updateCardCheckboxDependencies);
-            mp4Cb.addEventListener('change', updateCardCheckboxDependencies);
-            if (embedSubsCb) {
-                embedSubsCb.addEventListener('change', () => {
-                    if (embedSubsCb.checked) {
-                        if (centerCb) centerCb.checked = true;
-                    }
-                    updateCardCheckboxDependencies();
-                });
-            }
-            [fmtAss, fmtSrt, fmtVtt, fmtTtml, fmtSbv, fmtLrc, fmtTxt].forEach(el => {
-                if (el) el.addEventListener('change', updateCardCheckboxDependencies);
-            });
-            updateCardCheckboxDependencies();
-        }
+        setupExportCheckboxDependencies({
+            audioFmtSelect,
+            mp4Cb,
+            mp4Group,
+            embedSubsCb,
+            embedSubsGroup,
+            fmtAss,
+            fmtSrt,
+            fmtVtt,
+            fmtTtml,
+            fmtSbv,
+            fmtLrc,
+            fmtTxt,
+            mergeCb,
+            centerCb,
+            submitBtn: convertBtn,
+            coverInput: coverArtInput,
+            coverContainer: coverArtInput ? coverArtInput.closest('.options-group-sub') : null,
+        });
 
         card.querySelector('.delete-job-btn').addEventListener('click', () => deleteJob(job.id, () => refreshJobsList(() => { })));
 
@@ -688,30 +585,28 @@ export function renderFailedJobs(failedJobs, onJobUpdate) {
         const card = document.createElement('div');
         card.className = 'card';
         card.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">
-                        <span class="icon">📖</span>
-                        ${escapeHtml(job.book_title || job.original_filename)}
-                    </div>
-                    <span class="status-badge ${job.status}">${job.status === 'cancelled' ? '⊘ Cancelled' : '✗ Failed'}</span>
+            <div class="card-header">
+                <div class="card-title">
+                    <span class="icon">📖</span>
+                    ${escapeHtml(job.book_title || job.original_filename)}
                 </div>
+                <span class="status-badge ${escapeHtml(job.status)}">${job.status === 'cancelled' ? '⊘ Cancelled' : '✗ Failed'}</span>
+            </div>
 
-                ${job.error ? `<div class="error-message">${escapeHtml(job.error)}</div>` : ''}
+            ${job.error ? `<div class="error-message">${escapeHtml(job.error)}</div>` : ''}
 
-                <div class="progress-stats" style="margin-top: 0; margin-bottom: 1rem;">
-                    <span class="progress-stat">Est. Audiobook: <strong>${estHrsStr}</strong></span>
-                    <span class="progress-stat">Chapters: <strong>${job.progress?.chapter_total || '—'}</strong></span>
-                </div>
+            <div class="progress-stats" style="margin-top: 0; margin-bottom: 1rem;">
+                <span class="progress-stat">Est. Audiobook: <strong>${estHrsStr}</strong></span>
+                <span class="progress-stat">Chapters: <strong>${job.progress?.chapter_total || '—'}</strong></span>
+            </div>
 
-                <div class="job-actions">
-                    <button class="btn btn-primary btn-sm resume-job-btn">
-                        ↻ Resume
-                    </button>
-                    <button class="btn btn-danger btn-sm delete-job-btn">
-                        🗑️ Delete
-                    </button>
-                </div>
+            <div class="job-actions">
+                <button class="btn btn-primary btn-sm resume-job-btn">
+                    ↻ Resume
+                </button>
+                <button class="btn btn-danger btn-sm delete-job-btn">
+                    🗑️ Delete
+                </button>
             </div>
         `;
 
@@ -722,21 +617,13 @@ export function renderFailedJobs(failedJobs, onJobUpdate) {
 }
 
 export async function deleteJob(jobId, onSuccess) {
-    const confirmed1 = await showConfirmModal(
+    const confirmed = await showConfirmModal(
         "Delete Job",
-        "Are you sure you want to delete this job? This will delete the database entry and its audio files.",
-        "Delete",
+        "Are you sure you want to permanently delete this job, its audio files, and its synthesis cache?",
+        "Delete Job",
         "btn-danger"
     );
-    if (!confirmed1) return;
-
-    const confirmed2 = await showConfirmModal(
-        "Confirm Deletion",
-        "This action cannot be undone and will permanently purge this job and its synthesis cache. Confirm deletion?",
-        "Yes, Delete Permanently",
-        "btn-danger"
-    );
-    if (!confirmed2) return;
+    if (!confirmed) return;
 
     try {
         await deleteJobApi(jobId);
@@ -801,7 +688,7 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                     </div>
 
                     <!-- F5-TTS Specific Fields in Modal -->
-                    <div id="modal-f5-options" style="display: none;">
+                    <div id="modal-f5-options" style="display: none; border-top: 1px solid var(--border-subtle); padding-top: 0.75rem;">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label for="modal-nfe-step">Inference Steps (NFE)</label>
@@ -810,6 +697,47 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                             <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem; height: 100%; align-self: flex-end; padding-bottom: 0.5rem;">
                                 <input type="checkbox" id="modal-compile" name="compile" style="width: auto; margin: 0; cursor: pointer;" ${originalConfig.compile ? 'checked' : ''}>
                                 <label for="modal-compile" style="margin: 0; cursor: pointer; user-select: none;">Compile Model (torch.compile)</label>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top: 0.75rem;">
+                            <label for="modal-f5-ref-select">Reference Voice</label>
+                            <select id="modal-f5-ref-select">
+                                <option value="">-- Keep Existing / Upload Custom Audio --</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="modal-f5-upload-group" style="margin-top: 0.5rem;">
+                            <label for="modal-f5-ref-audio">Replace Reference Audio (Optional)</label>
+                            <input type="file" id="modal-f5-ref-audio" accept=".wav,.mp3,.ogg,.flac,.m4a">
+                        </div>
+                        <div class="form-group" style="margin-top: 0.5rem; margin-bottom: 0;">
+                            <label for="modal-f5-ref-text">Reference Transcript</label>
+                            <textarea id="modal-f5-ref-text" rows="2">${escapeHtml(originalConfig.ref_text || '')}</textarea>
+                        </div>
+                    </div>
+
+                    <!-- PocketTTS Specific Fields in Modal -->
+                    <div id="modal-pocket-options" style="display: none; border-top: 1px solid var(--border-subtle); padding-top: 0.75rem;">
+                        <div class="form-group">
+                            <label>Voice Mode</label>
+                            <div class="voice-mode-selector" id="modal-pocket-mode-selector">
+                                <button type="button" class="mode-pill active" data-mode="preset">Built-in Preset</button>
+                                <button type="button" class="mode-pill" data-mode="clone">Clone Reference</button>
+                            </div>
+                        </div>
+                        <div id="modal-pocket-preset-panel" class="form-group" style="margin-bottom: 0;">
+                            <label for="modal-pocket-voice-select">Preset Voice</label>
+                            <select id="modal-pocket-voice-select" name="pocket_voice"></select>
+                        </div>
+                        <div id="modal-pocket-clone-panel" style="display: none;">
+                            <div class="form-group">
+                                <label for="modal-pocket-ref-select">Saved Reference Voice</label>
+                                <select id="modal-pocket-ref-select">
+                                    <option value="">-- Keep Existing / Upload Custom Audio --</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0;">
+                                <label for="modal-pocket-ref-audio">Replace Reference Audio (Optional)</label>
+                                <input type="file" id="modal-pocket-ref-audio" accept=".wav,.mp3,.ogg,.flac,.m4a">
                             </div>
                         </div>
                     </div>
@@ -898,7 +826,48 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
         const modalForm = overlay.querySelector('#resume-form');
         const modalSynth = overlay.querySelector('#modal-synthesizer');
         const modalF5Opts = overlay.querySelector('#modal-f5-options');
+        const modalPocketOpts = overlay.querySelector('#modal-pocket-options');
         const modalKokoroOpts = overlay.querySelector('#modal-kokoro-options');
+
+        applyInstalledSynthesizersToSelect(modalSynth);
+
+        // Populate saved references in modal F5 and Pocket dropdowns
+        [overlay.querySelector('#modal-f5-ref-select'), overlay.querySelector('#modal-pocket-ref-select')].forEach(sel => {
+            if (!sel) return;
+            (savedReferences || []).forEach(ref => {
+                const opt = document.createElement('option');
+                opt.value = ref.id;
+                opt.textContent = ref.name;
+                sel.appendChild(opt);
+            });
+        });
+
+        const modalF5RefSelect = overlay.querySelector('#modal-f5-ref-select');
+        const modalF5RefText = overlay.querySelector('#modal-f5-ref-text');
+        if (modalF5RefSelect && modalF5RefText) {
+            modalF5RefSelect.addEventListener('change', () => {
+                const ref = (savedReferences || []).find(r => r.id === modalF5RefSelect.value);
+                if (ref && ref.text) {
+                    modalF5RefText.value = ref.text;
+                }
+            });
+        }
+
+        // Setup PocketTTS mode toggle in modal
+        const modalPocketModeSelector = overlay.querySelector('#modal-pocket-mode-selector');
+        const modalPocketVoiceSelect = overlay.querySelector('#modal-pocket-voice-select');
+        setupPocketModeToggle(
+            {
+                modeSelector: modalPocketModeSelector,
+                presetPanel: overlay.querySelector('#modal-pocket-preset-panel'),
+                clonePanel: overlay.querySelector('#modal-pocket-clone-panel'),
+                voiceSelect: modalPocketVoiceSelect,
+            },
+            originalConfig.pocket_voice ? 'preset' : (originalConfig.ref_audio_path ? 'clone' : 'preset')
+        );
+        if (originalConfig.pocket_voice && modalPocketVoiceSelect) {
+            populatePocketVoiceSelect(modalPocketVoiceSelect, originalConfig.pocket_voice);
+        }
 
         const elements = {
             langSelect: overlay.querySelector('#modal-lang-code'),
@@ -926,12 +895,11 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
         // Hide/show options function
         function toggleModalSynthFields() {
             const synth = modalSynth.value;
-            if (synth === 'f5-tts') {
-                modalF5Opts.style.display = 'block';
-                modalKokoroOpts.style.display = 'none';
-            } else if (synth === 'kokoro') {
-                modalF5Opts.style.display = 'none';
-                modalKokoroOpts.style.display = 'block';
+            modalF5Opts.style.display = synth === 'f5-tts' ? 'block' : 'none';
+            if (modalPocketOpts) modalPocketOpts.style.display = synth === 'pocket-tts' ? 'block' : 'none';
+            modalKokoroOpts.style.display = synth === 'kokoro' ? 'block' : 'none';
+
+            if (synth === 'kokoro') {
                 // Trigger initial filter & layout
                 updateFilteredVoices(elements);
                 if (originalConfig.voice_formula) {
@@ -945,17 +913,10 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
                             parsed.push({ voice: parts[0], weight: parseFloat(parts[1]) * 100 });
                         }
                     });
-                    // Set blend voices state on elements for tracking
-                    // (To avoid modifying global state, we can store it on elements' visualizer container)
                     elements.blendVisualizerBar.activeBlendVoices = parsed;
-                    // Hook into renderBlendMixer override to read from container
-                    // Let's customize state per-instance
                 } else {
                     setVoiceMode('single', elements);
                 }
-            } else {
-                modalF5Opts.style.display = 'none';
-                modalKokoroOpts.style.display = 'none';
             }
         }
 
@@ -989,6 +950,23 @@ export async function triggerResumeModal(jobId, onJobUpdate) {
             if (modalSynth.value === 'f5-tts') {
                 formData.append('nfe_step', modalForm.querySelector('#modal-nfe-step').value);
                 formData.append('compile', modalForm.querySelector('#modal-compile').checked);
+                const f5RefId = modalForm.querySelector('#modal-f5-ref-select')?.value || '';
+                const f5RefAudio = modalForm.querySelector('#modal-f5-ref-audio')?.files?.[0] || null;
+                const f5RefText = modalForm.querySelector('#modal-f5-ref-text')?.value || '';
+                if (f5RefId) formData.append('ref_id', f5RefId);
+                if (f5RefAudio) formData.append('ref_audio', f5RefAudio);
+                if (f5RefText) formData.append('ref_text', f5RefText);
+            } else if (modalSynth.value === 'pocket-tts') {
+                const pocketMode = modalPocketModeSelector?.querySelector('.mode-pill.active')?.getAttribute('data-mode') || 'preset';
+                if (pocketMode === 'preset') {
+                    formData.append('pocket_voice', modalPocketVoiceSelect ? modalPocketVoiceSelect.value : 'alba');
+                } else {
+                    formData.append('pocket_voice', '');
+                    const pocketRefId = modalForm.querySelector('#modal-pocket-ref-select')?.value || '';
+                    const pocketRefAudio = modalForm.querySelector('#modal-pocket-ref-audio')?.files?.[0] || null;
+                    if (pocketRefId) formData.append('ref_id', pocketRefId);
+                    if (pocketRefAudio) formData.append('ref_audio', pocketRefAudio);
+                }
             } else if (modalSynth.value === 'kokoro') {
                 const currentMode = elements.voiceModeSelector.querySelector('.mode-pill.active').getAttribute('data-mode');
                 formData.append('lang_code', elements.langSelect.value);

@@ -27,7 +27,7 @@ All format preprocessors inherit from `BasePreprocessor` (`can_handle(file_path)
   - `preview: str` — first 1,000 characters for UI preview cards.
 - **Current Format Support Status**:
   - `EPUBPreprocessor` (`epub.py`): Full support in both chapter preview (`POST /api/chapters`) and in-place workspace mutation (`preprocess_epub_workspace()` in `pipeline.py`).
-  - `PDFPreprocessor` (`pdf.py`), `DOCXPreprocessor` (`docx.py`), `MarkdownPreprocessor` (`markdown.py`), `TXTPreprocessor` (`txt.py`): Currently used by `POST /api/chapters` for section extraction/preview. Note that `generate_media_overlay_epub()` in `pipeline.py` expects a valid EPUB ZIP container; non-EPUB inputs must be wrapped into an EPUB container before running the synthesis pipeline.
+  - `PDFPreprocessor` (`pdf.py`), `DOCXPreprocessor` (`docx.py`), `MarkdownPreprocessor` (`markdown.py`), `TXTPreprocessor` (`txt.py`): Used by `POST /api/chapters` for section preview, and automatically wrapped into a valid EPUB 3 container (`build_epub_from_sections()` / `ensure_epub_file()` in `preprocessors/base.py` & `__init__.py`, marked with `<meta property="epuboverlay:preprocessed">true</meta>`) during `JobManager.create_job()` and `generate_media_overlay_epub()`.
 
 ### B. EPUB Layout & TOC Discovery Chain (`preprocessors/epub.py`)
 EPUB preprocessing operates in two places: read-only preview (`EPUBPreprocessor.extract_sections`) and in-place workspace mutation (`preprocess_epub_workspace(workspace_dir)` called during Phase 1 of `generate_media_overlay_epub`).
@@ -123,12 +123,14 @@ All synthesizers register in `epuboverlay/synthesizers/__init__.py` (`_REGISTRY`
 
 ## 5. Security, UX & Testing Guardrails
 
-1. **Filesystem & ZIP Path Safety**:
-   - Always sanitize uploaded filenames with `Path(upload.filename).name`.
-   - Validate OPF `idref` and manifest `href` values so resolved paths stay strictly inside the workspace (`resolved.is_relative_to(workspace_dir)`).
+1. **Filesystem, ZIP & Request Safety**:
+   - Always sanitize uploaded filenames with `Path(upload.filename).name` and stream uploads via `_save_upload_to_temp()` / `_read_upload_bytes()` in `server.py` (enforcing `MAX_UPLOAD_BYTES`).
+   - Extract archives exclusively via `safe_extract_zip()` and validate OPF/manifest paths via `resolve_safe_path()` (`preprocessors/base.py`) so resolved paths stay strictly inside the workspace (`resolved.is_relative_to(workspace_dir)`).
    - Always clean up temporary files and directories created with `tempfile.NamedTemporaryFile(delete=False)` or `tempfile.mkdtemp()` (use `BackgroundTask(shutil.rmtree, ...)` on `FileResponse`).
-2. **Frontend XSS Prevention**:
-   - Always pass untrusted strings (book titles, chapter titles, chapter previews, error messages, voice names) through `escapeHtml()` from `static/js/utils.js` or assign via `.textContent` rather than raw `innerHTML`.
+   - Mutating `/api/*` endpoints are protected against cross-origin CSRF by `verify_same_origin()` middleware in `server.py`, and CLI job termination in `JobManager.cancel_job()` verifies active `cli-{pid}` membership via `_scan_cli_jobs()`.
+2. **Frontend XSS & Audio Recording Guardrails**:
+   - Always pass untrusted strings (book titles, chapter titles, chapter previews, error messages, toast notifications, voice names) through `escapeHtml()` from `static/js/utils.js` or assign via `.textContent` rather than raw `innerHTML`.
+   - Use `setupAudioRecorder()` and `convertRecordedBlobToWav()` from `static/js/utils.js` for microphone capture so browser `MediaRecorder` streams are decoded into genuine 16-bit PCM RIFF WAV blobs.
 3. **Running Tests**:
    - Run unit tests via:
      ```bash

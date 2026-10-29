@@ -3,9 +3,13 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from epuboverlay.preprocessors import (
     ends_with_terminal_punctuation,
+    ensure_epub_file,
     merge_consecutive_paragraphs,
+    resolve_safe_path,
+    safe_extract_zip,
     split_xhtml_by_anchors,
     get_preprocessor,
+    EPUBPreprocessor,
     MarkdownPreprocessor,
     TXTPreprocessor
 )
@@ -173,4 +177,43 @@ Contents of section 2.
         # PRINCIPLE 1 and PRINCIPLE 2 should be filtered out because they are too close to each other
         self.assertNotIn("PRINCIPLE 1", anchor_texts)
         self.assertNotIn("PRINCIPLE 2", anchor_texts)
+
+    def test_ensure_epub_file_from_markdown(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            md_path = tmp_root / "notes.md"
+            md_path.write_text(
+                "# Chapter One\nHello world from markdown.\n\n# Chapter Two\nSecond chapter text.",
+                encoding="utf-8",
+            )
+            out_epub = tmp_root / "converted.epub"
+            result_path = ensure_epub_file(md_path, out_epub, title="My Notes")
+            self.assertEqual(result_path, out_epub)
+            self.assertTrue(out_epub.exists())
+
+            sections = EPUBPreprocessor().extract_sections(out_epub)
+            self.assertEqual(len(sections), 2)
+            self.assertEqual(sections[0].id, "section_0")
+            self.assertEqual(sections[0].title, "Chapter One")
+            self.assertEqual(sections[1].id, "section_1")
+            self.assertEqual(sections[1].title, "Chapter Two")
+
+    def test_safe_extract_zip_blocks_traversal(self):
+        import tempfile
+        import zipfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_root = Path(tmpdir)
+            bad_zip = tmp_root / "bad.zip"
+            with zipfile.ZipFile(bad_zip, "w") as zf:
+                zf.writestr("../escaped.txt", "malicious")
+
+            extract_dir = tmp_root / "workspace"
+            extract_dir.mkdir()
+            with zipfile.ZipFile(bad_zip, "r") as zf:
+                with self.assertRaises(ValueError):
+                    safe_extract_zip(zf, extract_dir)
+
+            with self.assertRaises(ValueError):
+                resolve_safe_path(extract_dir, extract_dir / "../../etc/passwd")
 

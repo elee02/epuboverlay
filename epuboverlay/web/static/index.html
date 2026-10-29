@@ -411,6 +411,14 @@
                         <button type="button" class="pg-synth-pill active" data-synth="kokoro">🗣 Kokoro-82M</button>
                         <button type="button" class="pg-synth-pill" data-synth="pocket-tts">📦 PocketTTS</button>
                         <button type="button" class="pg-synth-pill" data-synth="f5-tts">🎤 F5-TTS</button>
+                        <button type="button" class="pg-synth-pill" data-synth="dummy">🔇 Dummy</button>
+                    </div>
+
+                    <!-- ── Dummy Panel ── -->
+                    <div id="pg-dummy-panel" style="display: none; margin-bottom: 1rem;">
+                        <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">
+                            Generates instant silent WAV frames proportional to text length for pipeline &amp; minimal-install testing.
+                        </p>
                     </div>
 
                     <!-- ── Kokoro Panel ── -->
@@ -644,11 +652,6 @@
                         </button>
                     </div>
 
-                    <!-- Audio Player (hidden for compatibility) -->
-                    <div class="pg-player" id="pg-player-section" style="display:none !important;">
-                        <audio id="pg-audio" preload="auto" style="display:none;"></audio>
-                    </div>
-
                     <!-- Synthesized Audios Stack -->
                     <div class="pg-history-section" id="pg-history-section" style="margin-top: 1.5rem; display: none;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-subtle);">
@@ -673,7 +676,7 @@
 
                 <div class="card" id="extract-card">
                     <p class="card-description">
-                        Upload an e-book file (EPUB, PDF, DOCX, MD, TXT) to compile it into a proper audiobook (.m4b) and matching subtitle files.
+                        Upload an EPUB 3 file with Media Overlays to compile it into a proper audiobook (.m4b / .m4a / .mp4) and matching subtitle files.
                     </p>
 
                     <form id="extract-form" enctype="multipart/form-data">
@@ -969,7 +972,7 @@
                         </div>
                         
                         <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
-                            <button type="button" class="btn btn-ghost settings-reset-btn">Reset to Defaults</button>
+                            <button type="button" class="btn btn-ghost settings-reset-btn" data-reset-scope="normalization">Reset Normalization Defaults</button>
                             <button type="button" class="btn btn-primary settings-save-btn">💾 Save Normalization Settings</button>
                         </div>
                     </div>
@@ -1027,7 +1030,7 @@
                         </div>
 
                         <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
-                            <button type="button" class="btn btn-ghost settings-reset-btn">Reset to Defaults</button>
+                            <button type="button" class="btn btn-ghost settings-reset-btn" data-reset-scope="generator">Reset Generator Defaults</button>
                             <button type="button" class="btn btn-primary settings-save-btn">💾 Save Generator Defaults</button>
                         </div>
                     </div>

@@ -11,7 +11,14 @@ import {
     clearPlaygroundCache,
     saveReference
 } from './api.js';
-import { showToast } from './utils.js';
+import {
+    showToast,
+    escapeHtml,
+    formatPlayerTime,
+    getInstalledSynthesizers,
+    getPreferredInstalledSynthesizer,
+    setupAudioRecorder,
+} from './utils.js';
 import { loadSavedReferencesGlobal, savedReferences } from './app.js';
 import {
     setupKokoroMixer,
@@ -28,18 +35,6 @@ let pgAbortController = null;
 let pgF5RecordedBlob = null;
 let pgPocketRecordedBlob = null;
 
-let pgF5Recorder = null;
-let pgPocketRecorder = null;
-
-let pgF5RecordTimer = null;
-let pgPocketRecordTimer = null;
-
-let pgF5RecordSeconds = 0;
-let pgPocketRecordSeconds = 0;
-
-let pgF5Chunks = [];
-let pgPocketChunks = [];
-
 // ── Playground DOM element references ──────────────────────────────────────
 
 function getElements() {
@@ -50,6 +45,7 @@ function getElements() {
         kokoroPanel:        document.getElementById('pg-kokoro-panel'),
         pocketPanel:        document.getElementById('pg-pocket-panel'),
         f5Panel:            document.getElementById('pg-f5-panel'),
+        dummyPanel:         document.getElementById('pg-dummy-panel'),
         // Kokoro sub-elements
         voiceModeSelector:  document.getElementById('pg-voice-mode-selector'),
         kokoroSinglePanel:  document.getElementById('pg-kokoro-single-panel'),
@@ -109,22 +105,14 @@ function switchSynth(synth, els) {
         });
     }
     const panels = {
-        kokoro:      els.kokoroPanel,
+        kokoro:       els.kokoroPanel,
         'pocket-tts': els.pocketPanel,
-        'f5-tts':    els.f5Panel,
+        'f5-tts':     els.f5Panel,
+        dummy:        els.dummyPanel,
     };
     Object.entries(panels).forEach(([key, panel]) => {
         if (panel) panel.style.display = key === synth ? 'block' : 'none';
     });
-}
-
-// ── Audio player helpers ───────────────────────────────────────────────────
-
-function formatTime(secs) {
-    if (!isFinite(secs) || isNaN(secs)) return '0:00';
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
 }
 
 // ── Rendering Stacked History ──────────────────────────────────────────────
@@ -152,27 +140,29 @@ export async function refreshPlaygroundList() {
             if (item.synthesizer === 'kokoro') {
                 const langMap = { 'a': 'US', 'b': 'GB', 'e': 'ES', 'f': 'FR', 'h': 'IN', 'i': 'IT', 'j': 'JP', 'p': 'PT', 'z': 'ZH' };
                 const langLabel = langMap[item.settings.lang_code] || item.settings.lang_code;
-                settingsHtml += `<span class="pg-meta-badge settings">${langLabel}</span>`;
+                settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(langLabel)}</span>`;
                 if (item.settings.voice_formula) {
                     settingsHtml += `<span class="pg-meta-badge settings" title="${escapeHtml(item.settings.voice_formula)}">formula: mix</span>`;
                 } else {
-                    settingsHtml += `<span class="pg-meta-badge settings">${item.settings.voice}</span>`;
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.voice)}</span>`;
                 }
             } else if (item.synthesizer === 'pocket-tts') {
                 if (item.settings.pocket_voice) {
-                    settingsHtml += `<span class="pg-meta-badge settings">${item.settings.pocket_voice} (preset)</span>`;
+                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.pocket_voice)} (preset)</span>`;
                 } else {
                     settingsHtml += `<span class="pg-meta-badge settings">cloning</span>`;
                 }
             } else if (item.synthesizer === 'f5-tts') {
                 settingsHtml += `<span class="pg-meta-badge settings">cloning</span>`;
             }
-            settingsHtml += `<span class="pg-meta-badge settings">${item.settings.speed}x</span>`;
-            settingsHtml += `<span class="pg-meta-badge settings">${item.settings.device}</span>`;
+            settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.speed)}x</span>`;
+            settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.device)}</span>`;
 
+            const safeSynth = escapeHtml(item.synthesizer);
+            const safeId = encodeURIComponent(item.id || '');
             card.innerHTML = `
                 <div class="pg-history-meta">
-                    <span class="pg-meta-badge ${item.synthesizer}">${item.synthesizer}</span>
+                    <span class="pg-meta-badge ${safeSynth}">${safeSynth}</span>
                     ${settingsHtml}
                     <span style="font-size:0.75rem; color:var(--text-muted); margin-left:auto;">${new Date(item.timestamp * 1000).toLocaleTimeString()}</span>
                 </div>
@@ -183,8 +173,8 @@ export async function refreshPlaygroundList() {
                         <div class="pg-history-progress-fill"></div>
                     </div>
                     <span class="pg-history-time">0:00 / 0:00</span>
-                    <a href="/api/playground/audio/${item.id}" download="playground_${item.id}.wav" class="pg-history-dl-btn" title="Download Audio">📥</a>
-                    <audio src="/api/playground/audio/${item.id}" preload="none"></audio>
+                    <a href="/api/playground/audio/${safeId}" download="playground_${safeId}.wav" class="pg-history-dl-btn" title="Download Audio">📥</a>
+                    <audio src="/api/playground/audio/${safeId}" preload="none"></audio>
                 </div>
             `;
 
@@ -196,12 +186,12 @@ export async function refreshPlaygroundList() {
             const timeEl = card.querySelector('.pg-history-time');
 
             audio.onloadedmetadata = () => {
-                timeEl.textContent = `0:00 / ${formatTime(audio.duration)}`;
+                timeEl.textContent = `0:00 / ${formatPlayerTime(audio.duration)}`;
             };
             audio.ontimeupdate = () => {
                 const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
                 progressFill.style.width = `${pct}%`;
-                timeEl.textContent = `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+                timeEl.textContent = `${formatPlayerTime(audio.currentTime)} / ${formatPlayerTime(audio.duration)}`;
             };
             audio.onended = () => {
                 playBtn.textContent = '▶';
@@ -235,15 +225,6 @@ export async function refreshPlaygroundList() {
     } catch (err) {
         showToast('Failed to load playground history: ' + err.message, 'error');
     }
-}
-
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#039;');
 }
 
 // ── Synthesis ──────────────────────────────────────────────────────────────
@@ -429,67 +410,13 @@ function initPlaygroundRecorders() {
     }
 
     // F5 Recorder Events
-    const f5StartBtn = document.querySelector('#pg-f5-recorder-container .rec-btn-start');
-    const f5StopBtn = document.querySelector('#pg-f5-recorder-container .rec-btn-stop');
-    const f5StatusEl = document.querySelector('#pg-f5-recorder-container .rec-status');
-    const f5TimerEl = document.querySelector('#pg-f5-recorder-container .rec-timer');
-    const f5PreviewEl = document.querySelector('#pg-f5-recorder-container .rec-audio-preview');
-    const f5SaveBox = document.querySelector('#pg-f5-recorder-container .rec-preview-group');
+    const f5RecorderCtrl = setupAudioRecorder('#pg-f5-recorder-container', blob => {
+        pgF5RecordedBlob = blob;
+    });
     const f5SaveBtn = document.querySelector('#pg-f5-recorder-container .rec-btn-save');
     const f5SaveName = document.querySelector('#pg-f5-recorder-container .rec-voice-name');
 
-    if (f5StartBtn && f5StopBtn && f5StatusEl && f5TimerEl && f5PreviewEl) {
-        f5StartBtn.addEventListener('click', async () => {
-            pgF5Chunks = [];
-            pgF5RecordSeconds = 0;
-            f5TimerEl.textContent = '00:00';
-            f5StatusEl.textContent = 'Recording...';
-            f5StatusEl.previousElementSibling.classList.add('pulsing');
-            f5PreviewEl.style.display = 'none';
-            f5SaveBox.style.display = 'none';
-            pgF5RecordedBlob = null;
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                pgF5Recorder = new MediaRecorder(stream);
-                pgF5Recorder.ondataavailable = e => {
-                    if (e.data.size > 0) pgF5Chunks.push(e.data);
-                };
-                pgF5Recorder.onstop = () => {
-                    pgF5RecordedBlob = new Blob(pgF5Chunks, { type: 'audio/wav' });
-                    f5PreviewEl.src = URL.createObjectURL(pgF5RecordedBlob);
-                    f5PreviewEl.style.display = 'block';
-                    f5SaveBox.style.display = 'flex';
-                    f5StatusEl.textContent = 'Recording completed';
-                    f5StatusEl.previousElementSibling.classList.remove('pulsing');
-                    stream.getTracks().forEach(track => track.stop());
-                };
-                pgF5Recorder.start();
-                f5StartBtn.disabled = true;
-                f5StopBtn.disabled = false;
-
-                pgF5RecordTimer = setInterval(() => {
-                    pgF5RecordSeconds++;
-                    const m = Math.floor(pgF5RecordSeconds / 60).toString().padStart(2, '0');
-                    const s = (pgF5RecordSeconds % 60).toString().padStart(2, '0');
-                    f5TimerEl.textContent = `${m}:${s}`;
-                }, 1000);
-            } catch (err) {
-                showToast('Could not access microphone: ' + err.message, 'error');
-                f5StatusEl.textContent = 'Microphone error';
-                f5StatusEl.previousElementSibling.classList.remove('pulsing');
-            }
-        });
-
-        f5StopBtn.addEventListener('click', () => {
-            if (pgF5Recorder && pgF5Recorder.state !== 'inactive') {
-                pgF5Recorder.stop();
-                clearInterval(pgF5RecordTimer);
-                f5StartBtn.disabled = false;
-                f5StopBtn.disabled = true;
-            }
-        });
-
+    if (f5SaveBtn && f5SaveName) {
         f5SaveBtn.addEventListener('click', async () => {
             const name = f5SaveName.value.trim();
             const transcript = document.getElementById('pg-f5-ref-text').value.trim();
@@ -513,19 +440,12 @@ function initPlaygroundRecorders() {
                 const saved = await saveReference(body);
                 showToast(`Voice "${name}" saved to library successfully!`, 'success');
                 
-                // Refresh references lists & select newly saved voice
                 await loadSavedReferencesGlobal();
                 document.getElementById('pg-f5-ref-voice-select').value = saved.id;
                 document.getElementById('pg-f5-ref-voice-select').dispatchEvent(new Event('change'));
 
-                // Reset recorder UI
                 f5SaveName.value = '';
-                f5SaveBox.style.display = 'none';
-                f5PreviewEl.src = '';
-                f5PreviewEl.style.display = 'none';
-                f5TimerEl.textContent = '00:00';
-                f5StatusEl.textContent = 'Ready to record';
-                pgF5RecordedBlob = null;
+                if (f5RecorderCtrl) f5RecorderCtrl.reset();
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
@@ -561,67 +481,13 @@ function initPlaygroundRecorders() {
     }
 
     // Pocket Recorder Events
-    const pocketStartBtn = document.querySelector('#pg-pocket-recorder-container .rec-btn-start');
-    const pocketStopBtn = document.querySelector('#pg-pocket-recorder-container .rec-btn-stop');
-    const pocketStatusEl = document.querySelector('#pg-pocket-recorder-container .rec-status');
-    const pocketTimerEl = document.querySelector('#pg-pocket-recorder-container .rec-timer');
-    const pocketPreviewEl = document.querySelector('#pg-pocket-recorder-container .rec-audio-preview');
-    const pocketSaveBox = document.querySelector('#pg-pocket-recorder-container .rec-preview-group');
+    const pocketRecorderCtrl = setupAudioRecorder('#pg-pocket-recorder-container', blob => {
+        pgPocketRecordedBlob = blob;
+    });
     const pocketSaveBtn = document.querySelector('#pg-pocket-recorder-container .rec-btn-save');
     const pocketSaveName = document.querySelector('#pg-pocket-recorder-container .rec-voice-name');
 
-    if (pocketStartBtn && pocketStopBtn && pocketStatusEl && pocketTimerEl && pocketPreviewEl) {
-        pocketStartBtn.addEventListener('click', async () => {
-            pgPocketChunks = [];
-            pgPocketRecordSeconds = 0;
-            pocketTimerEl.textContent = '00:00';
-            pocketStatusEl.textContent = 'Recording...';
-            pocketStatusEl.previousElementSibling.classList.add('pulsing');
-            pocketPreviewEl.style.display = 'none';
-            pocketSaveBox.style.display = 'none';
-            pgPocketRecordedBlob = null;
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                pgPocketRecorder = new MediaRecorder(stream);
-                pgPocketRecorder.ondataavailable = e => {
-                    if (e.data.size > 0) pgPocketChunks.push(e.data);
-                };
-                pgPocketRecorder.onstop = () => {
-                    pgPocketRecordedBlob = new Blob(pgPocketChunks, { type: 'audio/wav' });
-                    pocketPreviewEl.src = URL.createObjectURL(pgPocketRecordedBlob);
-                    pocketPreviewEl.style.display = 'block';
-                    pocketSaveBox.style.display = 'flex';
-                    pocketStatusEl.textContent = 'Recording completed';
-                    pocketStatusEl.previousElementSibling.classList.remove('pulsing');
-                    stream.getTracks().forEach(track => track.stop());
-                };
-                pgPocketRecorder.start();
-                pocketStartBtn.disabled = true;
-                pocketStopBtn.disabled = false;
-
-                pgPocketRecordTimer = setInterval(() => {
-                    pgPocketRecordSeconds++;
-                    const m = Math.floor(pgPocketRecordSeconds / 60).toString().padStart(2, '0');
-                    const s = (pgPocketRecordSeconds % 60).toString().padStart(2, '0');
-                    pocketTimerEl.textContent = `${m}:${s}`;
-                }, 1000);
-            } catch (err) {
-                showToast('Could not access microphone: ' + err.message, 'error');
-                pocketStatusEl.textContent = 'Microphone error';
-                pocketStatusEl.previousElementSibling.classList.remove('pulsing');
-            }
-        });
-
-        pocketStopBtn.addEventListener('click', () => {
-            if (pgPocketRecorder && pgPocketRecorder.state !== 'inactive') {
-                pgPocketRecorder.stop();
-                clearInterval(pgPocketRecordTimer);
-                pocketStartBtn.disabled = false;
-                pocketStopBtn.disabled = true;
-            }
-        });
-
+    if (pocketSaveBtn && pocketSaveName) {
         pocketSaveBtn.addEventListener('click', async () => {
             const name = pocketSaveName.value.trim();
 
@@ -644,19 +510,12 @@ function initPlaygroundRecorders() {
                 const saved = await saveReference(body);
                 showToast(`Voice "${name}" saved to library successfully!`, 'success');
                 
-                // Refresh references lists & select newly saved voice
                 await loadSavedReferencesGlobal();
                 document.getElementById('pg-pocket-ref-voice-select').value = saved.id;
                 document.getElementById('pg-pocket-ref-voice-select').dispatchEvent(new Event('change'));
 
-                // Reset recorder UI
                 pocketSaveName.value = '';
-                pocketSaveBox.style.display = 'none';
-                pocketPreviewEl.src = '';
-                pocketPreviewEl.style.display = 'none';
-                pocketTimerEl.textContent = '00:00';
-                pocketStatusEl.textContent = 'Ready to record';
-                pgPocketRecordedBlob = null;
+                if (pocketRecorderCtrl) pocketRecorderCtrl.reset();
             } catch (err) {
                 showToast(err.message, 'error');
             } finally {
@@ -710,15 +569,29 @@ function initPlaygroundRecorders() {
 export function initPlayground() {
     const els = getElements();
 
-    // Synthesizer pill switcher
+    // Synthesizer pill switcher & installed status badges
+    const installed = getInstalledSynthesizers();
+    const pkgHint = { 'f5-tts': 'f5', 'pocket-tts': 'pocket', kokoro: 'kokoro' };
     if (els.synthSelector) {
         els.synthSelector.querySelectorAll('.pg-synth-pill').forEach(btn => {
-            btn.addEventListener('click', () => switchSynth(btn.getAttribute('data-synth'), els));
+            const synthKey = btn.getAttribute('data-synth');
+            const isInstalled = installed[synthKey] !== false;
+            if (!isInstalled) {
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'not-allowed';
+                const extra = pkgHint[synthKey] || synthKey;
+                btn.title = `Not installed — run: uv add "epuboverlay[${extra}]"`;
+            }
+            btn.addEventListener('click', () => {
+                if (btn.disabled) return;
+                switchSynth(synthKey, els);
+            });
         });
     }
 
-    // Default: show Kokoro panel
-    switchSynth('kokoro', els);
+    // Default: show preferred installed synthesizer panel
+    switchSynth(getPreferredInstalledSynthesizer('dummy'), els);
 
     // Set up Kokoro mixer using playground-specific element references
     setupKokoroMixer(els);

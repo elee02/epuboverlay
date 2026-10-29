@@ -51,7 +51,10 @@ class DOCXPreprocessor(BasePreprocessor):
             return sections
         except ImportError:
             filename = file_path.name
-            dummy_text = f"This is a placeholder for the DOCX file '{filename}'. Please install 'docx' to enable full extraction."
+            dummy_text = (
+                f"This is a placeholder for the DOCX file '{filename}'. "
+                "Please install 'python-docx' (uv add \"epuboverlay[docx]\") to enable full extraction."
+            )
             return [DocumentSection(
                 id="docx_placeholder",
                 title="DOCX Content",

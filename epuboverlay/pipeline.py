@@ -842,12 +842,31 @@ def _prepare_workspace(
                     item.unlink()
                 elif item.is_dir():
                     shutil.rmtree(item)
-        with zipfile.ZipFile(input_epub, "r") as zf:
-            zf.extractall(tmp_dir)
+        else:
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        from epuboverlay.preprocessors import (
+            ensure_epub_file,
+            preprocess_epub_workspace,
+             safe_extract_zip,
+        )
+
+        temp_converted_epub: Path | None = None
+        try:
+            archive_to_extract = ensure_epub_file(input_epub)
+            if archive_to_extract != input_epub:
+                temp_converted_epub = archive_to_extract
+            with zipfile.ZipFile(archive_to_extract, "r") as zf:
+                safe_extract_zip(zf, tmp_dir)
+        finally:
+            if temp_converted_epub is not None and temp_converted_epub.exists():
+                try:
+                    temp_converted_epub.unlink(missing_ok=True)
+                except Exception:
+                    pass
         
         # Apply paragraph line-wrap merging and TOC anchor splitting in place
         try:
-            from epuboverlay.preprocessors import preprocess_epub_workspace
             preprocess_epub_workspace(tmp_dir)
         except Exception as e:
             import traceback
@@ -883,7 +902,8 @@ def _parse_opf(
     if not opf_rel_path:
         raise ValueError("EPUB rootfile entry is missing full-path")
 
-    opf_path = tmp_dir / opf_rel_path
+    from epuboverlay.preprocessors.base import resolve_safe_path
+    opf_path = resolve_safe_path(tmp_dir, tmp_dir / opf_rel_path)
     opf_dir = opf_path.parent
     opf_root = ET.parse(opf_path).getroot()
 
@@ -1462,6 +1482,7 @@ def generate_media_overlay_epub(
         state.book_title = book_title
 
         # ── Build processable chapter list ───────────────────────────────────
+        from epuboverlay.preprocessors.base import resolve_safe_path
         processable_itemrefs = []
         for itemref in spine_node.findall(".//{*}itemref"):
             idref = itemref.attrib.get("idref")
@@ -1473,7 +1494,7 @@ def generate_media_overlay_epub(
             mt = media_type.lower().strip()
             if mt not in ("application/xhtml+xml", "text/html", "application/html", "text/xhtml") and "html" not in mt and not href.endswith((".xhtml", ".html", ".htm")):
                 continue
-            xhtml_file_path = opf_dir / href
+            xhtml_file_path = resolve_safe_path(tmp_dir, opf_dir / href)
             if not xhtml_file_path.exists():
                 continue
             if selected_chapters is not None and idref not in selected_chapters:

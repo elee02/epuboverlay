@@ -32,15 +32,64 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
     if parsed.cache_dir:
         parsed.cache_dir = parsed.cache_dir.expanduser()
 
+    import json
+
+    # Resolve saved reference voice (--ref-id) from ~/.epuboverlay/references/metadata.json
+    if getattr(parsed, "ref_id", "") and parsed.ref_id.strip():
+        refs_meta = Path.home() / ".epuboverlay" / "references" / "metadata.json"
+        if refs_meta.exists():
+            try:
+                refs = json.loads(refs_meta.read_text(encoding="utf-8"))
+                q = parsed.ref_id.strip()
+                matched = next(
+                    (
+                        r
+                        for r in refs
+                        if r.get("id") == q or r.get("name", "").strip().lower() == q.lower()
+                    ),
+                    None,
+                )
+                if matched:
+                    audio_candidate = Path.home() / ".epuboverlay" / "references" / matched["audio_filename"]
+                    if audio_candidate.exists():
+                        parsed.ref_audio = audio_candidate
+                        if not parsed.ref_text and matched.get("text"):
+                            parsed.ref_text = matched["text"]
+                else:
+                    print(f"Error: Saved reference voice '{q}' not found in ~/.epuboverlay/references/metadata.json", file=sys.stderr)
+                    return 1
+            except Exception as e:
+                print(f"Error reading saved reference voices: {e}", file=sys.stderr)
+                return 1
+
+    # Resolve saved Kokoro voice blend name if passed via --voice-formula or --voice
+    blends_file = Path.home() / ".epuboverlay" / "voice_blends.json"
+    if parsed.synthesizer == "kokoro" and blends_file.exists():
+        try:
+            blends = json.loads(blends_file.read_text(encoding="utf-8"))
+            for attr in ("voice_formula", "voice"):
+                val = getattr(parsed, attr, "").strip()
+                if val:
+                    matched_blend = next(
+                        (b for b in blends if b.get("name", "").strip().lower() == val.lower()),
+                        None,
+                    )
+                    if matched_blend and matched_blend.get("formula"):
+                        parsed.voice_formula = matched_blend["formula"]
+                        if attr == "voice":
+                            parsed.voice = ""
+        except Exception:
+            pass
+
     # Validate synthesizer parameters
     if parsed.synthesizer == "f5-tts":
         if not parsed.ref_audio or not parsed.ref_text:
-            print("Error: --ref-audio and --ref-text are required when using the f5-tts synthesizer.",
+            print("Error: --ref-audio and --ref-text (or --ref-id) are required when using the f5-tts synthesizer.",
                   file=sys.stderr)
             return 1
     elif parsed.synthesizer == "pocket-tts":
         if not parsed.ref_audio and not parsed.pocket_voice:
-            print("Error: Either --ref-audio or --pocket-voice is required when using the pocket-tts synthesizer.",
+            print("Error: Either --ref-audio (or --ref-id) or --pocket-voice is required when using the pocket-tts synthesizer.",
                   file=sys.stderr)
             return 1
     elif parsed.synthesizer == "kokoro":
@@ -90,6 +139,10 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
         except Exception:
             pass
 
+    selected_chapters = None
+    if getattr(parsed, "chapters", None):
+        selected_chapters = [c.strip() for c in parsed.chapters.split(",") if c.strip()]
+
     try:
         generate_media_overlay_epub(
             input_epub=parsed.epub,
@@ -100,6 +153,7 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
             progress_callback=reporter.report,
             cache_dir=parsed.cache_dir,
             concurrency=parsed.concurrency,
+            selected_chapters=selected_chapters,
             normalization_settings=norm_settings,
         )
         print("\nSuccess! Synced EPUB generated successfully.")
@@ -170,14 +224,14 @@ def main(args: list[str] | None = None) -> int:
     # ── generate subcommand ──
     gen_parser = subparsers.add_parser(
         "generate",
-        help="Generate EPUB 3 Media Overlays using F5-TTS or a dummy synthesizer.",
-        description="Generate standard EPUB 3 Media Overlays using F5-TTS or a dummy synthesizer.",
+        help="Generate EPUB 3 Media Overlays using F5-TTS, Kokoro-82M, PocketTTS, or a dummy synthesizer.",
+        description="Generate standard EPUB 3 Media Overlays from an EPUB (or PDF/DOCX/MD/TXT) using F5-TTS, Kokoro-82M, PocketTTS, or a dummy synthesizer.",
     )
     gen_parser.add_argument(
         "--epub",
         required=True,
         type=Path,
-        help="Path to the input EPUB file."
+        help="Path to the input document (.epub, .pdf, .docx, .md, .txt)."
     )
     gen_parser.add_argument(
         "-o", "--output-epub",
@@ -194,12 +248,24 @@ def main(args: list[str] | None = None) -> int:
     gen_parser.add_argument(
         "-a", "--ref-audio",
         type=Path,
-        help="Path to the reference audio clip (required for f5-tts and pocket-tts)."
+        help="Path to the reference audio clip (required for f5-tts and pocket-tts unless --ref-id or --pocket-voice is used)."
     )
     gen_parser.add_argument(
         "-t", "--ref-text",
         type=str,
-        help="Transcript text of the reference audio clip (required for f5-tts)."
+        help="Transcript text of the reference audio clip (required for f5-tts unless --ref-id is used)."
+    )
+    gen_parser.add_argument(
+        "--ref-id",
+        type=str,
+        default="",
+        help="Saved reference voice ID or name from the Voice Library (~/.epuboverlay/references)."
+    )
+    gen_parser.add_argument(
+        "--chapters",
+        type=str,
+        default="",
+        help="Comma-separated list of chapter idrefs to synthesize (default: all chapters)."
     )
     gen_parser.add_argument(
         "--voice",

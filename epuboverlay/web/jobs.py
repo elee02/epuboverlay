@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import psutil
+import re
 import shutil
 import signal
 import threading
@@ -567,20 +568,25 @@ class JobManager:
         job_dir = self._data_dir / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy input epub to job directory
+        safe_filename = Path(original_filename or "book.epub").name or "book.epub"
+        safe_stem = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(safe_filename).stem).strip() or "book"
+
+        # Copy or convert input document (EPUB, PDF, DOCX, MD, TXT) to job directory as input.epub
         stored_epub = job_dir / "input.epub"
-        shutil.copy2(input_epub_path, stored_epub)
+        from epuboverlay.preprocessors import ensure_epub_file
+        ensure_epub_file(input_epub_path, stored_epub, title=Path(safe_filename).stem or "Document")
 
         # Copy reference audio if provided in config
         ref_audio_path_str = config.get("ref_audio_path")
         if ref_audio_path_str:
             ref_audio_path = Path(ref_audio_path_str)
             if ref_audio_path.exists():
-                stored_ref_audio = job_dir / f"ref_audio{ref_audio_path.suffix}"
+                safe_ext = re.sub(r"[^.A-Za-z0-9]", "", ref_audio_path.suffix) or ".wav"
+                stored_ref_audio = job_dir / f"ref_audio{safe_ext}"
                 shutil.copy2(ref_audio_path, stored_ref_audio)
                 config["ref_audio_path"] = str(stored_ref_audio)
 
-        output_epub = job_dir / f"output_{original_filename}"
+        output_epub = job_dir / f"output_{safe_stem}.epub"
         audio_dir = job_dir / "audio"
         audio_dir.mkdir(exist_ok=True)
 
@@ -591,7 +597,7 @@ class JobManager:
             id=job_id,
             input_epub_path=stored_epub,
             output_epub_path=output_epub,
-            original_filename=original_filename,
+            original_filename=safe_filename,
             book_title=book_title,
             config=config,
             total_characters=total_chars,
@@ -723,12 +729,15 @@ class JobManager:
     def cancel_job(self, job_id: str) -> bool:
         """Signal a running job to cancel."""
         if job_id.startswith("cli-"):
+            active_cli_jobs = {j.id: j for j in self._scan_cli_jobs()}
+            if job_id not in active_cli_jobs:
+                return False
             try:
-                pid = int(job_id.split("-")[1])
+                pid = int(job_id.split("-", 1)[1])
                 os.kill(pid, signal.SIGTERM)
                 return True
             except Exception as e:
-                print(f"Failed to kill CLI process {pid}: {e}")
+                print(f"Failed to kill CLI process {job_id}: {e}")
                 return False
 
         job = self.get_job(job_id)
@@ -793,24 +802,6 @@ class JobManager:
                 return ca.audio_path
         return None
 
-    def update_job_progress(self, job_id: str, event: Any) -> None:
-        """Update job progress from a ProgressEvent and notify SSE subscribers."""
-        job = self.get_job(job_id)
-        if job is None:
-            return
-
-        job.current_phase = event.phase
-        job.chapter_index = event.chapter_index
-        job.chapter_total = event.chapter_total
-        job.chapter_name = event.chapter_name
-        job.chunk_index = event.chunk_index
-        job.chunk_total = event.chunk_total
-        job.elapsed_seconds = event.elapsed_seconds
-        job.message = event.message
-        job.overall_percent = event.overall_percent
-
-        self._push_sse(job_id, job)
-
     def add_chapter_audio(self, job_id: str, idref: str, audio_path: Path) -> None:
         """Record a completed chapter audio and copy to the job's audio dir."""
         job = self.get_job(job_id)
@@ -818,9 +809,13 @@ class JobManager:
             return
 
         # Copy audio file dynamically keeping its extension (.m4a, .mp3, etc.)
-        audio_ext = audio_path.suffix or ".m4a"
-        dest = self._data_dir / job_id / "audio" / f"{idref}{audio_ext}"
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        audio_ext = re.sub(r"[^.A-Za-z0-9]", "", audio_path.suffix) or ".m4a"
+        safe_idref = re.sub(r"[^A-Za-z0-9._-]", "_", Path(idref).name) or "chapter"
+        audio_root = (self._data_dir / job_id / "audio").resolve()
+        audio_root.mkdir(parents=True, exist_ok=True)
+        dest = (audio_root / f"{safe_idref}{audio_ext}").resolve()
+        if not dest.is_relative_to(audio_root):
+            raise ValueError(f"Unsafe chapter audio destination blocked: {idref}")
         shutil.copy2(audio_path, dest)
 
         ca = ChapterAudio(idref=idref, audio_path=dest, completed_at=time.time())
