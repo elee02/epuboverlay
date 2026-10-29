@@ -44,7 +44,6 @@ const LANGUAGE_SAMPLES = {
     zh: '在宁静的图书馆里，温暖而富有表现力的声音缓缓响起，将书页中的故事娓娓道来。',
     de: 'In der Stille der alten Bibliothek erklang eine warme, ausdrucksstarke Stimme, die die Geschichten zum Leben erweckte.',
     es: 'En el silencio de la antigua biblioteca, resonó una voz cálida y expresiva que dio vida a cada página del libro.',
-    ar: 'في هدوء المكتبة القديمة، تردد صوت دافئ ومعبر يبعث الحياة في صفحات الكتب والقصص.',
 };
 
 // ── Playground DOM element references ──────────────────────────────────────

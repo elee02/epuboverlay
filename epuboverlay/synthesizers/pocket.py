@@ -167,9 +167,16 @@ class PocketSynthesizer(BaseSynthesizer):
         if prompt_key in self._state_cache:
             return self._state_cache[prompt_key]
         try:
-            state = self._model.get_state_for_audio_prompt(prompt_key, truncate=truncate)
-        except TypeError:
-            state = self._model.get_state_for_audio_prompt(prompt_key)
+            import torch
+            ctx = torch.no_grad()
+        except ImportError:
+            from contextlib import nullcontext
+            ctx = nullcontext()
+        with ctx:
+            try:
+                state = self._model.get_state_for_audio_prompt(prompt_key, truncate=truncate)
+            except TypeError:
+                state = self._model.get_state_for_audio_prompt(prompt_key)
         self._state_cache[prompt_key] = state
         return state
 
@@ -210,10 +217,13 @@ class PocketSynthesizer(BaseSynthesizer):
             return b"", 0
 
         # TTSModel.generate_audio is not thread-safe; guard with instance lock
+        # Use torch.no_grad() instead of torch.inference_mode() because PocketTTS
+        # spawns an internal worker thread for autoregressive streaming generation
+        # which performs in-place KV cache updates outside the caller's thread-local InferenceMode.
         with self._lock:
             try:
                 import torch
-                ctx = torch.inference_mode()
+                ctx = torch.no_grad()
             except ImportError:
                 from contextlib import nullcontext
                 ctx = nullcontext()
