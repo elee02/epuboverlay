@@ -164,7 +164,14 @@ class KokoroSynthesizer(BaseSynthesizer):
 
         audio_parts: list[np.ndarray] = []
         with self._lock:
-            segments = list(self._pipeline(text, voice=self._voice, speed=self._speed))
+            try:
+                import torch
+                ctx = torch.inference_mode()
+            except ImportError:
+                from contextlib import nullcontext
+                ctx = nullcontext()
+            with ctx:
+                segments = list(self._pipeline(text, voice=self._voice, speed=self._speed))
 
         for segment in segments:
             audio = segment.audio

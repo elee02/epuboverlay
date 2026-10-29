@@ -103,6 +103,27 @@ class FishSpeechSynthesizer(BaseSynthesizer):
         if self.ref_audio and Path(self.ref_audio).exists():
             self._ref_audio_bytes = Path(self.ref_audio).read_bytes()
 
+        # Pre-encode API reference payload & cache SDK Session for zero per-chunk overhead
+        self._api_references: list[dict[str, str]] = []
+        if self._ref_audio_bytes:
+            import base64
+            self._api_references.append(
+                {
+                    "audio": base64.b64encode(self._ref_audio_bytes).decode("ascii"),
+                    "text": self.ref_text or "",
+                }
+            )
+        self._sdk_session = None
+        self._sdk_refs: list = []
+        if self._sdk_available and os.environ.get("FISH_API_KEY"):
+            try:
+                from fish_audio_sdk import ReferenceAudio, Session  # type: ignore[import-not-found]
+                self._sdk_session = Session(os.environ["FISH_API_KEY"])
+                if self._ref_audio_bytes:
+                    self._sdk_refs = [ReferenceAudio(audio=self._ref_audio_bytes, text=self.ref_text or "")]
+            except Exception:
+                self._sdk_session = None
+
     @property
     def sample_rate(self) -> int:
         return self._sample_rate
@@ -155,19 +176,19 @@ class FishSpeechSynthesizer(BaseSynthesizer):
             if self._sdk_available and os.environ.get("FISH_API_KEY"):
                 from fish_audio_sdk import ReferenceAudio, Session, TTSRequest  # type: ignore[import-not-found]
 
-                session = Session(os.environ["FISH_API_KEY"])
-                refs = []
-                if self._ref_audio_bytes:
-                    refs.append(ReferenceAudio(audio=self._ref_audio_bytes, text=self.ref_text or ""))
+                if self._sdk_session is None:
+                    self._sdk_session = Session(os.environ["FISH_API_KEY"])
+                    if self._ref_audio_bytes and not self._sdk_refs:
+                        self._sdk_refs = [ReferenceAudio(audio=self._ref_audio_bytes, text=self.ref_text or "")]
                 req = TTSRequest(
                     text=tagged_text,
-                    references=refs,
+                    references=self._sdk_refs,
                     format="wav",
                     temperature=self.temp,
                     top_p=self.top_p,
                     repetition_penalty=self.repetition_penalty,
                 )
-                chunks: list[bytes] = list(session.tts(req))
+                chunks: list[bytes] = list(self._sdk_session.tts(req))
                 return self._postprocess_wav_bytes(b"".join(chunks))
 
             # Fallback to local HTTP server if fish_speech / fish_audio_sdk is used with a local server
@@ -176,24 +197,13 @@ class FishSpeechSynthesizer(BaseSynthesizer):
             return self._postprocess_wav_bytes(wav_bytes)
 
     def _synthesize_via_api(self, text: str, url: str | None = None) -> bytes:
-        import base64
-
         target_url = url or self.api_url
         if not target_url.startswith(("http://", "https://")):
             raise ValueError(f"Invalid Fish-Speech API URL: {target_url}")
 
-        references = []
-        if self._ref_audio_bytes:
-            references.append(
-                {
-                    "audio": base64.b64encode(self._ref_audio_bytes).decode("ascii"),
-                    "text": self.ref_text or "",
-                }
-            )
-
         payload = {
             "text": text,
-            "references": references,
+            "references": self._api_references,
             "format": "wav",
             "temperature": self.temp,
             "top_p": self.top_p,

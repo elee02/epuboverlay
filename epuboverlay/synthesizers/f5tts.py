@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import threading
 import wave
 from pathlib import Path
 
@@ -32,6 +33,12 @@ class F5TTSSynthesizer(BaseSynthesizer):
                 "(or 'pip install \"epuboverlay[f5]\"') to use the F5TTSSynthesizer."
             ) from e
 
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
+
+        self._lock = threading.Lock()
         self.f5 = F5TTS(model=model_name, device=device)
         self.ref_audio = str(ref_audio)
         self.ref_text = ref_text
@@ -113,8 +120,8 @@ class F5TTSSynthesizer(BaseSynthesizer):
 
         duration = self.ref_audio_len + int(self.ref_audio_len / ref_text_len * gen_text_len / local_speed)
 
-        # Inference
-        with torch.inference_mode():
+        # Inference (serialized per GPU model instance to prevent concurrent CUDA OOMs)
+        with self._lock, torch.inference_mode():
             generated, _ = self.f5.ema_model.sample(
                 cond=self.ref_mel,
                 text=final_text_list,

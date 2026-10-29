@@ -211,17 +211,24 @@ class PocketSynthesizer(BaseSynthesizer):
 
         # TTSModel.generate_audio is not thread-safe; guard with instance lock
         with self._lock:
-            if self.frames_after_eos is not None:
-                try:
-                    audio = self._model.generate_audio(
-                        active_state,
-                        clean_text,
-                        frames_after_eos=self.frames_after_eos,
-                    )
-                except TypeError:
+            try:
+                import torch
+                ctx = torch.inference_mode()
+            except ImportError:
+                from contextlib import nullcontext
+                ctx = nullcontext()
+            with ctx:
+                if self.frames_after_eos is not None:
+                    try:
+                        audio = self._model.generate_audio(
+                            active_state,
+                            clean_text,
+                            frames_after_eos=self.frames_after_eos,
+                        )
+                    except TypeError:
+                        audio = self._model.generate_audio(active_state, clean_text)
+                else:
                     audio = self._model.generate_audio(active_state, clean_text)
-            else:
-                audio = self._model.generate_audio(active_state, clean_text)
 
         # Convert to numpy if needed
         if hasattr(audio, "detach"):

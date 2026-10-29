@@ -1215,9 +1215,17 @@ except ImportError:
 class F5TTSSynthesizerTests(unittest.TestCase):
     def test_f5_synthesizer_runs_and_produces_audio(self) -> None:
         from epuboverlay.synthesizers import F5TTSSynthesizer
-        ref_audio = "./.venv/lib/python3.14/site-packages/f5_tts/infer/examples/basic/basic_ref_en.wav"
+        import f5_tts.api
+        ref_audio = Path(f5_tts.api.__file__).resolve().parent / "infer/examples/basic/basic_ref_en.wav"
+        if not ref_audio.exists():
+            self.skipTest(f"F5-TTS sample audio not found at {ref_audio}")
         ref_text = "This is a test of reference audio."
-        synth = F5TTSSynthesizer(ref_audio=ref_audio, ref_text=ref_text)
+        try:
+            synth = F5TTSSynthesizer(ref_audio=ref_audio, ref_text=ref_text)
+        except Exception as e:
+            if "LocalEntryNotFoundError" in type(e).__name__ or "ConnectionError" in str(e):
+                self.skipTest("F5-TTS model weights not cached locally for offline test run")
+            raise
         wav_bytes, frame_count = synth.synthesize("Hello world.")
         self.assertTrue(len(wav_bytes) > 0)
         self.assertTrue(frame_count > 0)

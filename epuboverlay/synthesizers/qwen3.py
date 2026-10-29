@@ -166,7 +166,15 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
         if self.device == "cuda":
             try:
                 import torch
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+                torch.backends.cudnn.benchmark = True
                 model_kwargs["dtype"] = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+                try:
+                    import flash_attn  # type: ignore[import-not-found]  # noqa: F401
+                    model_kwargs["attn_implementation"] = "flash_attention_2"
+                except ImportError:
+                    model_kwargs["attn_implementation"] = "sdpa"
             except Exception:
                 pass
 
@@ -174,8 +182,13 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
         model_cls = getattr(qwen_tts, "Qwen3TTSModel", None) or getattr(qwen_tts, "QwenTTS", None)
         if model_cls is not None:
             if hasattr(model_cls, "from_pretrained"):
-                self._model = model_cls.from_pretrained(self.model_name, **model_kwargs)
+                try:
+                    self._model = model_cls.from_pretrained(self.model_name, **model_kwargs)
+                except TypeError:
+                    model_kwargs.pop("attn_implementation", None)
+                    self._model = model_cls.from_pretrained(self.model_name, **model_kwargs)
             else:
+                model_kwargs.pop("attn_implementation", None)
                 self._model = model_cls(model_name=self.model_name, **model_kwargs)
         else:
             raise RuntimeError("Compatible Qwen3TTSModel entry point not found in 'qwen_tts'.")
@@ -218,7 +231,14 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
         lang_arg = self.language or "Auto"
 
         with self._lock:
-            audio, sr = self._invoke_model(clean_text, active_instruct, lang_arg)
+            try:
+                import torch
+                ctx = torch.inference_mode()
+            except ImportError:
+                from contextlib import nullcontext
+                ctx = nullcontext()
+            with ctx:
+                audio, sr = self._invoke_model(clean_text, active_instruct, lang_arg)
             if sr and int(sr) > 0:
                 self._sample_rate = int(sr)
 

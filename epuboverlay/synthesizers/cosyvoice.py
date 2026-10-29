@@ -111,10 +111,21 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
                     "Install the FunAudioLLM/CosyVoice package or set COSYVOICE_API_URL to a running CosyVoice2 server."
                 ) from e
 
+            if self.device == "cuda":
+                try:
+                    import torch
+                    torch.backends.cuda.matmul.allow_tf32 = True
+                    torch.backends.cudnn.allow_tf32 = True
+                    torch.backends.cudnn.benchmark = True
+                except Exception:
+                    pass
+
+            load_jit = os.environ.get("COSYVOICE_LOAD_JIT", "0") == "1"
+            load_trt = os.environ.get("COSYVOICE_LOAD_TRT", "0") == "1"
             self._model = CosyVoice2(
                 self.model_name,
-                load_jit=False,
-                load_trt=False,
+                load_jit=load_jit,
+                load_trt=load_trt,
                 fp16=(self.device == "cuda"),
             )
             self._sample_rate = int(
@@ -160,53 +171,60 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
 
         segments: list[np.ndarray] = []
         with self._lock:
-            if self.mode == "sft" and hasattr(self._model, "inference_sft"):
-                gen = self._model.inference_sft(
-                    prepared_text,
-                    self.speaker,
-                    stream=False,
-                    speed=self._speed,
-                )
-            elif self.mode == "instruct" and active_instruct and hasattr(self._model, "inference_instruct2"):
-                gen = self._model.inference_instruct2(
-                    prepared_text,
-                    active_instruct,
-                    self._prompt_speech_16k,
-                    stream=False,
-                    speed=self._speed,
-                )
-            elif self.mode == "zero_shot" and self.ref_text and hasattr(self._model, "inference_zero_shot"):
-                gen = self._model.inference_zero_shot(
-                    prepared_text,
-                    self.ref_text,
-                    self._prompt_speech_16k,
-                    stream=False,
-                    speed=self._speed,
-                )
-            elif hasattr(self._model, "inference_cross_lingual"):
-                gen = self._model.inference_cross_lingual(
-                    prepared_text,
-                    self._prompt_speech_16k,
-                    stream=False,
-                    speed=self._speed,
-                )
-            else:
-                gen = self._model.inference_zero_shot(
-                    prepared_text,
-                    self.ref_text,
-                    self._prompt_speech_16k,
-                    stream=False,
-                )
+            try:
+                import torch
+                ctx = torch.inference_mode()
+            except ImportError:
+                from contextlib import nullcontext
+                ctx = nullcontext()
+            with ctx:
+                if self.mode == "sft" and hasattr(self._model, "inference_sft"):
+                    gen = self._model.inference_sft(
+                        prepared_text,
+                        self.speaker,
+                        stream=False,
+                        speed=self._speed,
+                    )
+                elif self.mode == "instruct" and active_instruct and hasattr(self._model, "inference_instruct2"):
+                    gen = self._model.inference_instruct2(
+                        prepared_text,
+                        active_instruct,
+                        self._prompt_speech_16k,
+                        stream=False,
+                        speed=self._speed,
+                    )
+                elif self.mode == "zero_shot" and self.ref_text and hasattr(self._model, "inference_zero_shot"):
+                    gen = self._model.inference_zero_shot(
+                        prepared_text,
+                        self.ref_text,
+                        self._prompt_speech_16k,
+                        stream=False,
+                        speed=self._speed,
+                    )
+                elif hasattr(self._model, "inference_cross_lingual"):
+                    gen = self._model.inference_cross_lingual(
+                        prepared_text,
+                        self._prompt_speech_16k,
+                        stream=False,
+                        speed=self._speed,
+                    )
+                else:
+                    gen = self._model.inference_zero_shot(
+                        prepared_text,
+                        self.ref_text,
+                        self._prompt_speech_16k,
+                        stream=False,
+                    )
 
-            for chunk_out in gen:
-                speech = chunk_out.get("tts_speech") if isinstance(chunk_out, dict) else chunk_out
-                if hasattr(speech, "detach"):
-                    speech = speech.detach().cpu().numpy()
-                elif hasattr(speech, "numpy"):
-                    speech = speech.numpy()
-                arr = np.asarray(speech, dtype="float32").squeeze()
-                if arr.size > 0:
-                    segments.append(arr)
+                for chunk_out in gen:
+                    speech = chunk_out.get("tts_speech") if isinstance(chunk_out, dict) else chunk_out
+                    if hasattr(speech, "detach"):
+                        speech = speech.detach().cpu().numpy()
+                    elif hasattr(speech, "numpy"):
+                        speech = speech.numpy()
+                    arr = np.asarray(speech, dtype="float32").squeeze()
+                    if arr.size > 0:
+                        segments.append(arr)
 
         if not segments:
             return b"", 0
