@@ -71,6 +71,36 @@ def clear_cosy_model_cache() -> None:
         pass
 
 
+def _ensure_cosyvoice_on_path() -> bool:
+    """Locate FunAudioLLM/CosyVoice repo and add it to sys.path if found."""
+    try:
+        from cosyvoice.cli.cosyvoice import CosyVoice2  # type: ignore[import-not-found]  # noqa: F401
+        return True
+    except ImportError:
+        pass
+
+    import sys
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "third_party" / "CosyVoice",
+        Path.cwd() / "third_party" / "CosyVoice",
+        Path.home() / ".epuboverlay" / "cosyvoice",
+    ]
+    for root in candidates:
+        if root.exists() and (root / "cosyvoice").exists():
+            root_str = str(root.resolve())
+            if root_str not in sys.path:
+                sys.path.insert(0, root_str)
+            matcha_dir = str((root / "third_party" / "Matcha-TTS").resolve())
+            if (root / "third_party" / "Matcha-TTS").exists() and matcha_dir not in sys.path:
+                sys.path.insert(0, matcha_dir)
+            try:
+                from cosyvoice.cli.cosyvoice import CosyVoice2  # type: ignore[import-not-found]  # noqa: F401
+                return True
+            except ImportError:
+                continue
+    return False
+
+
 class CosyVoice2Synthesizer(BaseSynthesizer):
     """CosyVoice2-0.5B synthesizer by FunAudioLLM.
 
@@ -130,12 +160,14 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
                 if self.device == "cuda" and _COSY_MODEL_CACHE:
                     clear_cosy_model_cache()
 
+                _ensure_cosyvoice_on_path()
                 try:
                     from cosyvoice.cli.cosyvoice import CosyVoice2  # type: ignore[import-not-found]
                 except ImportError as e:
                     raise ImportError(
                         "CosyVoice2 runtime (`cosyvoice.cli.cosyvoice`) is not found in PYTHONPATH. "
-                        "Install the FunAudioLLM/CosyVoice package or set COSYVOICE_API_URL to a running CosyVoice2 server."
+                        "Clone the FunAudioLLM/CosyVoice repository into `third_party/CosyVoice` "
+                        "or set COSYVOICE_API_URL to a running CosyVoice2 server."
                     ) from e
 
                 if self.device == "cuda":

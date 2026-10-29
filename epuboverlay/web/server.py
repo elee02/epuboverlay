@@ -117,9 +117,9 @@ def get_installed_synthesizers() -> dict[str, bool]:
     import importlib.util
     import os
 
+    from epuboverlay.synthesizers.cosyvoice import _ensure_cosyvoice_on_path
     cosy_installed = (
-        importlib.util.find_spec("cosyvoice") is not None
-        or importlib.util.find_spec("modelscope") is not None
+        _ensure_cosyvoice_on_path()
         or bool(os.environ.get("COSYVOICE_API_URL"))
     )
     fish_installed = (
