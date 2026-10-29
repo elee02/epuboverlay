@@ -107,11 +107,6 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
             print("Error: Either --voice or --voice-formula must be specified when using the kokoro synthesizer.",
                   file=sys.stderr)
             return 1
-    elif parsed.synthesizer == "cosyvoice2":
-        if getattr(parsed, "cosy_mode", "instruct") != "sft" and not parsed.ref_audio:
-            print("Error: --ref-audio (or --ref-id) is required when using the cosyvoice2 synthesizer in cloning modes.",
-                  file=sys.stderr)
-            return 1
     elif parsed.synthesizer == "qwen3-tts":
         if getattr(parsed, "qwen_mode", "custom_voice") == "clone" and not parsed.ref_audio:
             print("Error: --ref-audio (or --ref-id) is required when using qwen3-tts in 'clone' mode.",
@@ -261,7 +256,7 @@ def main(args: list[str] | None = None) -> int:
     )
     gen_parser.add_argument(
         "-s", "--synthesizer",
-        choices=["f5-tts", "kokoro", "pocket-tts", "qwen3-tts", "cosyvoice2", "fish-speech", "dummy"],
+        choices=["f5-tts", "kokoro", "pocket-tts", "qwen3-tts", "fish-speech", "dummy"],
         default="f5-tts",
         help="Synthesizer implementation to use (default: f5-tts)."
     )
@@ -281,7 +276,7 @@ def main(args: list[str] | None = None) -> int:
         "--instruct",
         type=str,
         default="",
-        help="Natural-language emotion and intonation instruction (for qwen3-tts and cosyvoice2)."
+        help="Natural-language emotion and intonation instruction (for qwen3-tts)."
     )
     gen_parser.add_argument(
         "--emotion-tag",
@@ -330,18 +325,6 @@ def main(args: list[str] | None = None) -> int:
         type=str,
         default="Ryan",
         help="Qwen3-TTS preset speaker name (default: Ryan)."
-    )
-    gen_parser.add_argument(
-        "--cosy-mode",
-        choices=["instruct", "zero_shot", "cross_lingual", "sft"],
-        default="instruct",
-        help="CosyVoice2 mode (default: instruct)."
-    )
-    gen_parser.add_argument(
-        "--cosy-speaker",
-        type=str,
-        default="英文女",
-        help="CosyVoice2 preset SFT speaker name (default: 英文女)."
     )
     gen_parser.add_argument(
         "--fish-api-url",

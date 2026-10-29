@@ -26,7 +26,7 @@ F5-TTS uses a flow-matching architecture rather than a traditional autoregressiv
 * **Why it’s more advanced:** It is widely praised for its natural inflections, handling of non-verbal sounds (like breathing or sighs), and seamless zero-shot voice cloning.
 * **The Specs:** ~300M parameters. Code is MIT licensed, though standard weights are often under a non-commercial CC-BY-NC license due to the training data.
 
-### 4. Qwen3-TTS or CosyVoice 3.0 (~500M - 600M Parameters)
+### 4. Qwen3-TTS (~500M - 600M Parameters)
 
 If you are willing to step up slightly in size to gain state-of-the-art capability, these speech-LLM architectures are the current standard.
 
@@ -62,7 +62,7 @@ If you want something that sounds like a real person over a phone call—complet
 * **VRAM footprint:** ~2 to 3 GB VRAM.
 * **Performance:** Flawless on an RTX 4060. The Ryzen 9's single-core speed will also make text tokenization instant.
 
-#### 3. CosyVoice 3.0 / Qwen3-TTS-0.5B (~500M parameters) — *The Most Advanced*
+#### 3. Qwen3-TTS-0.5B (~500M parameters) — *The Most Advanced*
 
 This is a speech-LLM style architecture. It doesn't just read words; it understands the semantic context of the sentence to decide where to add emphasis.
 

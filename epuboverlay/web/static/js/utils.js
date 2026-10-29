@@ -5,7 +5,6 @@ let _installedSynthesizers = {
     'kokoro': true,
     'pocket-tts': true,
     'qwen3-tts': true,
-    'cosyvoice2': true,
     'fish-speech': true,
     'f5-tts': true,
 };
@@ -96,7 +95,7 @@ export function getInstalledSynthesizers() {
 }
 
 export function getPreferredInstalledSynthesizer(fallback = 'dummy') {
-    for (const key of ['pocket-tts', 'kokoro', 'qwen3-tts', 'cosyvoice2', 'fish-speech', 'f5-tts', 'dummy']) {
+    for (const key of ['pocket-tts', 'kokoro', 'qwen3-tts', 'fish-speech', 'f5-tts', 'dummy']) {
         if (_installedSynthesizers[key]) return key;
     }
     return fallback;
@@ -109,7 +108,6 @@ export function applyInstalledSynthesizersToSelect(selectEl, installedMap = _ins
         'pocket-tts': 'pocket',
         'kokoro': 'kokoro',
         'qwen3-tts': 'qwen',
-        'cosyvoice2': 'cosyvoice',
         'fish-speech': 'fish',
     };
     Array.from(selectEl.options).forEach(opt => {

@@ -211,7 +211,6 @@
                                     <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang 24L)</option>
                                     <option value="kokoro">Kokoro-82M (Fast Presets &amp; Voice Blending)</option>
                                     <option value="qwen3-tts">Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
-                                    <option value="cosyvoice2">CosyVoice2-0.5B (9-Lang Instruct &amp; Breath/Laughter Tags)</option>
                                     <option value="fish-speech">Fish-Speech-1.5 / OpenAudio (8-Lang incl. Arabic &amp; Emotion Tags)</option>
                                     <option value="f5-tts">F5-TTS (Diffusion Zero-Shot Voice Cloning)</option>
                                     <option value="dummy">Dummy (Instant Silent Testing)</option>
@@ -512,55 +511,6 @@
                             </div>
                         </div>
 
-                        <!-- CosyVoice2-0.5B Specific Options -->
-                        <div id="cosyvoice2-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label>Voice Mode</label>
-                                    <div class="voice-mode-selector" id="cosy-voice-mode-selector">
-                                        <button type="button" class="mode-pill active" data-mode="clone">Clone Voice</button>
-                                        <button type="button" class="mode-pill" data-mode="sft">Preset Voice</button>
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label for="cosy-mode-select">CosyVoice2 Mode</label>
-                                    <select id="cosy-mode-select" name="cosy_mode">
-                                        <option value="instruct">Instruct2 (Natural-Language Emotion &amp; Reference Voice)</option>
-                                        <option value="zero_shot">Zero-Shot Voice Cloning (3-10s Reference)</option>
-                                        <option value="cross_lingual">Cross-Lingual Cloning (Clone Voice Across EN/RU/KO/JA/ZH/DE/ES)</option>
-                                        <option value="sft">Preset Speaker (Built-in SFT Voice)</option>
-                                    </select>
-                                </div>
-                                <div class="form-group" id="cosy-speaker-group" style="display: none;">
-                                    <label for="cosy-speaker-select">Preset Speaker</label>
-                                    <select id="cosy-speaker-select" name="cosy_speaker">
-                                        <option value="英文女">English Female (Preset SFT)</option>
-                                        <option value="英文男">English Male (Preset SFT)</option>
-                                        <option value="中文女">Chinese Female (Preset SFT)</option>
-                                        <option value="中文男">Chinese Male (Preset SFT)</option>
-                                        <option value="日语男">Japanese Male (Preset SFT)</option>
-                                        <option value="韩语女">Korean Female (Preset SFT)</option>
-                                        <option value="粤语女">Cantonese Female (Preset SFT)</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="cosy-language-select">Target Language</label>
-                                    <select id="cosy-language-select" name="cosy_language">
-                                        <option value="auto">Auto-Detect / Native Script</option>
-                                        <option value="ja">Japanese (日本語)</option>
-                                        <option value="en">English</option>
-                                        <option value="zh">Chinese (中文)</option>
-                                        <option value="ko">Korean (한국어)</option>
-                                        <option value="ru">Russian (Русский)</option>
-                                        <option value="de">German (Deutsch)</option>
-                                        <option value="es">Spanish (Español)</option>
-                                        <option value="fr">French (Français)</option>
-                                        <option value="it">Italian (Italiano)</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- Fish-Speech-1.5 / OpenAudio Specific Options -->
                         <div id="fish-speech-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
                             <div class="form-grid">
@@ -607,7 +557,7 @@
                             </div>
                         </div>
 
-                        <!-- Shared Voice Cloning Options (F5-TTS, Qwen3-TTS Clone, CosyVoice2 Clone, Fish-Speech Clone) -->
+                        <!-- Shared Voice Cloning Options (F5-TTS, Qwen3-TTS Clone, Fish-Speech Clone) -->
                         <div id="cloning-options" class="ref-audio-fields" style="margin-top: 1rem;">
                             <div class="form-group">
                                 <label for="ref-voice-select">Reference Voice (Voice Library)</label>
@@ -632,7 +582,7 @@
                             </div>
                         </div>
 
-                        <!-- Shared Emotion & Intonation Director Panel (for Qwen3-TTS, CosyVoice2, Fish-Speech) -->
+                        <!-- Shared Emotion & Intonation Director Panel (for Qwen3-TTS, Fish-Speech) -->
                         <div id="emotion-director-options" class="director-panel" style="display: none;">
                             <div class="director-panel-header">
                                 <div class="director-panel-title">
@@ -765,7 +715,6 @@
                         <button type="button" class="pg-synth-pill active" data-synth="kokoro">🗣 Kokoro-82M</button>
                         <button type="button" class="pg-synth-pill" data-synth="pocket-tts">📦 PocketTTS</button>
                         <button type="button" class="pg-synth-pill" data-synth="qwen3-tts">🎭 Qwen3-TTS</button>
-                        <button type="button" class="pg-synth-pill" data-synth="cosyvoice2">✨ CosyVoice2</button>
                         <button type="button" class="pg-synth-pill" data-synth="fish-speech">🐟 Fish-Speech</button>
                         <button type="button" class="pg-synth-pill" data-synth="f5-tts">🎤 F5-TTS</button>
                         <button type="button" class="pg-synth-pill" data-synth="dummy">🔇 Dummy</button>
@@ -1041,61 +990,6 @@
                         </div>
                     </div>
 
-                    <!-- ── CosyVoice2-0.5B Panel ── -->
-                    <div id="pg-cosyvoice2-panel" style="display: none;">
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>Voice Mode</label>
-                                <div class="voice-mode-selector" id="pg-cosy-voice-mode-selector">
-                                    <button type="button" class="mode-pill active" data-mode="clone">Clone Voice</button>
-                                    <button type="button" class="mode-pill" data-mode="sft">Preset Voice</button>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label for="pg-cosy-mode-select">CosyVoice2 Mode</label>
-                                <select id="pg-cosy-mode-select">
-                                    <option value="instruct">Instruct2 (Emotion Prompt + Reference Voice)</option>
-                                    <option value="zero_shot">Zero-Shot Voice Cloning</option>
-                                    <option value="cross_lingual">Cross-Lingual Voice Cloning (EN/RU/KO/JA/ZH/DE/ES)</option>
-                                    <option value="sft">Preset Speaker (Built-in SFT Voice)</option>
-                                </select>
-                            </div>
-                            <div class="form-group" id="pg-cosy-speaker-group" style="display: none;">
-                                <label for="pg-cosy-speaker-select">Preset Speaker</label>
-                                <select id="pg-cosy-speaker-select">
-                                    <option value="英文女">English Female (Preset SFT)</option>
-                                    <option value="英文男">English Male (Preset SFT)</option>
-                                    <option value="中文女">Chinese Female (Preset SFT)</option>
-                                    <option value="中文男">Chinese Male (Preset SFT)</option>
-                                    <option value="日语男">Japanese Male (Preset SFT)</option>
-                                    <option value="韩语女">Korean Female (Preset SFT)</option>
-                                    <option value="粤语女">Cantonese Female (Preset SFT)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="pg-cosy-language-select">Target Language</label>
-                                <select id="pg-cosy-language-select">
-                                    <option value="auto">Auto-Detect / Native Script</option>
-                                    <option value="ja">Japanese (日本語)</option>
-                                    <option value="en">English</option>
-                                    <option value="zh">Chinese (中文)</option>
-                                    <option value="ko">Korean (한국어)</option>
-                                    <option value="ru">Russian (Русский)</option>
-                                    <option value="de">German (Deutsch)</option>
-                                    <option value="es">Spanish (Español)</option>
-                                    <option value="fr">French (Français)</option>
-                                    <option value="it">Italian (Italiano)</option>
-                                </select>
-                            </div>
-                            <div class="form-group" id="pg-cosy-ref-group">
-                                <label for="pg-cosy-ref-voice-select">Quick Select Saved Voice</label>
-                                <select id="pg-cosy-ref-voice-select">
-                                    <option value="">-- Upload Custom File / Record Below --</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
                     <!-- ── Fish-Speech-1.5 / OpenAudio Panel ── -->
                     <div id="pg-fish-panel" style="display: none;">
                         <div class="form-grid">
@@ -1154,7 +1048,7 @@
                             <div class="director-panel-title">
                                 <span>🎭</span> Emotion &amp; Intonation Instruction (`instruct`)
                             </div>
-                            <span style="font-size: 0.72rem; color: var(--text-muted);">Natural-language style prompt for Qwen3-TTS &amp; CosyVoice2</span>
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">Natural-language style prompt for Qwen3-TTS</span>
                         </div>
                         <div class="form-group">
                             <input type="text" id="pg-instruct-input" placeholder="e.g. Speak in a warm, captivating storytelling tone with expressive cadence.">
@@ -1624,7 +1518,6 @@
                                             <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang 24L)</option>
                                             <option value="kokoro">Kokoro-82M (Fast Presets &amp; Voice Blending)</option>
                                             <option value="qwen3-tts">Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
-                                            <option value="cosyvoice2">CosyVoice2-0.5B (9-Lang Instruct &amp; Breath/Laughter Tags)</option>
                                             <option value="fish-speech">Fish-Speech-1.5 / OpenAudio (8-Lang incl. Arabic &amp; Emotion Tags)</option>
                                             <option value="f5-tts">F5-TTS (Diffusion Zero-Shot Voice Cloning)</option>
                                             <option value="dummy">Dummy (Instant Silent Testing)</option>

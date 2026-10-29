@@ -2158,12 +2158,6 @@ audio::-webkit-media-controls-panel {
     border: 1px solid rgba(99, 102, 241, 0.35);
 }
 
-.pg-meta-badge.cosyvoice2 {
-    background: rgba(244, 63, 94, 0.18);
-    color: #fda4af;
-    border: 1px solid rgba(244, 63, 94, 0.35);
-}
-
 .pg-meta-badge.fish-speech {
     background: rgba(16, 185, 129, 0.18);
     color: #6ee7b7;

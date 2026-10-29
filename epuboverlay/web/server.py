@@ -120,11 +120,6 @@ def get_installed_synthesizers() -> dict[str, bool]:
     import importlib.util
     import os
 
-    from epuboverlay.synthesizers.cosyvoice import _ensure_cosyvoice_on_path
-    cosy_installed = (
-        _ensure_cosyvoice_on_path()
-        or bool(os.environ.get("COSYVOICE_API_URL"))
-    )
     fish_installed = (
         importlib.util.find_spec("fish_speech") is not None
         or importlib.util.find_spec("fish_audio_sdk") is not None
@@ -135,7 +130,6 @@ def get_installed_synthesizers() -> dict[str, bool]:
         "kokoro": importlib.util.find_spec("kokoro") is not None,
         "pocket-tts": importlib.util.find_spec("pocket_tts") is not None,
         "qwen3-tts": importlib.util.find_spec("qwen_tts") is not None,
-        "cosyvoice2": cosy_installed,
         "fish-speech": fish_installed,
         "f5-tts": importlib.util.find_spec("f5_tts") is not None,
     }
@@ -275,9 +269,6 @@ async def get_config():
     """Return available synthesizers, voices, languages, scenarios, and defaults."""
     from epuboverlay.normalization import NARRATION_SCENARIOS
     from epuboverlay.synthesizers import (
-        COSYVOICE_LANGUAGES,
-        COSYVOICE_MODES,
-        COSYVOICE_VOICES,
         FISH_EMOTION_TAGS,
         FISH_LANGUAGES,
         KOKORO_VOICES,
@@ -305,8 +296,6 @@ async def get_config():
         default_synth = "kokoro"
     elif installed.get("qwen3-tts", False):
         default_synth = "qwen3-tts"
-    elif installed.get("cosyvoice2", False):
-        default_synth = "cosyvoice2"
     elif installed.get("fish-speech", False):
         default_synth = "fish-speech"
     elif installed.get("f5-tts", False):
@@ -340,8 +329,6 @@ async def get_config():
         "qwen_model": current.get("qwen_model", "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
         "qwen_mode": current.get("qwen_mode", "custom_voice"),
         "qwen_speaker": "Ryan" if current.get("qwen_speaker") in (None, "", "Chelsie") else current.get("qwen_speaker", "Ryan"),
-        "cosy_mode": current.get("cosy_mode", "instruct"),
-        "cosy_speaker": current.get("cosy_speaker", "英文女"),
         "instruct": current.get("instruct", ""),
         "emotion_tag": current.get("emotion_tag", ""),
         "fish_api_url": current.get("fish_api_url", ""),
@@ -352,7 +339,6 @@ async def get_config():
             "pocket-tts",
             "kokoro",
             "qwen3-tts",
-            "cosyvoice2",
             "fish-speech",
             "f5-tts",
             "dummy",
@@ -364,9 +350,6 @@ async def get_config():
         "qwen3_models": QWEN3_MODELS,
         "qwen3_voices": QWEN3_VOICES,
         "qwen3_languages": QWEN3_LANGUAGES,
-        "cosyvoice_languages": COSYVOICE_LANGUAGES,
-        "cosyvoice_modes": COSYVOICE_MODES,
-        "cosyvoice_voices": COSYVOICE_VOICES,
         "fish_languages": FISH_LANGUAGES,
         "fish_emotion_tags": FISH_EMOTION_TAGS,
         "scenarios": NARRATION_SCENARIOS,
@@ -592,7 +575,6 @@ _PKG_ALIASES = {
     "f5-tts": "f5",
     "pocket-tts": "pocket",
     "qwen3-tts": "qwen",
-    "cosyvoice2": "cosyvoice",
     "fish-speech": "fish",
     "kokoro": "kokoro",
 }
@@ -629,8 +611,6 @@ async def create_job(
     qwen_model: str = Form("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
     qwen_mode: str = Form("custom_voice"),
     qwen_speaker: str = Form("Ryan"),
-    cosy_mode: str = Form("instruct"),
-    cosy_speaker: str = Form("英文女"),
     instruct: str = Form(""),
     emotion_tag: str = Form(""),
     fish_api_url: str = Form(""),
@@ -685,12 +665,6 @@ async def create_job(
                 status_code=400,
                 detail="Reference audio (or saved ref_id) is required for Qwen3-TTS clone mode.",
             )
-    elif synthesizer == "cosyvoice2":
-        if cosy_mode != "sft" and not ref_id.strip() and not ref_audio:
-            raise HTTPException(
-                status_code=400,
-                detail="Reference audio (or saved ref_id) is required for CosyVoice2-0.5B cloning modes.",
-            )
 
     parsed_chapters = None
     if selected_chapters:
@@ -711,7 +685,7 @@ async def create_job(
 
     try:
         norm_settings = load_settings_data().get("current_settings", {})
-        clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "cosyvoice2", "fish-speech")
+        clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "fish-speech")
 
         # Save ref audio if provided
         ref_audio_path = None
@@ -759,8 +733,6 @@ async def create_job(
             "qwen_model": qwen_model,
             "qwen_mode": qwen_mode,
             "qwen_speaker": qwen_speaker,
-            "cosy_mode": cosy_mode,
-            "cosy_speaker": cosy_speaker,
             "instruct": instruct,
             "emotion_tag": emotion_tag,
             "fish_api_url": fish_api_url,
@@ -839,8 +811,6 @@ async def resume_job(
     qwen_model: str | None = Form(None),
     qwen_mode: str | None = Form(None),
     qwen_speaker: str | None = Form(None),
-    cosy_mode: str | None = Form(None),
-    cosy_speaker: str | None = Form(None),
     instruct: str | None = Form(None),
     emotion_tag: str | None = Form(None),
     fish_api_url: str | None = Form(None),
@@ -907,8 +877,6 @@ async def resume_job(
         ("qwen_model", qwen_model),
         ("qwen_mode", qwen_mode),
         ("qwen_speaker", qwen_speaker),
-        ("cosy_mode", cosy_mode),
-        ("cosy_speaker", cosy_speaker),
         ("instruct", instruct),
         ("emotion_tag", emotion_tag),
         ("fish_api_url", fish_api_url),
@@ -1137,9 +1105,7 @@ async def purge_cache():
     job_manager.purge_all_cache()
     _PREVIEW_SYNTH_CACHE.clear()
     from epuboverlay.synthesizers.qwen3 import clear_qwen_model_cache
-    from epuboverlay.synthesizers.cosyvoice import clear_cosy_model_cache
     clear_qwen_model_cache()
-    clear_cosy_model_cache()
     import gc
     gc.collect()
     try:
@@ -1365,12 +1331,10 @@ async def preview_voice(
     frames_after_eos: str = Form(""),
     quantize: bool = Form(False),
     dialogue_voice: str = Form(""),
-    # Qwen3 / CosyVoice2 / Fish-Speech params
+    # Qwen3 / Fish-Speech params
     qwen_model: str = Form("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
     qwen_mode: str = Form("custom_voice"),
     qwen_speaker: str = Form("Ryan"),
-    cosy_mode: str = Form("instruct"),
-    cosy_speaker: str = Form("英文女"),
     instruct: str = Form(""),
     emotion_tag: str = Form(""),
     fish_api_url: str = Form(""),
@@ -1410,7 +1374,7 @@ async def preview_voice(
     resolved_ref_bytes = b""
     resolved_ref_path: Path | None = None
     resolved_ref_text = ""
-    clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "cosyvoice2", "fish-speech")
+    clone_capable = ("f5-tts", "pocket-tts", "qwen3-tts", "fish-speech")
     if ref_id.strip() and synthesizer in clone_capable:
         refs = load_references()
         ref = next((r for r in refs if r["id"] == ref_id), None)
@@ -1484,18 +1448,6 @@ async def preview_voice(
             ref_audio_hash,
             resolved_f5_ref_text,
             temp,
-            speed,
-            device or "auto",
-        )
-    elif synthesizer == "cosyvoice2":
-        cache_key = (
-            "cosyvoice2",
-            cosy_mode,
-            cosy_speaker,
-            instruct,
-            language,
-            ref_audio_hash,
-            resolved_f5_ref_text,
             speed,
             device or "auto",
         )
@@ -1617,24 +1569,6 @@ async def preview_voice(
                         device=device or None,
                     )
 
-                elif synthesizer == "cosyvoice2":
-                    if cosy_mode != "sft" and not active_ref_path:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="ref_audio (or saved ref_id) is required for CosyVoice2-0.5B cloning modes.",
-                        )
-                    from epuboverlay.synthesizers.cosyvoice import CosyVoice2Synthesizer
-                    synth = CosyVoice2Synthesizer(
-                        mode=cosy_mode,
-                        speaker=cosy_speaker,
-                        ref_audio=active_ref_path,
-                        ref_text=resolved_f5_ref_text,
-                        instruct=instruct,
-                        language=language,
-                        speed=speed,
-                        device=device or None,
-                    )
-
                 elif synthesizer == "fish-speech":
                     from epuboverlay.synthesizers.fish import FishSpeechSynthesizer
                     synth = FishSpeechSynthesizer(
@@ -1659,9 +1593,7 @@ async def preview_voice(
                 if "CUDA out of memory" in str(e) or "OutOfMemoryError" in type(e).__name__:
                     _PREVIEW_SYNTH_CACHE.clear()
                     from epuboverlay.synthesizers.qwen3 import clear_qwen_model_cache
-                    from epuboverlay.synthesizers.cosyvoice import clear_cosy_model_cache
                     clear_qwen_model_cache()
-                    clear_cosy_model_cache()
                     import gc
                     gc.collect()
                     try:
@@ -1715,11 +1647,6 @@ async def preview_voice(
             settings_dict["language"] = language
             if instruct:
                 settings_dict["instruct"] = instruct
-        elif synthesizer == "cosyvoice2":
-            settings_dict["mode"] = cosy_mode
-            settings_dict["language"] = language
-            if instruct:
-                settings_dict["instruct"] = instruct
         elif synthesizer == "fish-speech":
             settings_dict["language"] = language
             if emotion_tag:
@@ -1749,9 +1676,7 @@ async def preview_voice(
         if "CUDA out of memory" in str(e) or "OutOfMemoryError" in type(e).__name__:
             _PREVIEW_SYNTH_CACHE.clear()
             from epuboverlay.synthesizers.qwen3 import clear_qwen_model_cache
-            from epuboverlay.synthesizers.cosyvoice import clear_cosy_model_cache
             clear_qwen_model_cache()
-            clear_cosy_model_cache()
             import gc
             gc.collect()
             try:

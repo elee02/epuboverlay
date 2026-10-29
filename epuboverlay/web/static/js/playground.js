@@ -57,7 +57,6 @@ function getElements() {
         kokoroPanel:        document.getElementById('pg-kokoro-panel'),
         pocketPanel:        document.getElementById('pg-pocket-panel'),
         qwenPanel:          document.getElementById('pg-qwen3-panel'),
-        cosyPanel:          document.getElementById('pg-cosyvoice2-panel'),
         fishPanel:          document.getElementById('pg-fish-panel'),
         f5Panel:            document.getElementById('pg-f5-panel'),
         dummyPanel:         document.getElementById('pg-dummy-panel'),
@@ -103,14 +102,6 @@ function getElements() {
         qwenLanguageSelect: document.getElementById('pg-qwen-language-select'),
         qwenRefGroup:       document.getElementById('pg-qwen-ref-group'),
         qwenRefVoiceSelect: document.getElementById('pg-qwen-ref-voice-select'),
-        // CosyVoice2 sub-elements
-        cosyVoiceModeSelector: document.getElementById('pg-cosy-voice-mode-selector'),
-        cosyModeSelect:     document.getElementById('pg-cosy-mode-select'),
-        cosySpeakerSelect:  document.getElementById('pg-cosy-speaker-select'),
-        cosySpeakerGroup:   document.getElementById('pg-cosy-speaker-group'),
-        cosyLanguageSelect: document.getElementById('pg-cosy-language-select'),
-        cosyRefGroup:       document.getElementById('pg-cosy-ref-group'),
-        cosyRefVoiceSelect: document.getElementById('pg-cosy-ref-voice-select'),
         // Fish-Speech sub-elements
         fishVoiceModeSelector: document.getElementById('pg-fish-voice-mode-selector'),
         fishLanguageSelect: document.getElementById('pg-fish-language-select'),
@@ -158,7 +149,6 @@ function getActiveFishPlaygroundMode(els) {
 function updatePlaygroundClonePanelVisibility(els) {
     const synth = getActiveSynth(els);
     const qwenMode = els.qwenModeSelect ? els.qwenModeSelect.value : 'custom_voice';
-    const cosyMode = els.cosyModeSelect ? els.cosyModeSelect.value : 'instruct';
     const fishMode = getActiveFishPlaygroundMode(els);
 
     if (els.qwenSpeakerGroup) {
@@ -167,12 +157,6 @@ function updatePlaygroundClonePanelVisibility(els) {
     if (els.qwenRefGroup) {
         els.qwenRefGroup.style.display = qwenMode === 'clone' ? 'block' : 'none';
     }
-    if (els.cosySpeakerGroup) {
-        els.cosySpeakerGroup.style.display = cosyMode === 'sft' ? 'flex' : 'none';
-    }
-    if (els.cosyRefGroup) {
-        els.cosyRefGroup.style.display = cosyMode !== 'sft' ? 'flex' : 'none';
-    }
     if (els.fishRefGroup) {
         els.fishRefGroup.style.display = fishMode === 'clone' ? 'flex' : 'none';
     }
@@ -180,7 +164,6 @@ function updatePlaygroundClonePanelVisibility(els) {
     const showSharedCloneStudio =
         synth === 'f5-tts' ||
         (synth === 'qwen3-tts' && qwenMode === 'clone') ||
-        (synth === 'cosyvoice2' && cosyMode !== 'sft') ||
         (synth === 'fish-speech' && fishMode === 'clone');
 
     if (els.f5Panel) {
@@ -198,7 +181,6 @@ function switchSynth(synth, els) {
         kokoro:        els.kokoroPanel,
         'pocket-tts':  els.pocketPanel,
         'qwen3-tts':   els.qwenPanel,
-        cosyvoice2:    els.cosyPanel,
         'fish-speech': els.fishPanel,
         dummy:         els.dummyPanel,
     };
@@ -207,7 +189,7 @@ function switchSynth(synth, els) {
     });
     if (els.emotionDirectorPanel) {
         els.emotionDirectorPanel.style.display =
-            (synth === 'qwen3-tts' || synth === 'cosyvoice2' || synth === 'fish-speech') ? 'block' : 'none';
+            (synth === 'qwen3-tts' || synth === 'fish-speech') ? 'block' : 'none';
     }
     updatePlaygroundClonePanelVisibility(els);
 }
@@ -260,11 +242,6 @@ export async function refreshPlaygroundList() {
                 if (item.settings.qwen_speaker) {
                     settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.qwen_speaker)}</span>`;
                 }
-                if (item.settings.language) {
-                    settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.language)}</span>`;
-                }
-            } else if (item.synthesizer === 'cosyvoice2') {
-                settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.cosy_mode || 'instruct')}</span>`;
                 if (item.settings.language) {
                     settingsHtml += `<span class="pg-meta-badge settings">${escapeHtml(item.settings.language)}</span>`;
                 }
@@ -468,37 +445,6 @@ async function handleSynthesize(els) {
         } else if (qwenMode === 'voice_design' && !instruct) {
             showToast('Please enter an Emotion & Intonation prompt to design a voice.', 'error');
             return;
-        }
-
-    } else if (synth === 'cosyvoice2') {
-        const cosyMode = els.cosyModeSelect ? els.cosyModeSelect.value : 'instruct';
-        const cosySpeaker = els.cosySpeakerSelect ? els.cosySpeakerSelect.value : '英文女';
-        const cosyLang = els.cosyLanguageSelect ? els.cosyLanguageSelect.value : 'auto';
-        const instruct = els.instructInput ? els.instructInput.value.trim() : '';
-
-        body.append('cosy_mode', cosyMode);
-        body.append('cosy_speaker', cosySpeaker);
-        body.append('language', cosyLang);
-        if (instruct) body.append('instruct', instruct);
-
-        if (cosyMode !== 'sft') {
-            const savedId = (els.cosyRefVoiceSelect && els.cosyRefVoiceSelect.value)
-                || (els.f5RefVoiceSelect && els.f5RefVoiceSelect.value) || '';
-            const refText = els.f5RefTextInput ? els.f5RefTextInput.value.trim() : '';
-            const customFile = els.f5RefAudioInput && els.f5RefAudioInput.files[0];
-            if (savedId) {
-                body.append('ref_id', savedId);
-                if (refText) body.append('ref_text', refText);
-            } else if (pgF5RecordedBlob) {
-                body.append('ref_audio', pgF5RecordedBlob, 'recorded_prompt.wav');
-                if (refText) body.append('ref_text', refText);
-            } else if (customFile) {
-                body.append('ref_audio', customFile);
-                if (refText) body.append('ref_text', refText);
-            } else {
-                showToast('Please select a saved reference voice, upload a voice clip, or record audio for CosyVoice2 cloning (or switch to Preset Voice).', 'error');
-                return;
-            }
         }
 
     } else if (synth === 'fish-speech') {
@@ -816,7 +762,6 @@ export function initPlayground() {
         'pocket-tts': 'pocket',
         kokoro: 'kokoro',
         'qwen3-tts': 'qwen',
-        cosyvoice2: 'cosyvoice',
         'fish-speech': 'fish',
     };
     if (els.synthSelector) {
@@ -889,41 +834,6 @@ export function initPlayground() {
         });
     }
 
-    // CosyVoice2 mode & pills handler
-    function syncPlaygroundCosyMode(m) {
-        const isSft = m === 'sft';
-        if (els.cosyVoiceModeSelector) {
-            els.cosyVoiceModeSelector.querySelectorAll('.mode-pill').forEach(p => {
-                p.classList.toggle('active', p.getAttribute('data-mode') === (isSft ? 'sft' : 'clone'));
-            });
-        }
-        if (els.cosyModeSelect && els.cosyModeSelect.value !== m) {
-            els.cosyModeSelect.value = m;
-        }
-        updatePlaygroundClonePanelVisibility(els);
-    }
-
-    if (els.cosyVoiceModeSelector) {
-        els.cosyVoiceModeSelector.querySelectorAll('.mode-pill').forEach(pill => {
-            pill.addEventListener('click', () => {
-                const modeAttr = pill.getAttribute('data-mode') || 'clone';
-                if (modeAttr === 'sft') {
-                    syncPlaygroundCosyMode('sft');
-                } else {
-                    const nextMode = (els.cosyModeSelect && els.cosyModeSelect.value !== 'sft')
-                        ? els.cosyModeSelect.value
-                        : 'instruct';
-                    syncPlaygroundCosyMode(nextMode);
-                }
-            });
-        });
-    }
-    if (els.cosyModeSelect) {
-        els.cosyModeSelect.addEventListener('change', () => {
-            syncPlaygroundCosyMode(els.cosyModeSelect.value);
-        });
-    }
-
     // Fish-Speech mode pills handler
     if (els.fishVoiceModeSelector) {
         els.fishVoiceModeSelector.querySelectorAll('.mode-pill').forEach(pill => {
@@ -937,7 +847,7 @@ export function initPlayground() {
     }
 
     // Keep quick-select saved voice dropdowns in sync with #pg-f5-ref-voice-select
-    [els.qwenRefVoiceSelect, els.cosyRefVoiceSelect, els.fishRefVoiceSelect].forEach(sel => {
+    [els.qwenRefVoiceSelect, els.fishRefVoiceSelect].forEach(sel => {
         if (!sel) return;
         sel.addEventListener('change', () => {
             if (els.f5RefVoiceSelect && els.f5RefVoiceSelect.value !== sel.value) {
@@ -948,7 +858,7 @@ export function initPlayground() {
     });
     if (els.f5RefVoiceSelect) {
         els.f5RefVoiceSelect.addEventListener('change', () => {
-            [els.qwenRefVoiceSelect, els.cosyRefVoiceSelect, els.fishRefVoiceSelect].forEach(sel => {
+            [els.qwenRefVoiceSelect, els.fishRefVoiceSelect].forEach(sel => {
                 if (sel && sel.value !== els.f5RefVoiceSelect.value) {
                     sel.value = els.f5RefVoiceSelect.value;
                 }
@@ -999,9 +909,6 @@ export function initPlayground() {
                         zh: 'Chinese', de: 'German', es: 'Spanish',
                     };
                     if (qwenLangMap[lang]) els.qwenLanguageSelect.value = qwenLangMap[lang];
-                }
-                if (els.cosyLanguageSelect && lang !== 'ar') {
-                    els.cosyLanguageSelect.value = lang;
                 }
                 if (els.fishLanguageSelect) {
                     els.fishLanguageSelect.value = lang;

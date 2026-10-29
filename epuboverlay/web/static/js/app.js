@@ -34,7 +34,6 @@ function populateReferencesDropdowns() {
         { el: document.getElementById('pg-f5-ref-voice-select'), type: 'f5' },
         { el: document.getElementById('pg-pocket-ref-voice-select'), type: 'pocket' },
         { el: document.getElementById('pg-qwen-ref-voice-select'), type: 'qwen' },
-        { el: document.getElementById('pg-cosy-ref-voice-select'), type: 'cosy' },
         { el: document.getElementById('pg-fish-ref-voice-select'), type: 'fish' },
     ];
     selects.forEach(({ el, type }) => {
@@ -93,7 +92,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         applyInstalledSynthesizersToSelect(document.getElementById('default-synthesizer'));
         setKokoroVoices(config.kokoro_voices || []);
         setPocketVoices(config.pocket_voices || []);
-        populatePresetSpeakerSelects(config.qwen3_voices || [], config.cosyvoice_voices || []);
+        populatePresetSpeakerSelects(config.qwen3_voices || []);
         applyConfigDefaults(config.defaults || {});
     } catch (err) {
         showToast('Failed to fetch config: ' + err.message, 'error');
@@ -151,7 +150,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ── Config defaults ─────────────────────────────────────────────────────────
 
-function populatePresetSpeakerSelects(qwenVoices, cosyVoices) {
+function populatePresetSpeakerSelects(qwenVoices) {
     if (Array.isArray(qwenVoices) && qwenVoices.length > 0) {
         ['qwen-speaker-select', 'pg-qwen-speaker-select'].forEach(id => {
             const sel = document.getElementById(id);
@@ -165,23 +164,6 @@ function populatePresetSpeakerSelects(qwenVoices, cosyVoices) {
                 sel.appendChild(opt);
             });
             if (prev && qwenVoices.some(v => v.id === prev)) {
-                sel.value = prev;
-            }
-        });
-    }
-    if (Array.isArray(cosyVoices) && cosyVoices.length > 0) {
-        ['cosy-speaker-select', 'pg-cosy-speaker-select'].forEach(id => {
-            const sel = document.getElementById(id);
-            if (!sel) return;
-            const prev = sel.value;
-            sel.innerHTML = '';
-            cosyVoices.forEach(v => {
-                const opt = document.createElement('option');
-                opt.value = v.id;
-                opt.textContent = v.name;
-                sel.appendChild(opt);
-            });
-            if (prev && cosyVoices.some(v => v.id === prev)) {
                 sel.value = prev;
             }
         });
@@ -227,11 +209,6 @@ function applyConfigDefaults(defaults) {
     const qwenSpeakerSelect = document.getElementById('qwen-speaker-select');
     if (qwenSpeakerSelect && defaults.qwen_speaker) {
         qwenSpeakerSelect.value = defaults.qwen_speaker;
-    }
-
-    const cosySpeakerSelect = document.getElementById('cosy-speaker-select');
-    if (cosySpeakerSelect && defaults.cosy_speaker) {
-        cosySpeakerSelect.value = defaults.cosy_speaker;
     }
 }
 
@@ -335,7 +312,6 @@ function setupSynthesizerToggle() {
     const kokoroOptions = document.getElementById('kokoro-options');
     const pocketOptions = document.getElementById('pocket-tts-options');
     const qwenOptions = document.getElementById('qwen3-tts-options');
-    const cosyOptions = document.getElementById('cosyvoice2-options');
     const fishOptions = document.getElementById('fish-speech-options');
     const emotionDirector = document.getElementById('emotion-director-options');
 
@@ -343,10 +319,6 @@ function setupSynthesizerToggle() {
     const qwenModeSelect = document.getElementById('qwen-mode-select');
     const qwenModelSelect = document.getElementById('qwen-model-select');
     const qwenSpeakerGroup = document.getElementById('qwen-speaker-group');
-
-    const cosyVoiceModeSelector = document.getElementById('cosy-voice-mode-selector');
-    const cosyModeSelect = document.getElementById('cosy-mode-select');
-    const cosySpeakerGroup = document.getElementById('cosy-speaker-group');
 
     const fishVoiceModeSelector = document.getElementById('fish-voice-mode-selector');
 
@@ -375,35 +347,18 @@ function setupSynthesizerToggle() {
         }
     }
 
-    function syncCosyModeAndPills(modeVal) {
-        const isSft = modeVal === 'sft';
-        if (cosyVoiceModeSelector) {
-            cosyVoiceModeSelector.querySelectorAll('.mode-pill').forEach(p => {
-                p.classList.toggle('active', p.getAttribute('data-mode') === (isSft ? 'sft' : 'clone'));
-            });
-        }
-        if (cosyModeSelect && cosyModeSelect.value !== modeVal) {
-            cosyModeSelect.value = modeVal;
-        }
-    }
-
     function toggleFields() {
         const val = synthSelect.value;
         const qwenMode = qwenModeSelect ? qwenModeSelect.value : 'custom_voice';
-        const cosyMode = cosyModeSelect ? cosyModeSelect.value : 'instruct';
         const fishMode = getActiveFishMode();
 
         if (qwenSpeakerGroup) {
             qwenSpeakerGroup.style.display = qwenMode === 'custom_voice' ? 'flex' : 'none';
         }
-        if (cosySpeakerGroup) {
-            cosySpeakerGroup.style.display = cosyMode === 'sft' ? 'flex' : 'none';
-        }
 
         const needsRefAudio =
             val === 'f5-tts' ||
             (val === 'qwen3-tts' && qwenMode === 'clone') ||
-            (val === 'cosyvoice2' && cosyMode !== 'sft') ||
             (val === 'fish-speech' && fishMode === 'clone');
 
         if (cloningOptions) cloningOptions.style.display = needsRefAudio ? 'grid' : 'none';
@@ -416,11 +371,10 @@ function setupSynthesizerToggle() {
         if (kokoroOptions) kokoroOptions.style.display = val === 'kokoro' ? 'block' : 'none';
         if (pocketOptions) pocketOptions.style.display = val === 'pocket-tts' ? 'block' : 'none';
         if (qwenOptions) qwenOptions.style.display = val === 'qwen3-tts' ? 'block' : 'none';
-        if (cosyOptions) cosyOptions.style.display = val === 'cosyvoice2' ? 'block' : 'none';
         if (fishOptions) fishOptions.style.display = val === 'fish-speech' ? 'block' : 'none';
         if (emotionDirector) {
             emotionDirector.style.display =
-                (val === 'qwen3-tts' || val === 'cosyvoice2' || val === 'fish-speech') ? 'block' : 'none';
+                (val === 'qwen3-tts' || val === 'fish-speech') ? 'block' : 'none';
         }
 
         if (val === 'kokoro') updateFilteredVoices();
@@ -439,30 +393,6 @@ function setupSynthesizerToggle() {
     if (qwenModeSelect) {
         qwenModeSelect.addEventListener('change', () => {
             syncQwenModelAndPills(qwenModeSelect.value);
-            toggleFields();
-        });
-    }
-
-    if (cosyVoiceModeSelector) {
-        cosyVoiceModeSelector.querySelectorAll('.mode-pill').forEach(pill => {
-            pill.addEventListener('click', () => {
-                const m = pill.getAttribute('data-mode') || 'clone';
-                if (m === 'sft') {
-                    syncCosyModeAndPills('sft');
-                } else {
-                    const nextMode = (cosyModeSelect && cosyModeSelect.value !== 'sft')
-                        ? cosyModeSelect.value
-                        : 'instruct';
-                    syncCosyModeAndPills(nextMode);
-                }
-                toggleFields();
-            });
-        });
-    }
-
-    if (cosyModeSelect) {
-        cosyModeSelect.addEventListener('change', () => {
-            syncCosyModeAndPills(cosyModeSelect.value);
             toggleFields();
         });
     }
@@ -671,26 +601,21 @@ function setupForm() {
                     }
                 }
             }
-        } else if (synthSelect.value === 'f5-tts' || synthSelect.value === 'cosyvoice2' || synthSelect.value === 'fish-speech' || synthSelect.value === 'qwen3-tts') {
+        } else if (synthSelect.value === 'f5-tts' || synthSelect.value === 'fish-speech' || synthSelect.value === 'qwen3-tts') {
             formData.set('voice', '');
             formData.set('voice_formula', '');
             formData.set('pocket_voice', '');
 
-            if (synthSelect.value === 'cosyvoice2') {
-                const cosyLang = document.getElementById('cosy-language-select');
-                if (cosyLang) formData.set('language', cosyLang.value);
-            } else if (synthSelect.value === 'fish-speech') {
+            if (synthSelect.value === 'fish-speech') {
                 const fishLang = document.getElementById('fish-language-select');
                 if (fishLang) formData.set('language', fishLang.value);
             }
 
             const qwenMode = document.getElementById('qwen-mode-select')?.value || 'custom_voice';
-            const cosyMode = document.getElementById('cosy-mode-select')?.value || 'instruct';
             const fishMode = document.getElementById('fish-voice-mode-selector')?.querySelector('.mode-pill.active')?.getAttribute('data-mode') || 'clone';
             const shouldAttachCloneRef =
                 synthSelect.value === 'f5-tts' ||
                 (synthSelect.value === 'qwen3-tts' && qwenMode === 'clone') ||
-                (synthSelect.value === 'cosyvoice2' && cosyMode !== 'sft') ||
                 (synthSelect.value === 'fish-speech' && fishMode === 'clone');
 
             if (shouldAttachCloneRef) {
@@ -743,16 +668,6 @@ function setupForm() {
             } else if (qwenMode === 'voice_design' && !formData.get('instruct')?.trim()) {
                 showToast('Please enter an Emotion & Intonation Director prompt to design a voice.', 'error');
                 return;
-            }
-        } else if (selectedSynth === 'cosyvoice2') {
-            const cosyMode = document.getElementById('cosy-mode-select')?.value || 'instruct';
-            if (cosyMode !== 'sft') {
-                const hasSavedRef = formData.get('ref_id');
-                const refAudioFile = document.getElementById('ref-audio-file');
-                if (!hasSavedRef && (!refAudioFile || !refAudioFile.files.length)) {
-                    showToast('Reference audio is required for CosyVoice2 cloning modes (or switch to Preset Voice).', 'error');
-                    return;
-                }
             }
         } else if (selectedSynth === 'pocket-tts') {
             const activePocketMode = document.getElementById('pocket-voice-mode-selector')

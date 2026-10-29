@@ -7,13 +7,6 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from epuboverlay.synthesizers.base import BaseSynthesizer, FrameTimedSynthesizer
-from epuboverlay.synthesizers.cosyvoice import (
-    COSYVOICE_LANGUAGES,
-    COSYVOICE_MODES,
-    COSYVOICE_VOICES,
-    CosyVoice2Synthesizer,
-    clear_cosy_model_cache,
-)
 from epuboverlay.synthesizers.dummy import DummySynthesizer
 from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
 from epuboverlay.synthesizers.fish import (
@@ -83,18 +76,6 @@ _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
         temp=float(kw.get("temp", 0.7) if kw.get("temp") not in (None, "") else 0.7),
         device=kw.get("device"),
     ),
-    "cosyvoice2": lambda **kw: CosyVoice2Synthesizer(
-        model_name=kw.get("cosy_model") or kw.get("model_name") or "iic/CosyVoice2-0.5B",
-        mode=kw.get("cosy_mode") or kw.get("mode") or "instruct",
-        speaker=kw.get("cosy_speaker") or kw.get("speaker") or "英文女",
-        ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
-        ref_text=kw.get("ref_text", "") or "",
-        instruct=kw.get("instruct", "") or "",
-        language=kw.get("language") or kw.get("lang_code") or "auto",
-        speed=float(kw.get("speed", 1.0)),
-        api_url=kw.get("cosy_api_url") or kw.get("api_url") or "",
-        device=kw.get("device"),
-    ),
     "fish-speech": lambda **kw: FishSpeechSynthesizer(
         ref_audio=kw.get("ref_audio_path") or kw.get("ref_audio") or None,
         ref_text=kw.get("ref_text", "") or "",
@@ -117,7 +98,7 @@ def create_synthesizer(synth_id: str, **kwargs: Any) -> BaseSynthesizer:
 
     Args:
         synth_id: One of 'dummy', 'f5-tts', 'kokoro', 'pocket-tts',
-            'qwen3-tts', 'cosyvoice2', 'fish-speech'.
+            'qwen3-tts', 'fish-speech'.
         **kwargs: Synthesizer-specific configuration options.
     """
     if synth_id not in _REGISTRY:
@@ -136,7 +117,6 @@ __all__ = [
     "KokoroSynthesizer",
     "PocketSynthesizer",
     "Qwen3TTSSynthesizer",
-    "CosyVoice2Synthesizer",
     "FishSpeechSynthesizer",
     "KOKORO_VOICES",
     "POCKET_VOICES",
@@ -144,9 +124,6 @@ __all__ = [
     "QWEN3_MODELS",
     "QWEN3_VOICES",
     "QWEN3_LANGUAGES",
-    "COSYVOICE_LANGUAGES",
-    "COSYVOICE_MODES",
-    "COSYVOICE_VOICES",
     "FISH_LANGUAGES",
     "FISH_EMOTION_TAGS",
     "AVAILABLE_SYNTHESIZERS",
