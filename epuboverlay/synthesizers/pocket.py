@@ -52,7 +52,8 @@ class PocketSynthesizer(BaseSynthesizer):
         except ImportError as e:
             raise ImportError(
                 "pocket-tts is not installed. Please install it using "
-                "'pip install pocket-tts' to use the PocketSynthesizer."
+                "'uv add \"epuboverlay[pocket]\"' (or 'pip install \"epuboverlay[pocket]\"') "
+                "to use the PocketSynthesizer."
             ) from e
 
         if not voice and not ref_audio:

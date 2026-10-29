@@ -29,6 +29,18 @@ job_manager = JobManager()
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+def get_installed_synthesizers() -> dict[str, bool]:
+    """Detect which TTS synthesizers are installed in the current environment."""
+    import importlib.util
+
+    return {
+        "dummy": True,
+        "kokoro": importlib.util.find_spec("kokoro") is not None,
+        "pocket-tts": importlib.util.find_spec("pocket_tts") is not None,
+        "f5-tts": importlib.util.find_spec("f5_tts") is not None,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     """Serve the dashboard SPA."""
@@ -164,9 +176,23 @@ async def get_config():
     from epuboverlay.synthesizers import KOKORO_VOICES, POCKET_VOICES
     data = load_settings_data()
     current = data.get("current_settings", {})
-    
+    installed = get_installed_synthesizers()
+
+    # Pick default synthesizer based on what is actually installed
+    saved_synth = current.get("synthesizer")
+    if saved_synth and installed.get(saved_synth, False):
+        default_synth = saved_synth
+    elif installed.get("kokoro", False):
+        default_synth = "kokoro"
+    elif installed.get("pocket-tts", False):
+        default_synth = "pocket-tts"
+    elif installed.get("f5-tts", False):
+        default_synth = "f5-tts"
+    else:
+        default_synth = "dummy"
+
     defaults = {
-        "synthesizer": current.get("synthesizer", "f5-tts"),
+        "synthesizer": default_synth,
         "speed": current.get("speed", 1.0),
         "max_chars": current.get("max_chars", 150),
         "frame_rate": current.get("frame_rate", 24000.0),
@@ -179,9 +205,10 @@ async def get_config():
         "device": current.get("device", ""),
         "pocket_voice": current.get("pocket_voice", "alba"),
     }
-    
+
     return {
         "synthesizers": ["f5-tts", "kokoro", "pocket-tts", "dummy"],
+        "installed_synthesizers": installed,
         "kokoro_voices": KOKORO_VOICES,
         "pocket_voices": POCKET_VOICES,
         "defaults": defaults,
@@ -384,10 +411,13 @@ async def clear_playground_cache():
     """Clear all playground history items from RAM cache."""
     _PLAYGROUND_HISTORY.clear()
     import gc
-    import torch
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
     gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
     return {"status": "cleared"}
 
 
@@ -424,6 +454,19 @@ async def create_job(
         raise HTTPException(
             status_code=409,
             detail="A job is already running. Please wait for it to complete or cancel it.",
+        )
+
+    # Validate synthesizer availability
+    installed = get_installed_synthesizers()
+    if not installed.get(synthesizer, False):
+        pkg_alias = "f5" if synthesizer == "f5-tts" else ("pocket" if synthesizer == "pocket-tts" else synthesizer)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Synthesizer '{synthesizer}' is not installed in this environment. "
+                f"To install it, run: uv add 'epuboverlay[{pkg_alias}]' "
+                f"(or pip install 'epuboverlay[{pkg_alias}]')"
+            ),
         )
 
     # Validate based on selected synthesizer
@@ -1012,6 +1055,19 @@ async def preview_voice(
     if not text.strip():
         raise HTTPException(status_code=400, detail="Preview text cannot be empty.")
 
+    # 0. Check synthesizer availability
+    installed = get_installed_synthesizers()
+    if not installed.get(synthesizer, False):
+        pkg_alias = "f5" if synthesizer == "f5-tts" else ("pocket" if synthesizer == "pocket-tts" else synthesizer)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Synthesizer '{synthesizer}' is not installed in this environment. "
+                f"To install it, run: uv add 'epuboverlay[{pkg_alias}]' "
+                f"(or pip install 'epuboverlay[{pkg_alias}]')"
+            ),
+        )
+
     # 0. Resolve reference voice if ref_id is provided
     resolved_ref_bytes = b""
     resolved_ref_text = ""
@@ -1052,6 +1108,8 @@ async def preview_voice(
     elif synthesizer == "f5-tts":
         ref_text_hash = hashlib.md5(resolved_f5_ref_text.encode("utf-8")).hexdigest()
         cache_key = ("f5-tts", ref_audio_hash, ref_text_hash, speed, device or "cpu")
+    elif synthesizer == "dummy":
+        cache_key = ("dummy", speed)
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported synthesizer: {synthesizer}")
 
@@ -1120,6 +1178,10 @@ async def preview_voice(
                         speed=speed,
                     )
 
+                elif synthesizer == "dummy":
+                    from epuboverlay.synthesizers.dummy import DummySynthesizer
+                    synth = DummySynthesizer()
+
                 # Save model to cache
                 _PREVIEW_SYNTH_CACHE[cache_key] = synth
 
@@ -1129,11 +1191,14 @@ async def preview_voice(
                     old_synth = _PREVIEW_SYNTH_CACHE.pop(oldest_key)
                     # Force garbage collection to free VRAM/RAM
                     import gc
-                    import torch
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
                     del old_synth
                     gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
 
             finally:
                 if tmp_ref_path:
@@ -1171,6 +1236,8 @@ async def preview_voice(
             settings_dict["mode"] = "clone"
             if ref_id:
                 settings_dict["ref_id"] = ref_id
+        elif synthesizer == "dummy":
+            settings_dict["mode"] = "dummy"
                 
         _PLAYGROUND_HISTORY.insert(0, {
             "id": audio_id,

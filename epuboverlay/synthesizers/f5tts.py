@@ -28,8 +28,8 @@ class F5TTSSynthesizer(BaseSynthesizer):
             from f5_tts.infer.utils_infer import convert_char_to_pinyin
         except ImportError as e:
             raise ImportError(
-                "f5-tts is not installed. Please install it using 'pip install f5-tts' "
-                "to use the F5TTSSynthesizer."
+                "f5-tts is not installed. Please install it using 'uv add \"epuboverlay[f5]\"' "
+                "(or 'pip install \"epuboverlay[f5]\"') to use the F5TTSSynthesizer."
             ) from e
 
         self.f5 = F5TTS(model=model_name, device=device)

@@ -103,8 +103,8 @@ class KokoroSynthesizer(BaseSynthesizer):
             from kokoro import KPipeline  # type: ignore[import-not-found]
         except ImportError as e:
             raise ImportError(
-                "kokoro is not installed. Please install it using 'pip install kokoro>=0.9.4' "
-                "to use the KokoroSynthesizer."
+                "kokoro is not installed. Please install it using 'uv add \"epuboverlay[kokoro]\"' "
+                "(or 'pip install \"epuboverlay[kokoro]\"') to use the KokoroSynthesizer."
             ) from e
 
         if not voice and not voice_formula:
