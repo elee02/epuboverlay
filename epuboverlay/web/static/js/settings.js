@@ -5,16 +5,16 @@ import {
     saveReference,
     deleteReference,
     updateReference
-} from './api.js?v=5';
+} from './api.js?v=6';
 import {
     showToast,
     escapeHtml,
     applyInstalledSynthesizersToSelect,
     getPreferredInstalledSynthesizer,
     setupAudioRecorder,
-} from './utils.js?v=5';
-import { showConfirmModal } from './modal.js?v=5';
-import { loadSavedReferencesGlobal } from './app.js?v=5';
+} from './utils.js?v=6';
+import { showConfirmModal } from './modal.js?v=6';
+import { loadSavedReferencesGlobal } from './app.js?v=6';
 
 let currentSettings = { custom_lexicon: [] };
 

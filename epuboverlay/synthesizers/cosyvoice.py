@@ -53,6 +53,23 @@ COSYVOICE_VOICES: list[dict[str, str]] = [
 
 _INLINE_INSTRUCT_RE = re.compile(r"^\s*\[instruct\s*:\s*([^\]]+)\]\s*", re.IGNORECASE)
 
+# Process-level model weight cache to prevent VRAM duplication when changing voices/instruct
+_COSY_MODEL_CACHE: dict[tuple[str, str], Any] = {}
+
+
+def clear_cosy_model_cache() -> None:
+    """Clear cached CosyVoice2 instances and free GPU memory."""
+    global _COSY_MODEL_CACHE
+    _COSY_MODEL_CACHE.clear()
+    import gc
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
 
 class CosyVoice2Synthesizer(BaseSynthesizer):
     """CosyVoice2-0.5B synthesizer by FunAudioLLM.
@@ -103,34 +120,45 @@ class CosyVoice2Synthesizer(BaseSynthesizer):
         self._prompt_speech_16k = self.ref_audio
 
         if not self.api_url:
-            try:
-                from cosyvoice.cli.cosyvoice import CosyVoice2  # type: ignore[import-not-found]
-            except ImportError as e:
-                raise ImportError(
-                    "CosyVoice2 runtime (`cosyvoice.cli.cosyvoice`) is not found in PYTHONPATH. "
-                    "Install the FunAudioLLM/CosyVoice package or set COSYVOICE_API_URL to a running CosyVoice2 server."
-                ) from e
+            cache_key = (self.model_name, self.device)
+            if cache_key in _COSY_MODEL_CACHE:
+                self._model = _COSY_MODEL_CACHE[cache_key]
+                self._sample_rate = int(
+                    getattr(self._model, "sample_rate", self._DEFAULT_SAMPLE_RATE) or self._DEFAULT_SAMPLE_RATE
+                )
+            else:
+                if self.device == "cuda" and _COSY_MODEL_CACHE:
+                    clear_cosy_model_cache()
 
-            if self.device == "cuda":
                 try:
-                    import torch
-                    torch.backends.cuda.matmul.allow_tf32 = True
-                    torch.backends.cudnn.allow_tf32 = True
-                    torch.backends.cudnn.benchmark = True
-                except Exception:
-                    pass
+                    from cosyvoice.cli.cosyvoice import CosyVoice2  # type: ignore[import-not-found]
+                except ImportError as e:
+                    raise ImportError(
+                        "CosyVoice2 runtime (`cosyvoice.cli.cosyvoice`) is not found in PYTHONPATH. "
+                        "Install the FunAudioLLM/CosyVoice package or set COSYVOICE_API_URL to a running CosyVoice2 server."
+                    ) from e
 
-            load_jit = os.environ.get("COSYVOICE_LOAD_JIT", "0") == "1"
-            load_trt = os.environ.get("COSYVOICE_LOAD_TRT", "0") == "1"
-            self._model = CosyVoice2(
-                self.model_name,
-                load_jit=load_jit,
-                load_trt=load_trt,
-                fp16=(self.device == "cuda"),
-            )
-            self._sample_rate = int(
-                getattr(self._model, "sample_rate", self._DEFAULT_SAMPLE_RATE) or self._DEFAULT_SAMPLE_RATE
-            )
+                if self.device == "cuda":
+                    try:
+                        import torch
+                        torch.backends.cuda.matmul.allow_tf32 = True
+                        torch.backends.cudnn.allow_tf32 = True
+                        torch.backends.cudnn.benchmark = True
+                    except Exception:
+                        pass
+
+                load_jit = os.environ.get("COSYVOICE_LOAD_JIT", "0") == "1"
+                load_trt = os.environ.get("COSYVOICE_LOAD_TRT", "0") == "1"
+                self._model = CosyVoice2(
+                    self.model_name,
+                    load_jit=load_jit,
+                    load_trt=load_trt,
+                    fp16=(self.device == "cuda"),
+                )
+                self._sample_rate = int(
+                    getattr(self._model, "sample_rate", self._DEFAULT_SAMPLE_RATE) or self._DEFAULT_SAMPLE_RATE
+                )
+                _COSY_MODEL_CACHE[cache_key] = self._model
 
             if self.ref_audio:
                 try:

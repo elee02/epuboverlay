@@ -12,6 +12,7 @@ from epuboverlay.synthesizers.cosyvoice import (
     COSYVOICE_MODES,
     COSYVOICE_VOICES,
     CosyVoice2Synthesizer,
+    clear_cosy_model_cache,
 )
 from epuboverlay.synthesizers.dummy import DummySynthesizer
 from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
@@ -31,6 +32,7 @@ from epuboverlay.synthesizers.qwen3 import (
     QWEN3_MODELS,
     QWEN3_VOICES,
     Qwen3TTSSynthesizer,
+    clear_qwen_model_cache,
 )
 
 # Registry mapping backend ID string -> factory callable

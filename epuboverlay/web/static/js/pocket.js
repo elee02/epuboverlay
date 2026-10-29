@@ -5,7 +5,7 @@
  * the Generate form and the Voice Playground.
  */
 
-import { showToast } from './utils.js?v=5';
+import { showToast } from './utils.js?v=6';
 
 export const POCKET_VOICE_NAMES = {
     alba: 'Alba (Default Female)',

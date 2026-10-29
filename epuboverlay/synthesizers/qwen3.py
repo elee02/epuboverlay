@@ -73,6 +73,23 @@ _VALID_SPEAKERS_MAP: dict[str, str] = {v["id"].lower(): v["id"] for v in QWEN3_V
 
 _INLINE_INSTRUCT_RE = re.compile(r"^\s*\[instruct\s*:\s*([^\]]+)\]\s*", re.IGNORECASE)
 
+# Process-level model weight cache to prevent VRAM duplication when changing voices/instruct
+_MODEL_CACHE: dict[tuple[str, str], Any] = {}
+
+
+def clear_qwen_model_cache() -> None:
+    """Clear cached Qwen3TTSModel instances and free GPU memory."""
+    global _MODEL_CACHE
+    _MODEL_CACHE.clear()
+    import gc
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
 
 def normalize_qwen_language(lang: str | None) -> str:
     """Normalize ISO code or language name to Qwen3-TTS language identifier."""
@@ -178,31 +195,47 @@ class Qwen3TTSSynthesizer(BaseSynthesizer):
             except Exception:
                 pass
 
-        # Initialize Qwen3-TTS model wrapper
-        model_cls = getattr(qwen_tts, "Qwen3TTSModel", None) or getattr(qwen_tts, "QwenTTS", None)
-        if model_cls is not None:
-            if hasattr(model_cls, "from_pretrained"):
-                try:
-                    self._model = model_cls.from_pretrained(self.model_name, **model_kwargs)
-                except TypeError:
-                    model_kwargs.pop("attn_implementation", None)
-                    self._model = model_cls.from_pretrained(self.model_name, **model_kwargs)
-            else:
-                model_kwargs.pop("attn_implementation", None)
-                self._model = model_cls(model_name=self.model_name, **model_kwargs)
+        # Initialize or reuse cached Qwen3-TTS model wrapper
+        cache_key = (self.model_name, self.device)
+        if cache_key in _MODEL_CACHE:
+            self._model = _MODEL_CACHE[cache_key]
         else:
-            raise RuntimeError("Compatible Qwen3TTSModel entry point not found in 'qwen_tts'.")
+            if self.device == "cuda" and _MODEL_CACHE:
+                clear_qwen_model_cache()
 
-        # Precompute voice clone prompt once so multi-chunk books don't re-encode ref_audio per sentence
+            model_cls = getattr(qwen_tts, "Qwen3TTSModel", None) or getattr(qwen_tts, "QwenTTS", None)
+            if model_cls is not None:
+                if hasattr(model_cls, "from_pretrained"):
+                    try:
+                        self._model = model_cls.from_pretrained(self.model_name, **model_kwargs)
+                    except TypeError:
+                        model_kwargs.pop("attn_implementation", None)
+                        self._model = model_cls.from_pretrained(self.model_name, **model_kwargs)
+                else:
+                    model_kwargs.pop("attn_implementation", None)
+                    self._model = model_cls(model_name=self.model_name, **model_kwargs)
+            else:
+                raise RuntimeError("Compatible Qwen3TTSModel entry point not found in 'qwen_tts'.")
+
+            _MODEL_CACHE[cache_key] = self._model
+
+        # Precompute voice clone prompt once under inference_mode so multi-chunk books don't re-encode ref_audio
         if self.mode == "clone" and self.ref_audio and hasattr(self._model, "create_voice_clone_prompt"):
             try:
-                self._voice_clone_prompt = self._model.create_voice_clone_prompt(
-                    ref_audio=self.ref_audio,
-                    ref_text=self.ref_text or None,
-                    x_vector_only_mode=not bool(self.ref_text),
-                )
-            except Exception:
-                self._voice_clone_prompt = None
+                import torch
+                ctx = torch.inference_mode()
+            except ImportError:
+                from contextlib import nullcontext
+                ctx = nullcontext()
+            with ctx:
+                try:
+                    self._voice_clone_prompt = self._model.create_voice_clone_prompt(
+                        ref_audio=self.ref_audio,
+                        ref_text=self.ref_text or None,
+                        x_vector_only_mode=not bool(self.ref_text),
+                    )
+                except Exception:
+                    self._voice_clone_prompt = None
 
     @property
     def sample_rate(self) -> int:

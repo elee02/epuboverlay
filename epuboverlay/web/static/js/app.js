@@ -1,4 +1,4 @@
-import { fetchConfig, fetchChapters, purgeAllCache, fetchReferences } from './api.js?v=5';
+import { fetchConfig, fetchChapters, purgeAllCache, fetchReferences } from './api.js?v=6';
 import {
     showToast,
     escapeHtml,
@@ -7,14 +7,14 @@ import {
     getPreferredInstalledSynthesizer,
     setupExportCheckboxDependencies,
     SCENARIO_PROFILES,
-} from './utils.js?v=5';
-import { startStatsPolling } from './stats.js?v=5';
-import { setupKokoroMixer, updateFilteredVoices, setKokoroVoices } from './kokoro.js?v=5';
-import { refreshJobsList, connectSSE } from './jobs.js?v=5';
-import { initSettings } from './settings.js?v=5';
-import { showConfirmModal } from './modal.js?v=5';
-import { initPlayground } from './playground.js?v=5';
-import { setupPocketModeToggle, setPocketVoices } from './pocket.js?v=5';
+} from './utils.js?v=6';
+import { startStatsPolling } from './stats.js?v=6';
+import { setupKokoroMixer, updateFilteredVoices, setKokoroVoices } from './kokoro.js?v=6';
+import { refreshJobsList, connectSSE } from './jobs.js?v=6';
+import { initSettings } from './settings.js?v=6';
+import { showConfirmModal } from './modal.js?v=6';
+import { initPlayground } from './playground.js?v=6';
+import { setupPocketModeToggle, setPocketVoices } from './pocket.js?v=6';
 
 export let savedReferences = [];
 
@@ -238,7 +238,7 @@ function applyConfigDefaults(defaults) {
 // ── Global SSE update callback ──────────────────────────────────────────────
 
 function onJobUpdate(job) {
-    import('./jobs.js?v=5').then(module => {
+    import('./jobs.js?v=6').then(module => {
         module.renderActiveJob(job, onJobUpdate);
     });
 }

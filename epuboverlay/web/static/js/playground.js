@@ -10,7 +10,7 @@ import {
     fetchPlaygroundHistory,
     clearPlaygroundCache,
     saveReference
-} from './api.js?v=5';
+} from './api.js?v=6';
 import {
     showToast,
     escapeHtml,
@@ -19,17 +19,17 @@ import {
     getPreferredInstalledSynthesizer,
     setupAudioRecorder,
     SCENARIO_PROFILES,
-} from './utils.js?v=5';
-import { loadSavedReferencesGlobal, savedReferences } from './app.js?v=5';
+} from './utils.js?v=6';
+import { loadSavedReferencesGlobal, savedReferences } from './app.js?v=6';
 import {
     setupKokoroMixer,
     updateFilteredVoices,
     renderPresets,
-} from './kokoro.js?v=5';
+} from './kokoro.js?v=6';
 import {
     setupPocketModeToggle,
     getPocketVoiceParams,
-} from './pocket.js?v=5';
+} from './pocket.js?v=6';
 
 let pgAbortController = null;
 
@@ -356,7 +356,7 @@ async function handleSynthesize(els) {
     const synth = getActiveSynth(els);
     const text = els.textArea ? els.textArea.value.trim() : '';
     const speed = els.speedInput ? parseFloat(els.speedInput.value) || 1.0 : 1.0;
-    const device = els.deviceSelect ? els.deviceSelect.value : 'cpu';
+    const device = els.deviceSelect ? els.deviceSelect.value : '';
 
     if (!text) {
         showToast('Please enter some text to synthesize.', 'error');
@@ -367,7 +367,7 @@ async function handleSynthesize(els) {
     body.append('synthesizer', synth);
     body.append('text', text);
     body.append('speed', speed);
-    body.append('device', device || 'cpu');
+    body.append('device', device);
 
     // Collect synthesizer-specific params
     if (synth === 'kokoro') {

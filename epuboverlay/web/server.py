@@ -1132,6 +1132,19 @@ async def purge_cache():
             detail="Cannot purge cache while a job is running.",
         )
     job_manager.purge_all_cache()
+    _PREVIEW_SYNTH_CACHE.clear()
+    from epuboverlay.synthesizers.qwen3 import clear_qwen_model_cache
+    from epuboverlay.synthesizers.cosyvoice import clear_cosy_model_cache
+    clear_qwen_model_cache()
+    clear_cosy_model_cache()
+    import gc
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
     return {"status": "purged"}
 
 
@@ -1327,7 +1340,7 @@ import asyncio
 
 _PREVIEW_SYNTH_CACHE = {}
 _PREVIEW_CACHE_LOCK = asyncio.Lock()
-_MAX_CACHE_SIZE = 3
+_MAX_CACHE_SIZE = 1
 
 
 @app.post("/api/preview")
@@ -1511,135 +1524,157 @@ async def preview_voice(
             _PREVIEW_SYNTH_CACHE.pop(cache_key)
             _PREVIEW_SYNTH_CACHE[cache_key] = synth
         else:
-            if synthesizer == "kokoro":
-                if not voice and not voice_formula:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Either voice or voice_formula is required for Kokoro.",
-                    )
-                from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
-                synth = KokoroSynthesizer(
-                    voice=voice,
-                    voice_formula=voice_formula,
-                    speed=speed,
-                    lang_code=lang_code,
-                    device=device or None,
-                )
-
-            elif synthesizer == "pocket-tts":
-                if not pocket_voice and not active_ref_path:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Either pocket_voice (preset) or ref_audio (clone) is required for PocketTTS.",
-                    )
-                from epuboverlay.synthesizers.pocket import PocketSynthesizer
-                synth = PocketSynthesizer(
-                    voice=pocket_voice,
-                    ref_audio=active_ref_path,
-                    speed=speed,
-                    pocket_language=pocket_language,
-                    temp=temp,
-                    lsd_decode_steps=lsd_decode_steps,
-                    noise_clamp=parsed_noise_clamp,
-                    eos_threshold=eos_threshold,
-                    frames_after_eos=parsed_frames_after_eos,
-                    quantize=quantize,
-                    dialogue_voice=dialogue_voice,
-                )
-
-            elif synthesizer == "f5-tts":
-                if not active_ref_path:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="ref_audio is required for F5-TTS preview.",
-                    )
-                if not resolved_f5_ref_text.strip():
-                    raise HTTPException(
-                        status_code=400,
-                        detail="ref_text is required for F5-TTS preview.",
-                    )
-                from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
-                synth = F5TTSSynthesizer(
-                    ref_audio=active_ref_path,
-                    ref_text=resolved_f5_ref_text,
-                    device=device or None,
-                    speed=speed,
-                )
-
-            elif synthesizer == "qwen3-tts":
-                if qwen_mode == "clone" and not active_ref_path:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="ref_audio (or saved ref_id) is required for Qwen3-TTS clone mode.",
-                    )
-                from epuboverlay.synthesizers.qwen3 import Qwen3TTSSynthesizer
-                synth = Qwen3TTSSynthesizer(
-                    model_name=qwen_model,
-                    mode=qwen_mode,
-                    speaker=qwen_speaker,
-                    instruct=instruct,
-                    language=language,
-                    ref_audio=active_ref_path,
-                    ref_text=resolved_f5_ref_text,
-                    speed=speed,
-                    temp=temp,
-                    device=device or None,
-                )
-
-            elif synthesizer == "cosyvoice2":
-                if cosy_mode != "sft" and not active_ref_path:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="ref_audio (or saved ref_id) is required for CosyVoice2-0.5B cloning modes.",
-                    )
-                from epuboverlay.synthesizers.cosyvoice import CosyVoice2Synthesizer
-                synth = CosyVoice2Synthesizer(
-                    mode=cosy_mode,
-                    speaker=cosy_speaker,
-                    ref_audio=active_ref_path,
-                    ref_text=resolved_f5_ref_text,
-                    instruct=instruct,
-                    language=language,
-                    speed=speed,
-                    device=device or None,
-                )
-
-            elif synthesizer == "fish-speech":
-                from epuboverlay.synthesizers.fish import FishSpeechSynthesizer
-                synth = FishSpeechSynthesizer(
-                    ref_audio=active_ref_path,
-                    ref_text=resolved_f5_ref_text,
-                    emotion_tag=emotion_tag,
-                    language=language,
-                    temp=temp,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    speed=speed,
-                    api_url=fish_api_url,
-                    device=device or None,
-                )
-
-            elif synthesizer == "dummy":
-                from epuboverlay.synthesizers.dummy import DummySynthesizer
-                synth = DummySynthesizer()
-
-            # Save model to cache
-            _PREVIEW_SYNTH_CACHE[cache_key] = synth
-
-            # Manage cache size (LRU eviction)
-            if len(_PREVIEW_SYNTH_CACHE) > _MAX_CACHE_SIZE:
+            # Evict existing preview synthesizers BEFORE instantiating new one to guarantee free VRAM
+            while len(_PREVIEW_SYNTH_CACHE) >= _MAX_CACHE_SIZE:
                 oldest_key = next(iter(_PREVIEW_SYNTH_CACHE))
                 old_synth = _PREVIEW_SYNTH_CACHE.pop(oldest_key)
-                # Force garbage collection to free VRAM/RAM
+                del old_synth
                 import gc
+                gc.collect()
                 try:
                     import torch
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                except ImportError:
+                except Exception:
                     pass
-                del old_synth
-                gc.collect()
+
+            try:
+                if synthesizer == "kokoro":
+                    if not voice and not voice_formula:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Either voice or voice_formula is required for Kokoro.",
+                        )
+                    from epuboverlay.synthesizers.kokoro import KokoroSynthesizer
+                    synth = KokoroSynthesizer(
+                        voice=voice,
+                        voice_formula=voice_formula,
+                        speed=speed,
+                        lang_code=lang_code,
+                        device=device or None,
+                    )
+
+                elif synthesizer == "pocket-tts":
+                    if not pocket_voice and not active_ref_path:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Either pocket_voice (preset) or ref_audio (clone) is required for PocketTTS.",
+                        )
+                    from epuboverlay.synthesizers.pocket import PocketSynthesizer
+                    synth = PocketSynthesizer(
+                        voice=pocket_voice,
+                        ref_audio=active_ref_path,
+                        speed=speed,
+                        pocket_language=pocket_language,
+                        temp=temp,
+                        lsd_decode_steps=lsd_decode_steps,
+                        noise_clamp=parsed_noise_clamp,
+                        eos_threshold=eos_threshold,
+                        frames_after_eos=parsed_frames_after_eos,
+                        quantize=quantize,
+                        dialogue_voice=dialogue_voice,
+                    )
+
+                elif synthesizer == "f5-tts":
+                    if not active_ref_path:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="ref_audio is required for F5-TTS preview.",
+                        )
+                    if not resolved_f5_ref_text.strip():
+                        raise HTTPException(
+                            status_code=400,
+                            detail="ref_text is required for F5-TTS preview.",
+                        )
+                    from epuboverlay.synthesizers.f5tts import F5TTSSynthesizer
+                    synth = F5TTSSynthesizer(
+                        ref_audio=active_ref_path,
+                        ref_text=resolved_f5_ref_text,
+                        device=device or None,
+                        speed=speed,
+                    )
+
+                elif synthesizer == "qwen3-tts":
+                    if qwen_mode == "clone" and not active_ref_path:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="ref_audio (or saved ref_id) is required for Qwen3-TTS clone mode.",
+                        )
+                    from epuboverlay.synthesizers.qwen3 import Qwen3TTSSynthesizer
+                    synth = Qwen3TTSSynthesizer(
+                        model_name=qwen_model,
+                        mode=qwen_mode,
+                        speaker=qwen_speaker,
+                        instruct=instruct,
+                        language=language,
+                        ref_audio=active_ref_path,
+                        ref_text=resolved_f5_ref_text,
+                        speed=speed,
+                        temp=temp,
+                        device=device or None,
+                    )
+
+                elif synthesizer == "cosyvoice2":
+                    if cosy_mode != "sft" and not active_ref_path:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="ref_audio (or saved ref_id) is required for CosyVoice2-0.5B cloning modes.",
+                        )
+                    from epuboverlay.synthesizers.cosyvoice import CosyVoice2Synthesizer
+                    synth = CosyVoice2Synthesizer(
+                        mode=cosy_mode,
+                        speaker=cosy_speaker,
+                        ref_audio=active_ref_path,
+                        ref_text=resolved_f5_ref_text,
+                        instruct=instruct,
+                        language=language,
+                        speed=speed,
+                        device=device or None,
+                    )
+
+                elif synthesizer == "fish-speech":
+                    from epuboverlay.synthesizers.fish import FishSpeechSynthesizer
+                    synth = FishSpeechSynthesizer(
+                        ref_audio=active_ref_path,
+                        ref_text=resolved_f5_ref_text,
+                        emotion_tag=emotion_tag,
+                        language=language,
+                        temp=temp,
+                        top_p=top_p,
+                        repetition_penalty=repetition_penalty,
+                        speed=speed,
+                        api_url=fish_api_url,
+                        device=device or None,
+                    )
+
+                elif synthesizer == "dummy":
+                    from epuboverlay.synthesizers.dummy import DummySynthesizer
+                    synth = DummySynthesizer()
+
+            except Exception as e:
+                # If OOM happened during initialization, purge all GPU caches and re-raise cleanly
+                if "CUDA out of memory" in str(e) or "OutOfMemoryError" in type(e).__name__:
+                    _PREVIEW_SYNTH_CACHE.clear()
+                    from epuboverlay.synthesizers.qwen3 import clear_qwen_model_cache
+                    from epuboverlay.synthesizers.cosyvoice import clear_cosy_model_cache
+                    clear_qwen_model_cache()
+                    clear_cosy_model_cache()
+                    import gc
+                    gc.collect()
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                    raise HTTPException(
+                        status_code=503,
+                        detail="CUDA out of memory on GPU. VRAM has been cleared. Please retry with a shorter prompt or use the 0.6B Base model.",
+                    ) from e
+                raise
+
+            # Save model to cache
+            _PREVIEW_SYNTH_CACHE[cache_key] = synth
 
     # 4. Perform synthesis
     try:
@@ -1708,6 +1743,24 @@ async def preview_voice(
 
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:
+        if "CUDA out of memory" in str(e) or "OutOfMemoryError" in type(e).__name__:
+            _PREVIEW_SYNTH_CACHE.clear()
+            from epuboverlay.synthesizers.qwen3 import clear_qwen_model_cache
+            from epuboverlay.synthesizers.cosyvoice import clear_cosy_model_cache
+            clear_qwen_model_cache()
+            clear_cosy_model_cache()
+            import gc
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=503,
+                detail="CUDA out of memory on GPU during generation. GPU memory has been flushed. Please retry with a shorter prompt or use the 0.6B Base model.",
+            ) from e
         import traceback
         traceback.print_exc()
         raise HTTPException(
