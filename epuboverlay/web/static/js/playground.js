@@ -10,7 +10,7 @@ import {
     fetchPlaygroundHistory,
     clearPlaygroundCache,
     saveReference
-} from './api.js?v=6';
+} from './api.js?v=8';
 import {
     showToast,
     escapeHtml,
@@ -19,17 +19,17 @@ import {
     getPreferredInstalledSynthesizer,
     setupAudioRecorder,
     SCENARIO_PROFILES,
-} from './utils.js?v=6';
-import { loadSavedReferencesGlobal, savedReferences } from './app.js?v=6';
+} from './utils.js?v=8';
+import { loadSavedReferencesGlobal, savedReferences } from './references.js?v=8';
 import {
     setupKokoroMixer,
     updateFilteredVoices,
     renderPresets,
-} from './kokoro.js?v=6';
+} from './kokoro.js?v=8';
 import {
     setupPocketModeToggle,
     getPocketVoiceParams,
-} from './pocket.js?v=6';
+} from './pocket.js?v=8';
 
 let pgAbortController = null;
 
@@ -329,7 +329,10 @@ export async function refreshPlaygroundList() {
 
 // ── Synthesis ──────────────────────────────────────────────────────────────
 
+let _isSynthesizing = false;
+
 async function handleSynthesize(els) {
+    if (_isSynthesizing) return;
     const synth = getActiveSynth(els);
     const text = els.textArea ? els.textArea.value.trim() : '';
     const speed = els.speedInput ? parseFloat(els.speedInput.value) || 1.0 : 1.0;
@@ -339,6 +342,8 @@ async function handleSynthesize(els) {
         showToast('Please enter some text to synthesize.', 'error');
         return;
     }
+
+    _isSynthesizing = true;
 
     const body = new FormData();
     body.append('synthesizer', synth);
@@ -529,6 +534,7 @@ async function handleSynthesize(els) {
             showToast(err.message || 'Synthesis failed.', 'error');
         }
     } finally {
+        _isSynthesizing = false;
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '▶ Synthesize';
@@ -752,7 +758,12 @@ function initPlaygroundRecorders() {
 
 // ── Public init ────────────────────────────────────────────────────────────
 
+let _playgroundInitialized = false;
+
 export function initPlayground() {
+    if (_playgroundInitialized) return;
+    _playgroundInitialized = true;
+
     const els = getElements();
 
     // Synthesizer pill switcher & installed status badges
@@ -944,21 +955,21 @@ export function initPlayground() {
 
     // Synthesize button
     if (els.synthesizeBtn) {
-        els.synthesizeBtn.addEventListener('click', () => handleSynthesize(els));
+        els.synthesizeBtn.onclick = () => handleSynthesize(els);
     }
 
     // Cancel button
     if (els.cancelBtn) {
-        els.cancelBtn.addEventListener('click', () => {
+        els.cancelBtn.onclick = () => {
             if (pgAbortController) {
                 pgAbortController.abort();
             }
-        });
+        };
     }
 
     // Clear Cache Button
     if (els.clearHistoryBtn) {
-        els.clearHistoryBtn.addEventListener('click', async () => {
+        els.clearHistoryBtn.onclick = async () => {
             try {
                 els.clearHistoryBtn.disabled = true;
                 await clearPlaygroundCache();
@@ -969,7 +980,7 @@ export function initPlayground() {
             } finally {
                 els.clearHistoryBtn.disabled = false;
             }
-        });
+        };
     }
 
     // Load initial playground history stack

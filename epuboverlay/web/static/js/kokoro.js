@@ -1,5 +1,5 @@
-import { previewVoice, fetchVoiceBlends, saveVoiceBlend, deleteVoiceBlend } from './api.js?v=6';
-import { showToast } from './utils.js?v=6';
+import { previewVoice, fetchVoiceBlends, saveVoiceBlend, deleteVoiceBlend } from './api.js?v=8';
+import { showToast } from './utils.js?v=8';
 
 export let activeVoiceMode = 'single';
 export let activeBlendVoices = [];

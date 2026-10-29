@@ -1,9 +1,9 @@
-import { cancelJob, deleteJob as deleteJobApi, resumeJob as resumeJobApi, fetchJobDetails, loadJobs, convertJobToAudio } from './api.js?v=6';
-import { showToast, formatTime, escapeHtml, setupExportCheckboxDependencies, applyInstalledSynthesizersToSelect } from './utils.js?v=6';
-import { showConfirmModal } from './modal.js?v=6';
-import { setupKokoroMixer, updateFilteredVoices, getVoiceMetadata, setVoiceMode, renderBlendMixer } from './kokoro.js?v=6';
-import { setupPocketModeToggle, populatePocketVoiceSelect } from './pocket.js?v=6';
-import { savedReferences } from './app.js?v=6';
+import { cancelJob, deleteJob as deleteJobApi, resumeJob as resumeJobApi, fetchJobDetails, loadJobs, convertJobToAudio } from './api.js?v=8';
+import { showToast, formatTime, escapeHtml, setupExportCheckboxDependencies, applyInstalledSynthesizersToSelect } from './utils.js?v=8';
+import { showConfirmModal } from './modal.js?v=8';
+import { setupKokoroMixer, updateFilteredVoices, getVoiceMetadata, setVoiceMode, renderBlendMixer } from './kokoro.js?v=8';
+import { setupPocketModeToggle, populatePocketVoiceSelect } from './pocket.js?v=8';
+import { savedReferences } from './references.js?v=8';
 
 export let activeSSE = null;
 

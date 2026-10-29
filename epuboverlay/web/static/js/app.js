@@ -1,4 +1,4 @@
-import { fetchConfig, fetchChapters, purgeAllCache, fetchReferences } from './api.js?v=6';
+import { fetchConfig, fetchChapters, purgeAllCache, fetchReferences } from './api.js?v=8';
 import {
     showToast,
     escapeHtml,
@@ -7,49 +7,16 @@ import {
     getPreferredInstalledSynthesizer,
     setupExportCheckboxDependencies,
     SCENARIO_PROFILES,
-} from './utils.js?v=6';
-import { startStatsPolling } from './stats.js?v=6';
-import { setupKokoroMixer, updateFilteredVoices, setKokoroVoices } from './kokoro.js?v=6';
-import { refreshJobsList, connectSSE } from './jobs.js?v=6';
-import { initSettings } from './settings.js?v=6';
-import { showConfirmModal } from './modal.js?v=6';
-import { initPlayground } from './playground.js?v=6';
-import { setupPocketModeToggle, setPocketVoices } from './pocket.js?v=6';
-
-export let savedReferences = [];
-
-export async function loadSavedReferencesGlobal() {
-    try {
-        savedReferences = await fetchReferences();
-        populateReferencesDropdowns();
-    } catch (err) {
-        showToast('Failed to load reference voices: ' + err.message, 'error');
-    }
-}
-
-function populateReferencesDropdowns() {
-    const selects = [
-        { el: document.getElementById('ref-voice-select'), type: 'f5' },
-        { el: document.getElementById('pocket-ref-voice-select'), type: 'pocket' },
-        { el: document.getElementById('pg-f5-ref-voice-select'), type: 'f5' },
-        { el: document.getElementById('pg-pocket-ref-voice-select'), type: 'pocket' },
-        { el: document.getElementById('pg-qwen-ref-voice-select'), type: 'qwen' },
-        { el: document.getElementById('pg-fish-ref-voice-select'), type: 'fish' },
-    ];
-    selects.forEach(({ el, type }) => {
-        if (!el) return;
-        const firstOpt = el.options[0] || new Option('-- Upload Custom Audio --', '');
-        el.innerHTML = '';
-        el.appendChild(firstOpt);
-
-        savedReferences.forEach(ref => {
-            const opt = document.createElement('option');
-            opt.value = ref.id;
-            opt.textContent = ref.name;
-            el.appendChild(opt);
-        });
-    });
-}
+} from './utils.js?v=8';
+import { startStatsPolling } from './stats.js?v=8';
+import { setupKokoroMixer, updateFilteredVoices, setKokoroVoices } from './kokoro.js?v=8';
+import { refreshJobsList, connectSSE } from './jobs.js?v=8';
+import { initSettings } from './settings.js?v=8';
+import { showConfirmModal } from './modal.js?v=8';
+import { initPlayground } from './playground.js?v=8';
+import { setupPocketModeToggle, setPocketVoices } from './pocket.js?v=8';
+import { savedReferences, loadSavedReferencesGlobal, populateReferencesDropdowns } from './references.js?v=8';
+export { savedReferences, loadSavedReferencesGlobal, populateReferencesDropdowns };
 
 
 // ── DOM References ──────────────────────────────────────────────────────────
@@ -215,7 +182,7 @@ function applyConfigDefaults(defaults) {
 // ── Global SSE update callback ──────────────────────────────────────────────
 
 function onJobUpdate(job) {
-    import('./jobs.js?v=6').then(module => {
+    import('./jobs.js?v=8').then(module => {
         module.renderActiveJob(job, onJobUpdate);
     });
 }
