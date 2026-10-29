@@ -279,6 +279,7 @@ function setupSynthesizerToggle() {
     const kokoroOptions = document.getElementById('kokoro-options');
     const pocketOptions = document.getElementById('pocket-tts-options');
     const qwenOptions = document.getElementById('qwen3-tts-options');
+    const supertonicOptions = document.getElementById('supertonic-options');
     const emotionDirector = document.getElementById('emotion-director-options');
 
     const qwenVoiceModeSelector = document.getElementById('qwen-voice-mode-selector');
@@ -328,6 +329,7 @@ function setupSynthesizerToggle() {
         if (kokoroOptions) kokoroOptions.style.display = val === 'kokoro' ? 'block' : 'none';
         if (pocketOptions) pocketOptions.style.display = val === 'pocket-tts' ? 'block' : 'none';
         if (qwenOptions) qwenOptions.style.display = val === 'qwen3-tts' ? 'block' : 'none';
+        if (supertonicOptions) supertonicOptions.style.display = val === 'supertonic' ? 'block' : 'none';
         if (emotionDirector) {
             emotionDirector.style.display = (val === 'qwen3-tts') ? 'block' : 'none';
         }
@@ -521,6 +523,12 @@ function setupForm() {
             }
             formData.set('pocket_voice', '');
             formData.set('ref_text', '');
+        } else if (synthSelect.value === 'supertonic') {
+            formData.set('voice', '');
+            formData.set('voice_formula', '');
+            formData.set('pocket_voice', '');
+            formData.set('ref_text', '');
+            formData.set('language', formData.get('supertonic_language') || 'auto');
         } else if (synthSelect.value === 'pocket-tts') {
             formData.set('voice', '');
             formData.set('voice_formula', '');

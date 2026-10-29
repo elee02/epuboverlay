@@ -493,3 +493,7 @@ All test cases are defined under the [tests/test_pipeline.py](file:///home/rasul
 ## License
 
 This project is licensed under the Apache License, Version 2.0. See the [LICENSE](file:///home/rasulovelyor/Projects/epuboverlay/LICENSE) file for the full license text.
+
+## Korean & Russian (Supertonic-3)
+
+Install with `uv sync --extra supertonic`, then use `-s supertonic --voice F1 --language ko` (or `ru`; `auto` detects per chunk). Also available in the web UI (Generate + Voice Playground). Voices: `F1`-`F5`, `M1`-`M5`.

@@ -15,6 +15,11 @@ from epuboverlay.synthesizers.pocket import (
     POCKET_VOICES,
     PocketSynthesizer,
 )
+from epuboverlay.synthesizers.supertonic import (
+    SUPERTONIC_LANGUAGES,
+    SUPERTONIC_VOICES,
+    SupertonicSynthesizer,
+)
 from epuboverlay.synthesizers.qwen3 import (
     QWEN3_LANGUAGES,
     QWEN3_MODELS,
@@ -59,6 +64,14 @@ _REGISTRY: dict[str, Callable[..., BaseSynthesizer]] = {
         truncate_prompt=bool(kw.get("truncate_prompt", False)),
         dialogue_voice=kw.get("dialogue_voice", "") or "",
     ),
+    "supertonic": lambda **kw: SupertonicSynthesizer(
+        voice=kw.get("supertonic_voice")
+        or (kw.get("voice") if kw.get("voice") in SUPERTONIC_VOICES else "")
+        or "F1",
+        language=kw.get("language") or "auto",
+        speed=float(kw.get("speed", 1.0)),
+        total_steps=int(kw.get("supertonic_steps") or 8),
+    ),
     "qwen3-tts": lambda **kw: Qwen3TTSSynthesizer(
         model_name=kw.get("qwen_model") or kw.get("model_name") or "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
         mode=kw.get("qwen_mode") or kw.get("mode") or "custom_voice",
@@ -80,7 +93,7 @@ def create_synthesizer(synth_id: str, **kwargs: Any) -> BaseSynthesizer:
     """Create and return a synthesizer instance for the given identifier.
 
     Args:
-        synth_id: One of 'dummy', 'f5-tts', 'kokoro', 'pocket-tts', 'qwen3-tts'.
+        synth_id: One of 'dummy', 'f5-tts', 'kokoro', 'pocket-tts', 'qwen3-tts', 'supertonic'.
         **kwargs: Synthesizer-specific configuration options.
     """
     if synth_id not in _REGISTRY:
@@ -99,6 +112,9 @@ __all__ = [
     "KokoroSynthesizer",
     "PocketSynthesizer",
     "Qwen3TTSSynthesizer",
+    "SupertonicSynthesizer",
+    "SUPERTONIC_VOICES",
+    "SUPERTONIC_LANGUAGES",
     "KOKORO_VOICES",
     "POCKET_VOICES",
     "POCKET_LANGUAGES",

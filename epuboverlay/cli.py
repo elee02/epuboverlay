@@ -105,6 +105,9 @@ def _cmd_generate(parsed: argparse.Namespace) -> int:
             print("Error: Either --voice or --voice-formula must be specified when using the kokoro synthesizer.",
                   file=sys.stderr)
             return 1
+    elif parsed.synthesizer == "supertonic":
+        if not parsed.voice:
+            parsed.voice = "F1"
     elif parsed.synthesizer == "qwen3-tts":
         if getattr(parsed, "qwen_mode", "custom_voice") == "clone" and not parsed.ref_audio:
             print("Error: --ref-audio (or --ref-id) is required when using qwen3-tts in 'clone' mode.",
@@ -254,7 +257,7 @@ def main(args: list[str] | None = None) -> int:
     )
     gen_parser.add_argument(
         "-s", "--synthesizer",
-        choices=["f5-tts", "kokoro", "pocket-tts", "qwen3-tts", "dummy"],
+        choices=["f5-tts", "kokoro", "pocket-tts", "qwen3-tts", "supertonic", "dummy"],
         default="f5-tts",
         help="Synthesizer implementation to use (default: f5-tts)."
     )

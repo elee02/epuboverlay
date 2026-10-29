@@ -125,6 +125,7 @@ def get_installed_synthesizers() -> dict[str, bool]:
         "pocket-tts": importlib.util.find_spec("pocket_tts") is not None,
         "qwen3-tts": importlib.util.find_spec("qwen_tts") is not None,
         "f5-tts": importlib.util.find_spec("f5_tts") is not None,
+        "supertonic": importlib.util.find_spec("supertonic") is not None,
     }
 
 
@@ -268,6 +269,8 @@ async def get_config():
         QWEN3_LANGUAGES,
         QWEN3_MODELS,
         QWEN3_VOICES,
+        SUPERTONIC_LANGUAGES,
+        SUPERTONIC_VOICES,
     )
     data = load_settings_data()
     current = data.get("current_settings", {})
@@ -315,6 +318,8 @@ async def get_config():
         "qwen_mode": current.get("qwen_mode", "custom_voice"),
         "qwen_speaker": "Ryan" if current.get("qwen_speaker") in (None, "", "Chelsie") else current.get("qwen_speaker", "Ryan"),
         "instruct": current.get("instruct", ""),
+        "supertonic_voice": current.get("supertonic_voice", "F1"),
+        "supertonic_steps": current.get("supertonic_steps", 8),
     }
 
     return {
@@ -322,6 +327,7 @@ async def get_config():
             "pocket-tts",
             "kokoro",
             "qwen3-tts",
+            "supertonic",
             "f5-tts",
             "dummy",
         ],
@@ -332,6 +338,8 @@ async def get_config():
         "qwen3_models": QWEN3_MODELS,
         "qwen3_voices": QWEN3_VOICES,
         "qwen3_languages": QWEN3_LANGUAGES,
+        "supertonic_voices": SUPERTONIC_VOICES,
+        "supertonic_languages": SUPERTONIC_LANGUAGES,
         "scenarios": NARRATION_SCENARIOS,
         "defaults": defaults,
     }
@@ -555,6 +563,7 @@ _PKG_ALIASES = {
     "f5-tts": "f5",
     "pocket-tts": "pocket",
     "qwen3-tts": "qwen",
+    "supertonic": "supertonic",
     "kokoro": "kokoro",
 }
 
@@ -591,6 +600,8 @@ async def create_job(
     qwen_mode: str = Form("custom_voice"),
     qwen_speaker: str = Form("Ryan"),
     instruct: str = Form(""),
+    supertonic_voice: str = Form("F1"),
+    supertonic_steps: int = Form(8),
     selected_chapters: str = Form(""),  # JSON array of idref strings
 ):
     """Submit a new EPUB overlay generation job."""
@@ -707,6 +718,8 @@ async def create_job(
             "qwen_mode": qwen_mode,
             "qwen_speaker": qwen_speaker,
             "instruct": instruct,
+            "supertonic_voice": supertonic_voice,
+            "supertonic_steps": supertonic_steps,
             "selected_chapters": parsed_chapters,
             "expand_numerals": norm_settings.get("expand_numerals", True),
             "resolve_contractions": norm_settings.get("resolve_contractions", True),
@@ -1298,6 +1311,9 @@ async def preview_voice(
     qwen_mode: str = Form("custom_voice"),
     qwen_speaker: str = Form("Ryan"),
     instruct: str = Form(""),
+    # Supertonic params
+    supertonic_voice: str = Form("F1"),
+    supertonic_steps: int = Form(8),
     # Cloning & Reference
     ref_audio: UploadFile | None = File(None),
     ref_text: str = Form(""),
@@ -1407,6 +1423,8 @@ async def preview_voice(
             speed,
             device or "auto",
         )
+    elif synthesizer == "supertonic":
+        cache_key = ("supertonic", supertonic_voice, language, supertonic_steps, speed)
     elif synthesizer == "dummy":
         cache_key = ("dummy", speed)
     else:
@@ -1511,6 +1529,15 @@ async def preview_voice(
                         device=device or None,
                     )
 
+                elif synthesizer == "supertonic":
+                    from epuboverlay.synthesizers.supertonic import SupertonicSynthesizer
+                    synth = SupertonicSynthesizer(
+                        voice=supertonic_voice,
+                        language=language,
+                        speed=speed,
+                        total_steps=supertonic_steps,
+                    )
+
                 elif synthesizer == "dummy":
                     from epuboverlay.synthesizers.dummy import DummySynthesizer
                     synth = DummySynthesizer()
@@ -1542,7 +1569,7 @@ async def preview_voice(
     try:
         from epuboverlay.normalization import normalize_text
         norm_settings = dict(load_settings_data().get("current_settings", {}))
-        norm_settings["language"] = language if language != "auto" else (pocket_language if synthesizer == "pocket-tts" else lang_code)
+        norm_settings["language"] = language if language != "auto" else (pocket_language if synthesizer == "pocket-tts" else ("auto" if synthesizer == "supertonic" else lang_code))
         normalized_text = normalize_text(text, norm_settings)
         
         wav_bytes, _ = synth.synthesize(normalized_text)
@@ -1578,6 +1605,10 @@ async def preview_voice(
             settings_dict["mode"] = "clone"
             if ref_id:
                 settings_dict["ref_id"] = ref_id
+        elif synthesizer == "supertonic":
+            settings_dict["mode"] = "preset"
+            settings_dict["supertonic_voice"] = supertonic_voice
+            settings_dict["language"] = language
         elif synthesizer == "dummy":
             settings_dict["mode"] = "dummy"
                 

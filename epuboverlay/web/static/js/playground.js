@@ -56,6 +56,10 @@ function getElements() {
         kokoroPanel:        document.getElementById('pg-kokoro-panel'),
         pocketPanel:        document.getElementById('pg-pocket-panel'),
         qwenPanel:          document.getElementById('pg-qwen3-panel'),
+        supertonicPanel:    document.getElementById('pg-supertonic-panel'),
+        supertonicVoiceSelect:    document.getElementById('pg-supertonic-voice-select'),
+        supertonicLanguageSelect: document.getElementById('pg-supertonic-language-select'),
+        supertonicStepsInput:     document.getElementById('pg-supertonic-steps-input'),
         f5Panel:            document.getElementById('pg-f5-panel'),
         dummyPanel:         document.getElementById('pg-dummy-panel'),
         emotionDirectorPanel: document.getElementById('pg-emotion-director-panel'),
@@ -160,6 +164,7 @@ function switchSynth(synth, els) {
         kokoro:        els.kokoroPanel,
         'pocket-tts':  els.pocketPanel,
         'qwen3-tts':   els.qwenPanel,
+        supertonic:    els.supertonicPanel,
         dummy:         els.dummyPanel,
     };
     Object.entries(panels).forEach(([key, panel]) => {
@@ -386,6 +391,11 @@ async function handleSynthesize(els) {
         } else {
             if (params.pocket_voice) body.append('pocket_voice', params.pocket_voice);
         }
+
+    } else if (synth === 'supertonic') {
+        body.append('supertonic_voice', els.supertonicVoiceSelect ? els.supertonicVoiceSelect.value : 'F1');
+        body.append('language', els.supertonicLanguageSelect ? els.supertonicLanguageSelect.value : 'auto');
+        body.append('supertonic_steps', els.supertonicStepsInput ? els.supertonicStepsInput.value : 8);
 
     } else if (synth === 'qwen3-tts') {
         const qwenMode = els.qwenModeSelect ? els.qwenModeSelect.value : 'custom_voice';
@@ -715,6 +725,7 @@ export function initPlayground() {
         'pocket-tts': 'pocket',
         kokoro: 'kokoro',
         'qwen3-tts': 'qwen',
+        supertonic: 'supertonic',
     };
     if (els.synthSelector) {
         els.synthSelector.querySelectorAll('.pg-synth-pill').forEach(btn => {

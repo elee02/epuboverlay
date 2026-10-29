@@ -211,6 +211,7 @@
                                     <option value="pocket-tts">PocketTTS (Lightweight CPU Cloning &amp; Multi-Lang 24L)</option>
                                     <option value="kokoro">Kokoro-82M (Fast Presets &amp; Voice Blending)</option>
                                     <option value="qwen3-tts">Qwen3-TTS (10-Lang Emotion Instruct &amp; Voice Design)</option>
+                                    <option value="supertonic">Supertonic-3 (Ultralight Korean &amp; Russian + 30 Langs)</option>
                                     <option value="f5-tts">F5-TTS (Diffusion Zero-Shot Voice Cloning)</option>
                                     <option value="dummy">Dummy (Instant Silent Testing)</option>
                                 </select>
@@ -510,6 +511,25 @@
                             </div>
                         </div>
 
+
+                        <!-- Supertonic Specific Options -->
+                        <div id="supertonic-options" class="model-specific-options" style="margin-top: 1rem; display: none;">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="supertonic-voice-select">Preset Voice</label>
+                                    <select id="supertonic-voice-select" name="supertonic_voice"><option value="F1">F1 (Female)</option><option value="F2">F2 (Female)</option><option value="F3">F3 (Female)</option><option value="F4">F4 (Female)</option><option value="F5">F5 (Female)</option><option value="M1">M1 (Male)</option><option value="M2">M2 (Male)</option><option value="M3">M3 (Male)</option><option value="M4">M4 (Male)</option><option value="M5">M5 (Male)</option></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="supertonic-language-select">Target Language</label>
+                                    <select id="supertonic-language-select" name="supertonic_language"><option value="auto">Auto-Detect Script</option><option value="ko">Korean (한국어)</option><option value="ru">Russian (Русский)</option><option value="en">English</option><option value="ja">Japanese (日本語)</option><option value="de">German (Deutsch)</option><option value="es">Spanish (Español)</option><option value="fr">French (Français)</option><option value="it">Italian (Italiano)</option><option value="pt">Portuguese (Português)</option><option value="uk">Ukrainian (Українська)</option></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="supertonic-steps-input">Quality Steps (5 = fast, 12 = best)</label>
+                                    <input type="number" id="supertonic-steps-input" name="supertonic_steps" value="8" min="1" max="30" step="1">
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Shared Voice Cloning Options (F5-TTS, Qwen3-TTS Clone) -->
                         <div id="cloning-options" class="ref-audio-fields" style="margin-top: 1rem;">
                             <div class="form-group">
@@ -668,6 +688,7 @@
                         <button type="button" class="pg-synth-pill active" data-synth="kokoro">🗣 Kokoro-82M</button>
                         <button type="button" class="pg-synth-pill" data-synth="pocket-tts">📦 PocketTTS</button>
                         <button type="button" class="pg-synth-pill" data-synth="qwen3-tts">🎭 Qwen3-TTS</button>
+                        <button type="button" class="pg-synth-pill" data-synth="supertonic">⚡ Supertonic-3</button>
                         <button type="button" class="pg-synth-pill" data-synth="f5-tts">🎤 F5-TTS</button>
                         <button type="button" class="pg-synth-pill" data-synth="dummy">🔇 Dummy</button>
                     </div>
@@ -873,6 +894,24 @@
                                 </div>
                             </div>
                         </details>
+                    </div>
+
+                    <!-- ── Supertonic Panel ── -->
+                    <div id="pg-supertonic-panel" style="display: none;">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="pg-supertonic-voice-select">Preset Voice</label>
+                                <select id="pg-supertonic-voice-select"><option value="F1">F1 (Female)</option><option value="F2">F2 (Female)</option><option value="F3">F3 (Female)</option><option value="F4">F4 (Female)</option><option value="F5">F5 (Female)</option><option value="M1">M1 (Male)</option><option value="M2">M2 (Male)</option><option value="M3">M3 (Male)</option><option value="M4">M4 (Male)</option><option value="M5">M5 (Male)</option></select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-supertonic-language-select">Target Language</label>
+                                <select id="pg-supertonic-language-select"><option value="auto">Auto-Detect Script</option><option value="ko">Korean (한국어)</option><option value="ru">Russian (Русский)</option><option value="en">English</option><option value="ja">Japanese (日本語)</option><option value="de">German (Deutsch)</option><option value="es">Spanish (Español)</option><option value="fr">French (Français)</option><option value="it">Italian (Italiano)</option><option value="pt">Portuguese (Português)</option><option value="uk">Ukrainian (Українська)</option></select>
+                            </div>
+                            <div class="form-group">
+                                <label for="pg-supertonic-steps-input">Quality Steps (5 = fast, 12 = best)</label>
+                                <input type="number" id="pg-supertonic-steps-input" value="8" min="1" max="30" step="1">
+                            </div>
+                        </div>
                     </div>
 
                     <!-- ── Qwen3-TTS Panel ── -->

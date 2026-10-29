@@ -31,6 +31,10 @@ pocket = [
     "pocket-tts>=0.1.0",
     "scipy>=1.10.0",
 ]
+supertonic = [
+    "supertonic>=1.0.0",
+    "scipy>=1.10.0",
+]
 f5 = ["f5-tts>=1.1.0"]
 f5-tts = ["f5-tts>=1.1.0"]
 qwen = [
@@ -48,6 +52,7 @@ qwen3-tts = [
 # Minimal: base dependencies only (web app, CLI, dummy testing, EPUB/TXT/MD)
 # Standard: lightweight neural TTS (Kokoro + PocketTTS) + PDF & DOCX
 standard = [
+    "supertonic>=1.0.0",
     "kokoro>=0.7.16",
     "pocket-tts>=0.1.0",
     "scipy>=1.10.0",
@@ -62,6 +67,7 @@ multilingual = [
 ]
 # Full: everything including heavy F5-TTS and multilingual voice cloning
 full = [
+    "supertonic>=1.0.0",
     "kokoro>=0.7.16",
     "pocket-tts>=0.1.0",
     "scipy>=1.10.0",
@@ -72,6 +78,7 @@ full = [
     "pypdf",
 ]
 all = [
+    "supertonic>=1.0.0",
     "kokoro>=0.7.16",
     "pocket-tts>=0.1.0",
     "scipy>=1.10.0",
